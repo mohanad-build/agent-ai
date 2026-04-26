@@ -1,0 +1,18 @@
+node_modules/
+.env
+
+# OAuth credentials (Google client secret JSON)
+client_secret_*.json
+credentials.json
+token.json
+
+# Agent refresh tokens (per-agent OAuth tokens)
+agents/*.json
+!agents/.gitkeep
+!agents/example.json
+
+# OS / editor noise
+.DS_Store
+*.log
+.vscode/
+.idea/
