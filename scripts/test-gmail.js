@@ -153,57 +153,53 @@ async function main() {
   if (sent2.subject === expectedSubject) ok(`Subject normalized correctly: "${sent2.subject}"`);
   else bad(`Subject not normalized correctly. Got: "${sent2.subject}", expected: "${expectedSubject}"`);
 
-  header('10. sendReply with CC + BCC (leak check)');
-  const agentWithCcBcc = {
-    ...agent,
-    ccEmails: [agent.gmailAddress],
-    bccEmails: [agent.gmailAddress],
-  };
-  const ccBccSubject = `${TEST_SUBJECT_PREFIX} cc-bcc-leak-test`;
-  const result3 = await email.sendReply(agentWithCcBcc, {
-    to: agent.gmailAddress,
-    subject: ccBccSubject,
-    body: 'Test email #3 -- CC/BCC leak check. Safe to delete.',
-    threadId: null,
+  header('10. CC + BCC handling (unit test on buildRfc5322Message)');
+  // We test the message builder directly rather than send-and-fetch.
+  // When To/Cc/Bcc all point to the same inbox, Gmail returns the sender's
+  // view of the message, which (correctly) includes the Bcc header so the
+  // sender can see who they BCC'd. That makes a delivery-based leak test
+  // unreliable. Instead we verify our code includes the Bcc header in the
+  // outgoing raw message -- Gmail's job is to strip it from recipient copies.
+  const { buildRfc5322Message } = gmail._internal;
+  const rawBase64 = buildRfc5322Message({
+    from: 'sender@example.com',
+    to: 'recipient@example.com',
+    cc: ['cc-person@example.com'],
+    bcc: ['bcc-person@example.com'],
+    subject: 'Test subject',
+    body: 'Test body',
   });
-  if (result3.id) ok(`Sent, messageId: ${result3.id}`);
-  else bad('No messageId returned');
-  await sleep(4000);
-  const auth = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-  auth.setCredentials({ refresh_token: agent.googleRefreshToken });
-  const rawGmail = google.gmail({ version: 'v1', auth });
-  const found = await rawGmail.users.messages.list({
-    userId: 'me',
-    q: `subject:"${ccBccSubject}"`,
-    maxResults: 5,
+  const rawText = Buffer.from(
+    rawBase64.replace(/-/g, '+').replace(/_/g, '/'),
+    'base64'
+  ).toString('utf8');
+  if (rawText.includes('To: recipient@example.com')) ok('To header present in raw message');
+  else bad('To header missing');
+  if (rawText.includes('Cc: cc-person@example.com')) ok('Cc header present in raw message');
+  else bad('Cc header missing');
+  if (rawText.includes('Bcc: bcc-person@example.com')) ok('Bcc header present in raw message (Gmail strips on delivery)');
+  else bad('Bcc header missing from raw message');
+  if (rawText.includes('Subject: Test subject')) ok('Subject header present');
+  else bad('Subject header missing');
+  if (rawText.includes('Test body')) ok('Body present');
+  else bad('Body missing');
+
+  const rawNoCcBcc = buildRfc5322Message({
+    from: 'sender@example.com',
+    to: 'recipient@example.com',
+    cc: [],
+    bcc: [],
+    subject: 'No CC test',
+    body: 'body',
   });
-  const matches = found.data.messages || [];
-  console.log(`  Found ${matches.length} delivered copies`);
-  if (matches.length >= 1) {
-    const fullMsg = await rawGmail.users.messages.get({
-      userId: 'me',
-      id: matches[0].id,
-      format: 'full',
-    });
-    const headers = fullMsg.data.payload.headers;
-    const ccHeader = headers.find((h) => h.name.toLowerCase() === 'cc');
-    const bccHeader = headers.find((h) => h.name.toLowerCase() === 'bcc');
-    if (ccHeader && ccHeader.value.includes(agent.gmailAddress)) {
-      ok(`Cc header visible: "${ccHeader.value}"`);
-    } else {
-      bad('Cc header missing or wrong');
-    }
-    if (!bccHeader) {
-      ok('Bcc header NOT in delivered message (no leak)');
-    } else {
-      bad(`LEAK: Bcc header found in delivered message: "${bccHeader.value}"`);
-    }
-  } else {
-    bad('Could not find delivered message');
-  }
+  const rawNoCcBccText = Buffer.from(
+    rawNoCcBcc.replace(/-/g, '+').replace(/_/g, '/'),
+    'base64'
+  ).toString('utf8');
+  if (!rawNoCcBccText.includes('Cc:')) ok('No Cc header when ccEmails empty');
+  else bad('Cc header added when ccEmails empty');
+  if (!rawNoCcBccText.includes('Bcc:')) ok('No Bcc header when bccEmails empty');
+  else bad('Bcc header added when bccEmails empty');
 
   header('11. fetchUnreadReplies');
   const unread = await email.fetchUnreadReplies(agent);
@@ -218,8 +214,8 @@ async function main() {
     `subject:"${TEST_SUBJECT_PREFIX}" newer_than:1d`
   );
   console.log(`  Search returned ${searched.length} matches`);
-  if (searched.length >= 3) ok(`Found at least 3 test emails (got ${searched.length})`);
-  else bad(`Expected at least 3, got ${searched.length}`);
+  if (searched.length >= 2) ok(`Found at least 2 test emails (got ${searched.length})`);
+  else bad(`Expected at least 2, got ${searched.length}`);
 
   header('13. markRead');
   await email.markRead(agent, firstSentMessageId);
