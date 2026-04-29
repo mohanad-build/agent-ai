@@ -16,12 +16,15 @@ const path = require('path');
 
 const { loadAgent } = require('./agentConfig');
 const email = require('./email');
+const claude = require('./claude');
+const prompts = require('./prompts');
 
 // --------------------------------------------------------------------------
 // Constants
 // --------------------------------------------------------------------------
 
 const RATE_LIMIT_MS = 60 * 60 * 1000; // 60 minutes per spec
+const CONFIDENCE_THRESHOLD = 0.7; // Below this, force category to needs_review
 
 const ALLOWED_STATUSES = new Set([
   'new',
@@ -109,6 +112,39 @@ function isAiEnabled(row) {
   const s = String(v).trim().toLowerCase();
   if (s === 'false' || s === 'no' || s === '0') return false;
   return true;
+}
+
+// --------------------------------------------------------------------------
+// Reply matching + categorization
+// --------------------------------------------------------------------------
+
+// Extracts the bare email address from a "From" header value.
+// Input examples: "Sarah Chen <sarah@example.com>" or "sarah@example.com"
+// Returns lowercase email for case-insensitive matching, or null if unparseable.
+function extractEmailAddress(fromHeader) {
+  if (!fromHeader || typeof fromHeader !== 'string') return null;
+  const angleMatch = fromHeader.match(/<([^>]+)>/);
+  if (angleMatch && angleMatch[1]) return angleMatch[1].trim().toLowerCase();
+  const trimmed = fromHeader.trim();
+  if (trimmed.includes('@')) return trimmed.toLowerCase();
+  return null;
+}
+
+// Categorizes a single reply via Claude, applies the confidence-threshold
+// downgrade rule, and returns { category, confidence, reasoning, downgraded }.
+// Throws on Claude API failure (caller decides what to do).
+async function categorizeReply(agentConfig, replySnippet) {
+  const prompt = prompts.buildCategorizationPrompt(agentConfig, replySnippet);
+  const result = await claude.categorize(prompt);
+  const confidence = typeof result.confidence === 'number' ? result.confidence : 0;
+  const downgraded = confidence < CONFIDENCE_THRESHOLD && result.category !== 'needs_review';
+  return {
+    category: downgraded ? 'needs_review' : result.category,
+    confidence,
+    reasoning: result.reasoning || '',
+    downgraded,
+    originalCategory: result.category,
+  };
 }
 
 // --------------------------------------------------------------------------
@@ -207,12 +243,96 @@ async function processAgent(agentId) {
     `[${agentId}] summary: valid=${stats.valid} invalid=${stats.invalid} aiDisabled=${stats.aiDisabled} rateLimited=${stats.rateLimited} processable=${stats.processable}`
   );
 
-  if (processable.length > 0) {
-    console.log(`[${agentId}] processable leads (would be checked for replies in step 2):`);
-    for (const row of processable) {
-      console.log(`  - row ${row.rowIndex}: ${row.leadId} (${row.name}) status=${row.status || '(blank)'}`);
-    }
+  if (processable.length === 0) {
+    console.log(`[${agentId}] no processable leads, skipping reply fetch`);
+    return;
   }
+
+  // Build a quick lookup: lowercased lead email → row.
+  const leadIndex = new Map();
+  for (const row of processable) {
+    leadIndex.set(String(row.leadId).trim().toLowerCase(), row);
+  }
+
+  // Fetch unread replies from Gmail.
+  let unreadMessages;
+  try {
+    unreadMessages = await email.fetchUnreadReplies(agent);
+  } catch (err) {
+    console.log(`[${agentId}] ERROR: failed to fetch unread replies: ${err.message}`);
+    return;
+  }
+  console.log(`[${agentId}] fetched ${unreadMessages.length} unread message(s) in last 24h`);
+
+  const replyStats = {
+    unmatched: 0,
+    selfSent: 0,
+    matched: 0,
+    categorized: 0,
+    downgraded: 0,
+    failed: 0,
+  };
+
+  const agentEmail = String(agent.gmailAddress || '').trim().toLowerCase();
+
+  for (const msg of unreadMessages) {
+    const senderEmail = extractEmailAddress(msg.from);
+
+    // Skip messages from the agent themselves (sent items can show up in unread queries).
+    if (senderEmail && senderEmail === agentEmail) {
+      replyStats.selfSent++;
+      continue;
+    }
+
+    // Match sender to a processable lead.
+    const row = senderEmail ? leadIndex.get(senderEmail) : null;
+    if (!row) {
+      replyStats.unmatched++;
+      console.log(`[${agentId}] unmatched sender: ${msg.from} (left unread for agent visibility)`);
+      continue;
+    }
+
+    replyStats.matched++;
+
+    // Categorize via Claude.
+    let cat;
+    try {
+      cat = await categorizeReply(agent, msg.snippet);
+    } catch (err) {
+      replyStats.failed++;
+      console.log(`[${agentId}] row ${row.rowIndex} categorization FAILED for ${senderEmail}: ${err.message} (left unread, will retry next cycle)`);
+      continue;
+    }
+
+    replyStats.categorized++;
+    if (cat.downgraded) replyStats.downgraded++;
+
+    const downgradeNote = cat.downgraded
+      ? ` (downgraded from ${cat.originalCategory} due to confidence ${cat.confidence.toFixed(2)} < ${CONFIDENCE_THRESHOLD})`
+      : '';
+    const logEntry = `Reply categorized: ${cat.category} (confidence ${cat.confidence.toFixed(2)})${downgradeNote}. Reasoning: ${cat.reasoning} | Snippet: ${msg.snippet.slice(0, 200)}`;
+
+    // ORDER A: log to column L first, then mark as read. If markRead fails,
+    // we may double-log next cycle, but we never lose the audit trail.
+    try {
+      await email.appendToConversationHistory(agent, row.rowIndex, logEntry);
+    } catch (err) {
+      console.log(`[${agentId}] row ${row.rowIndex} column L write FAILED: ${err.message} (left unread, will retry next cycle)`);
+      continue;
+    }
+
+    try {
+      await email.markRead(agent, msg.messageId);
+    } catch (err) {
+      console.log(`[${agentId}] row ${row.rowIndex} markRead FAILED: ${err.message} (column L was written; next cycle may double-log)`);
+    }
+
+    console.log(`[${agentId}] row ${row.rowIndex} ${senderEmail} -> ${cat.category}${downgradeNote}`);
+  }
+
+  console.log(
+    `[${agentId}] reply summary: matched=${replyStats.matched} categorized=${replyStats.categorized} downgraded=${replyStats.downgraded} failed=${replyStats.failed} unmatched=${replyStats.unmatched} selfSent=${replyStats.selfSent}`
+  );
 }
 
 // --------------------------------------------------------------------------
