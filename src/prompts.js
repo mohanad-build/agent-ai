@@ -96,12 +96,19 @@ function buildCannotInventList(agentConfig) {
 
 /**
  * Merge universal banned phrases with agent-specific avoidPhrases.
+ * Returns a deduped array of strings. Used by claude.draft() for programmatic phrase checking.
+ */
+function getMergedBannedPhrases(agentConfig) {
+  const agentAdditions = agentConfig.avoidPhrases || [];
+  return dedupeCaseInsensitive([...UNIVERSAL_BANNED_PHRASES, ...agentAdditions]);
+}
+
+/**
+ * Merge universal banned phrases with agent-specific avoidPhrases.
  * Returns a single bulleted string.
  */
 function buildBannedPhrasesList(agentConfig) {
-  const agentAdditions = agentConfig.avoidPhrases || [];
-  const merged = dedupeCaseInsensitive([...UNIVERSAL_BANNED_PHRASES, ...agentAdditions]);
-  return merged.map((p) => `- "${p}"`).join('\n');
+  return getMergedBannedPhrases(agentConfig).map((p) => `- "${p}"`).join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +214,8 @@ Do NOT modify, abbreviate, or rephrase this sign-off block.`;
  * Build the drafting prompt for Path 1A (answer_general).
  * Fully automated reply path: AI drafts and sends without agent involvement.
  *
- * leadContext shape: { name: string, originalInquiry: string, status: string }
+ * leadContext shape: { name: string, originalInquiry: string, status: string, conversationHistory?: string }
+ * conversationHistory: when present, renders a "Prior conversation" block in the user prompt for continuity.
  * hasGmailSignature: boolean from gmail.users.settings.sendAs check
  *
  * Returns { system, user }.
@@ -262,9 +270,13 @@ Return ONLY the email body text. Do NOT include a subject line, do NOT wrap in q
     ? `Their original inquiry that brought them to ${agentConfig.firstName} was: "${leadContext.originalInquiry}"`
     : 'No prior inquiry context available.';
 
+  const conversationHistorySection = leadContext.conversationHistory && String(leadContext.conversationHistory).trim()
+    ? `\n\nPrior conversation with this lead:\n"""\n${leadContext.conversationHistory}\n"""`
+    : '';
+
   const user = `Lead context:
 Name: ${leadContext.name || 'unknown'}
-${originalInquiryLine}
+${originalInquiryLine}${conversationHistorySection}
 
 The lead just replied with this message:
 
@@ -375,20 +387,29 @@ Draft the polished email reply to the lead now, following all rules above. Remem
  * leadContext shape: { name: string, optOutReason?: string }
  * The optOutReason field is the lead's stated reason if extractable from their message,
  * otherwise empty string or undefined. Mentioned warmly if present, generic if not.
+ * categorizerReasoning: optional string from the categorizer output. When present,
+ *   provides higher-fidelity tone calibration than optOutReason. Falls back to
+ *   optOutReason if absent, then to generic handling if both are absent.
  *
  * Word range here is fixed (30 to 60 words) regardless of agentConfig.emailLength,
  * since stop_signal replies must be brief.
  *
  * Returns { system, user }.
  */
-function buildPath3DraftPrompt(agentConfig, leadContext, hasGmailSignature) {
+function buildPath3DraftPrompt(agentConfig, leadContext, hasGmailSignature, categorizerReasoning) {
   const agentContextBlock = buildAgentContext(agentConfig);
   const bannedPhrasesList = buildBannedPhrasesList(agentConfig);
   const signoffBlock = buildSignoffInstructions(agentConfig, hasGmailSignature);
 
   const leadFirstName = (leadContext.name || '').split(' ')[0] || 'there';
 
-  const reasonContext = leadContext.optOutReason
+  const reasonContext = (categorizerReasoning && String(categorizerReasoning).trim())
+    ? `The categorizer flagged this reply as stop_signal with the following reasoning: "${categorizerReasoning}". Use this reasoning to calibrate tone:
+- If the reasoning suggests a positive exit (lead found a place, closed elsewhere, life event going well), respond warmly and briefly congratulate.
+- If the reasoning suggests a neutral/cold exit, keep the response simple and brief.
+- If the reasoning suggests anything emotionally heavy (loss, distress, complaint, frustration), keep it minimal and human, no platitudes.
+Do NOT push back, do NOT ask why, do NOT try to save the deal. This is a graceful exit only.`
+    : leadContext.optOutReason
     ? `The lead mentioned this reason for opting out: "${leadContext.optOutReason}"
 
 If the reason is something positive (they bought a home, found a place, decided to wait by choice), reference it warmly (e.g. "Congrats on closing!" or "Glad you found something."). If the reason is neutral or unclear, keep it generic. Do NOT push back, do NOT ask why, do NOT try to save the deal. This is a graceful exit only.`
@@ -443,5 +464,6 @@ module.exports = {
   EMAIL_LENGTH_RANGES,
   buildAgentContext,
   buildCannotInventList,
+  getMergedBannedPhrases,
   buildBannedPhrasesList,
 };

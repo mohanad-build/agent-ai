@@ -177,6 +177,38 @@ function main() {
   console.log(signoffMatch ? signoffMatch[0] : '(could not extract sign-off section)');
   console.log();
 
+  console.log(divider('-'));
+  console.log('CHECK 10: Path 1A WITH conversationHistory');
+  console.log('Scenario: lead has prior conversation logged in Sheet column L');
+  console.log(divider('-'));
+  const fakeLeadContextWithHistory = {
+    ...fakeLeadContext,
+    conversationHistory: '[2026-04-15] Lead asked about pre-approval process, AI replied explaining the basics.\n[2026-04-22] Lead replied saying they got pre-approved for $1.4M last week.',
+  };
+  const path1AWithHistory = buildPath1ADraftPrompt(
+    agent,
+    'Hi, quick question, how does the pre-approval process actually work? I have not bought before.',
+    fakeLeadContextWithHistory,
+    true
+  );
+  console.log('--- USER (Prior conversation block should be visible) ---');
+  console.log(path1AWithHistory.user);
+  console.log();
+
+  console.log(divider('-'));
+  console.log('CHECK 11: Path 3 WITH categorizerReasoning (no optOutReason in leadContext)');
+  console.log('Scenario: categorizer provides tone signal, leadContext has no optOutReason');
+  console.log(divider('-'));
+  const path3WithCategorizerReasoning = buildPath3DraftPrompt(
+    agent,
+    { name: 'Sarah Chen' },
+    true,
+    'Lead is opting out because they purchased a home through another agent last week. Tone: neutral-positive.'
+  );
+  console.log('--- SYSTEM (tone-calibration block should be visible) ---');
+  console.log(path3WithCategorizerReasoning.system);
+  console.log();
+
   console.log(divider('='));
   console.log('Test complete. Read the output above and confirm:');
   console.log('  1. Agent context (CHECK 2 system prompt) reads correctly');
@@ -189,6 +221,8 @@ function main() {
   console.log('  8. Path 3 with reason (CHECK 7) tells model to reference reason warmly');
   console.log('  9. Path 3 without reason (CHECK 8) tells model to keep generic');
   console.log(' 10. Path 1A fallback (CHECK 9) sign-off contains brokerage and location, not just name');
+  console.log(' 11. Path 1A with history (CHECK 10) user prompt contains the "Prior conversation" block');
+  console.log(' 12. Path 3 with categorizerReasoning (CHECK 11) system prompt shows the tone-calibration block');
   console.log(divider('='));
 }
 
