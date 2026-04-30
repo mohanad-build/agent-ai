@@ -98,6 +98,20 @@ function normalizeSubject(raw) {
 // MIME / RFC 5322
 // ---------------------------------------------------------------------------
 
+// Encodes a header value per RFC 2047 encoded-word format when non-ASCII
+// characters are present. Pure ASCII values are returned as-is.
+// Used for Subject today; apply to display-name fields later as needed.
+function encodeHeaderValue(value) {
+  if (value == null) return '';
+  const str = String(value);
+  // Pure ASCII (codes 0-127): no encoding needed.
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(str)) return str;
+  // Non-ASCII present: wrap in RFC 2047 encoded-word format using base64.
+  const base64 = Buffer.from(str, 'utf8').toString('base64');
+  return '=?UTF-8?B?' + base64 + '?=';
+}
+
 function buildRfc5322Message({ from, to, cc, bcc, subject, body, attachments }) {
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   const headers = [];
@@ -105,7 +119,7 @@ function buildRfc5322Message({ from, to, cc, bcc, subject, body, attachments }) 
   headers.push(`To: ${to}`);
   if (cc && cc.length) headers.push(`Cc: ${cc.join(', ')}`);
   if (bcc && bcc.length) headers.push(`Bcc: ${bcc.join(', ')}`);
-  headers.push(`Subject: ${subject}`);
+  headers.push(`Subject: ${encodeHeaderValue(subject)}`);
   headers.push('MIME-Version: 1.0');
 
   let raw;
@@ -504,6 +518,7 @@ module.exports = {
   AuthFailureError,
   _internal: {
     normalizeSubject,
+    encodeHeaderValue,
     buildRfc5322Message,
     parseGmailMessage,
     COLUMN_MAP,
