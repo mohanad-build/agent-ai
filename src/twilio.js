@@ -90,6 +90,40 @@ async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Poll Twilio for the message's actual status. Trial accounts and Canadian
+// carriers can reject AFTER the API returns success. Up to 3 attempts, 1s apart.
+// Returns the final message object on success. Throws if status is 'failed'
+// or 'undelivered', with errorCode included in the error message for diagnostics.
+async function verifyDelivery(client, sid) {
+  const TERMINAL_FAILURE_STATUSES = new Set(['failed', 'undelivered']);
+  const TERMINAL_OK_STATUSES = new Set(['sent', 'delivered']);
+  const POLL_ATTEMPTS = 3;
+  const POLL_INTERVAL_MS = 1000;
+
+  let message;
+  for (let i = 0; i < POLL_ATTEMPTS; i++) {
+    message = await client.messages(sid).fetch();
+    if (TERMINAL_FAILURE_STATUSES.has(message.status)) {
+      const errCode = message.errorCode ? ' (errorCode ' + message.errorCode + ')' : '';
+      throw new Error(
+        'SMS delivery failed: status=' + message.status + errCode + '. ' +
+        'sid=' + sid + '. errorMessage=' + (message.errorMessage || 'none')
+      );
+    }
+    if (TERMINAL_OK_STATUSES.has(message.status)) {
+      return message;
+    }
+    // Status is queued/sending/accepted, wait and retry.
+    if (i < POLL_ATTEMPTS - 1) {
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+  // After all polls, status is still in-flight (queued/sending). Treat as success
+  // for now, most messages ultimately deliver, and we don't want to block forever.
+  // Caller can check the returned status if they want stricter behavior.
+  return message;
+}
+
 async function withRetry(operation) {
   try {
     return await operation();
@@ -122,6 +156,7 @@ async function sendSMS(agentConfig, message) {
       body: message,
     })
   );
+  await verifyDelivery(client, result.sid);
   return { sid: result.sid };
 }
 
@@ -147,6 +182,7 @@ async function sendSMSTo(toNumber, message) {
       body: message,
     })
   );
+  await verifyDelivery(client, result.sid);
   return { sid: result.sid };
 }
 
@@ -161,5 +197,6 @@ module.exports = {
   _internal: {
     truncate,
     isTransientTwilioError,
+    verifyDelivery,
   },
 };
