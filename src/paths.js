@@ -621,6 +621,122 @@ async function pathAnswerGeneral(agent, row, msg, cat) {
 }
 
 // ---------------------------------------------------------------------------
+// Path 1B initiation: answer_property_specific
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle an answer_property_specific reply.
+ *
+ * Captures the lead's property-specific question, notifies the agent via email
+ * and SMS, and parks the row in 'awaiting_agent' status. No Claude drafting.
+ * No lead-facing email. The Agent SMS Reply Handler (separate module) closes
+ * the loop when the agent replies via SMS.
+ *
+ * Steps (in order):
+ *   a. Update Sheet: status -> 'awaiting_agent', pendingQuestion (M) -> msg.snippet,
+ *      lastActionTimestamp -> now. CRITICAL: failure aborts.
+ *   b. Append entry to column L. Non-fatal.
+ *   c. Send email notification to agent.escalationEmail with full context. Non-fatal.
+ *   d. Send SMS to agent (always, no confidence gate). Non-fatal.
+ *   e. Set actions.leadEmail = 'not_sent_intentional'. No lead-facing email on this path.
+ *
+ * Returns { ok, actions, skipped, errors }.
+ *   actions.sheet: 'updated'
+ *   actions.columnL: 'logged' | 'failed'
+ *   actions.email: 'sent' | 'failed'
+ *   actions.sms: 'delivered' | 'failed'
+ *   actions.leadEmail: 'not_sent_intentional'
+ */
+async function pathAskAgent(agent, row, msg, cat) {
+  const prefix = `[paths.askAgent] row ${row.rowIndex}:`;
+
+  // Step a: Update Sheet (critical, determines ok)
+  console.log(`${prefix} marking awaiting_agent`);
+  try {
+    await email.updateSheetRow(agent, row.rowIndex, {
+      status: 'awaiting_agent',
+      pendingQuestion: msg.snippet || '',
+      lastActionTimestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.log(`${prefix} STEP sheet failed: ${err.message}`);
+    return { ok: false, actions: {}, skipped: [], errors: [{ step: 'sheet', error: err.message }] };
+  }
+
+  const actions = { sheet: 'updated' };
+  const skipped = [];
+  const errors = [];
+
+  // Step b: Append to column L (non-fatal)
+  const historyEntry = [
+    `answer_property_specific (confidence ${cat.confidence.toFixed(2)})`,
+    `Reasoning: ${cat.reasoning || ''}`,
+    `Question captured: ${(msg.snippet || '').slice(0, 200)}`,
+  ].join(' | ');
+  try {
+    await email.appendToConversationHistory(agent, row.rowIndex, historyEntry);
+    actions.columnL = 'logged';
+    console.log(`${prefix} column L logged`);
+  } catch (err) {
+    console.log(`${prefix} STEP columnL failed: ${err.message}`);
+    actions.columnL = 'failed';
+    errors.push({ step: 'columnL', error: err.message });
+  }
+
+  // Step c: Email notification to agent (non-fatal)
+  const alertTo = agent.escalationEmail || agent.gmailAddress;
+  const alertSubject = `[LEAD QUESTION] ${row.name || 'Lead'} asked a property question`;
+  const alertBody = [
+    `Lead: ${row.name || 'unknown'}`,
+    `Email: ${row.leadId}`,
+    `Phone: ${row.phone || 'not on file'}`,
+    '',
+    'Original inquiry:',
+    row.originalMessage || '(not on file)',
+    '',
+    'Question that triggered this path:',
+    msg.snippet || '',
+    '',
+    `We sent you an SMS with this question. Reply to the SMS with your answer and we will pass it on to the lead. You can also reply directly to the lead at ${row.leadId} if you prefer to handle it manually.`,
+  ].join('\n');
+
+  try {
+    await email.sendNewEmail(agent, {
+      to: alertTo,
+      subject: alertSubject,
+      body: alertBody,
+    });
+    actions.email = 'sent';
+    console.log(`${prefix} email notification sent to agent`);
+  } catch (err) {
+    console.log(`${prefix} STEP email failed: ${err.message}`);
+    actions.email = 'failed';
+    errors.push({ step: 'email', error: err.message });
+  }
+
+  // Step d: SMS to agent (always, no confidence gate, non-fatal)
+  const smsBody = twilio.TEMPLATES.leadPropertyQuestion(
+    row.name || 'A lead',
+    row.leadId,
+    msg.snippet || ''
+  );
+  try {
+    await twilio.sendSMS(agent, smsBody);
+    actions.sms = 'delivered';
+    console.log(`${prefix} SMS sent to agent`);
+  } catch (err) {
+    console.log(`${prefix} STEP sms failed: ${err.message}`);
+    actions.sms = 'failed';
+    errors.push({ step: 'sms', error: err.message });
+  }
+
+  // Step e: No lead-facing email on this path (intentional)
+  actions.leadEmail = 'not_sent_intentional';
+
+  return { ok: true, actions, skipped, errors };
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -631,4 +747,5 @@ module.exports = {
   URGENT_KEYWORDS,
   pathStopSignal,
   pathAnswerGeneral,
+  pathAskAgent,
 };
