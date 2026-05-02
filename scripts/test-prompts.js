@@ -17,7 +17,7 @@ const {
 const FAKE_REPLIES = [
   {
     label: 'Obvious answer_general',
-    text: 'Hi, quick question — how does the pre-approval process work? I have never bought a house before.',
+    text: 'Hi, quick question: how does the pre-approval process work? I have never bought a house before.',
   },
   {
     label: 'Obvious answer_property_specific',
@@ -39,6 +39,19 @@ const FAKE_REPLIES = [
 
 function divider(char = '=', length = 80) {
   return char.repeat(length);
+}
+
+let checksPassed = 0;
+let checksFailed = 0;
+
+function check(description, condition) {
+  if (condition) {
+    checksPassed++;
+    console.log(`  ✓ ${description}`);
+  } else {
+    checksFailed++;
+    console.log(`  ✗ ${description}`);
+  }
 }
 
 function main() {
@@ -72,6 +85,17 @@ function main() {
   console.log();
   console.log('--- USER ---');
   console.log(sample.user);
+  console.log();
+
+  console.log(divider('-'));
+  console.log('CHECK 2A: Automated assertions on categorizer prompt content');
+  console.log(divider('-'));
+  check('system prompt contains "conversation_continue"', sample.system.includes('conversation_continue'));
+  check('system prompt contains "continuing the conversation"', sample.system.includes('continuing the conversation'));
+  check('system prompt contains "THE SIX CATEGORIES"', sample.system.includes('THE SIX CATEGORIES'));
+  check('system prompt JSON schema lists all 6 categories in order',
+    sample.system.includes('hot_signal | stop_signal | answer_general | answer_property_specific | conversation_continue | needs_review'));
+  check('system prompt needs_review definition references "categories 1-5"', sample.system.includes('categories 1-5'));
   console.log();
 
   console.log(divider('-'));
@@ -223,7 +247,14 @@ function main() {
   console.log(' 10. Path 1A fallback (CHECK 9) sign-off contains brokerage and location, not just name');
   console.log(' 11. Path 1A with history (CHECK 10) user prompt contains the "Prior conversation" block');
   console.log(' 12. Path 3 with categorizerReasoning (CHECK 11) system prompt shows the tone-calibration block');
+  console.log(' 13. CHECK 2A automated assertions all passed (conversation_continue present, 6-category schema correct)');
   console.log(divider('='));
+  console.log();
+  if (checksFailed === 0) {
+    console.log(`Automated assertions: ${checksPassed} passed, 0 failed.`);
+  } else {
+    console.log(`Automated assertions: ${checksPassed} passed, ${checksFailed} FAILED.`);
+  }
 }
 
 main();

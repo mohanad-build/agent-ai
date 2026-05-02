@@ -119,7 +119,7 @@ function buildBannedPhrasesList(agentConfig) {
  * Build the categorization prompt (Claude Call #1 in the reply detection flow).
  *
  * Returns { system, user } where:
- *   system = the rules and 5-category definitions
+ *   system = the rules and 6-category definitions
  *   user   = the actual email content to classify
  *
  * The model is expected to return raw JSON only, no markdown fences, no preamble:
@@ -128,37 +128,41 @@ function buildBannedPhrasesList(agentConfig) {
 function buildCategorizationPrompt(agentConfig, emailText) {
   const cannotInventList = buildCannotInventList(agentConfig);
 
-  const system = `You are a categorization engine for a real estate lead-reply system. You receive a reply email from a lead and classify it into exactly one of five categories.
+  const system = `You are a categorization engine for a real estate lead-reply system. You receive a reply email from a lead and classify it into exactly one of six categories.
 
 Return ONLY a raw JSON object with this exact shape (no markdown fences, no preamble, no explanation outside the JSON):
 
 {
-  "category": "<one of: answer_general | answer_property_specific | hot_signal | stop_signal | needs_review>",
+  "category": "<one of: hot_signal | stop_signal | answer_general | answer_property_specific | conversation_continue | needs_review>",
   "confidence": <number between 0.0 and 1.0>,
   "reasoning": "<one to two sentences explaining the classification>"
 }
 
-THE FIVE CATEGORIES:
+THE SIX CATEGORIES:
 
-1. answer_general
+1. hot_signal
+   Lead expresses action intent: wants to do something concrete, soon.
+   Examples: "Can we book a showing?", "I want to make an offer", "Let us schedule a call", "Are you free this weekend?"
+
+2. stop_signal
+   Lead is declining, opting out, or no longer interested.
+   Examples: "Not interested", "Already bought", "Please stop contacting me", "We went with another agent"
+
+3. answer_general
    General real estate education questions the AI can answer safely without agent input.
    Examples: "How long does buying take?", "What is pre-approval?", "How does the offer process work?", "What are closing costs?"
+   If the lead is not asking a question but is continuing the conversation (answering something we asked, sharing context, or acknowledging), use conversation_continue instead.
 
-2. answer_property_specific
+4. answer_property_specific
    Questions about a specific listing OR anything requiring real-time data the AI does not have.
    Examples: "How many bedrooms?", "What is the square footage?", "What is the asking price?", "What is the market like in Yorkville right now?", "Are there bidding wars?"
    ALSO use this category if the lead asks about anything in the "AI cannot invent" list below.
 
-3. hot_signal
-   Lead expresses action intent: wants to do something concrete, soon.
-   Examples: "Can we book a showing?", "I want to make an offer", "Let us schedule a call", "Are you free this weekend?"
+5. conversation_continue
+   The lead replied but is not asking a new question, not signaling hot/stop intent, and not asking about a specific property. They are continuing the conversation: answering a question we asked, sharing context, acknowledging what we said, or making a casual statement that warrants a friendly response. Examples: "Not pre-approved yet, working on it", "We are thinking spring next year", "Yeah Riverdale mostly", "Thanks, that is helpful", "My partner and I are still talking it over".
 
-4. stop_signal
-   Lead is declining, opting out, or no longer interested.
-   Examples: "Not interested", "Already bought", "Please stop contacting me", "We went with another agent"
-
-5. needs_review
-   Anything ambiguous, emotional, or complex. Use this when the reply contains: emotional context, multiple unrelated questions, complaints, legal/financial issues, or anything that does not cleanly fit categories 1-4.
+6. needs_review
+   Anything ambiguous, emotional, or complex. Use this when the reply contains: emotional context, multiple unrelated questions, complaints, legal/financial issues, or anything that does not cleanly fit categories 1-5.
 
 CRITICAL SAFETY RULE:
 When uncertain between answer_general and answer_property_specific, ALWAYS choose answer_property_specific. It is better to escalate to the agent than to have the AI guess at facts it does not have.
