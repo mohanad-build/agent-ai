@@ -424,6 +424,203 @@ async function pathStopSignal(agent, row, msg, cat) {
 }
 
 // ---------------------------------------------------------------------------
+// Path 1A: answer_general and conversation_continue
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle an answer_general or conversation_continue reply.
+ *
+ * Both categories route here because the response strategy is identical:
+ * Claude drafts a general reply, no agent input required.
+ *
+ * Steps (in order):
+ *   a. Read conversation history from the row (already fetched by readSheetRows). Best-effort.
+ *   b. Check Gmail signature presence. Best-effort.
+ *   c. Draft via Claude using buildPath1ADraftPrompt. Best-effort: fallback template on failure.
+ *   d. Update Sheet: status -> 'warm' (claude) or 'needs_review' (fallback),
+ *      lastActionTimestamp -> now. CRITICAL: failure aborts.
+ *   e. Append entry to column L. Non-fatal.
+ *   f. Send email. Mode-gated:
+ *        shadow: wrap with buildShadowDraftWrapper, sendNewEmail to agent.
+ *        live:   sendReply to lead, threaded.
+ *      Non-fatal.
+ *   g. If draftSource === 'fallback_template', send escalation email to agent. Non-fatal.
+ *      If draftSource === 'claude', set actions.escalationEmail = 'not_needed'.
+ *
+ * Returns { ok, actions, skipped, errors }.
+ *   actions.draft: 'claude' | 'fallback_template'
+ *   actions.sheet: 'updated'
+ *   actions.columnL: 'logged' | 'failed'
+ *   actions.email: 'sent_to_agent_shadow' | 'sent_to_lead' | 'failed'
+ *   actions.escalationEmail: 'sent' | 'failed' | 'not_needed'
+ */
+async function pathAnswerGeneral(agent, row, msg, cat) {
+  const prefix = `[paths.answerGeneral] row ${row.rowIndex}:`;
+  const errors = [];
+
+  // Step a: Get conversation history from the row object (best-effort)
+  let conversationHistory = '';
+  try {
+    conversationHistory = row.conversationHistory || '';
+  } catch (err) {
+    console.log(`${prefix} STEP columnL read failed: ${err.message} (proceeding with empty history)`);
+    errors.push({ step: 'columnL_read', error: err.message });
+  }
+
+  // Step b: Check signature presence (best-effort)
+  let hasSignature = false;
+  try {
+    hasSignature = await email.getSignaturePresence(agent);
+  } catch (err) {
+    console.log(`${prefix} signature check failed: ${err.message} (assuming no signature)`);
+  }
+
+  const leadContext = {
+    name: row.name,
+    originalInquiry: row.originalMessage,
+    conversationHistory,
+  };
+
+  const prompt = prompts.buildPath1ADraftPrompt(agent, msg.snippet || '', leadContext, hasSignature);
+  const bannedPhrases = prompts.getMergedBannedPhrases(agent);
+
+  // Step c: Draft via Claude (best-effort, always produces a draft)
+  const firstName = row.firstName || (row.name || '').split(' ')[0] || 'there';
+  let draftBody;
+  let draftSource;
+  let draftError = null;
+
+  try {
+    const result = await claude.draft(prompt, bannedPhrases);
+    if (result.escalate) {
+      throw new Error(
+        `draft escalated after ${result.attempts} attempt(s): violations=[${result.violations.join(', ')}]`
+      );
+    }
+    draftBody = result.text;
+    draftSource = 'claude';
+    console.log(`${prefix} Claude draft ready (${result.attempts} attempt(s))`);
+  } catch (err) {
+    draftError = err.message;
+    console.log(`${prefix} STEP draft failed (using fallback): ${err.message}`);
+    draftBody = `Hi ${firstName},\n\nGreat question. Let me check on this and get back to you with a complete answer shortly.\n\n${agent.agentName || ''}`;
+    draftSource = 'fallback_template';
+  }
+
+  // Step d: Update Sheet (critical, only this determines ok)
+  const newStatus = draftSource === 'claude' ? 'warm' : 'needs_review';
+  console.log(`${prefix} marking ${newStatus}`);
+  try {
+    await email.updateSheetRow(agent, row.rowIndex, {
+      status: newStatus,
+      lastActionTimestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.log(`${prefix} STEP sheet failed: ${err.message}`);
+    return { ok: false, actions: {}, skipped: [], errors: [{ step: 'sheet', error: err.message }] };
+  }
+
+  const actions = { draft: draftSource, sheet: 'updated' };
+  if (draftError) {
+    errors.push({ step: 'draft', error: draftError });
+  }
+
+  // Step e: Append to column L (non-fatal)
+  const historyEntry = [
+    `${cat.category} (confidence ${cat.confidence.toFixed(2)})`,
+    `Reasoning: ${cat.reasoning || ''}`,
+    `Snippet: ${(msg.snippet || '').slice(0, 200)}`,
+    `Draft source: ${draftSource}`,
+  ].join(' | ');
+  try {
+    await email.appendToConversationHistory(agent, row.rowIndex, historyEntry);
+    actions.columnL = 'logged';
+    console.log(`${prefix} column L logged`);
+  } catch (err) {
+    console.log(`${prefix} STEP columnL failed: ${err.message}`);
+    actions.columnL = 'failed';
+    errors.push({ step: 'columnL', error: err.message });
+  }
+
+  // Step f: Send email, shadow or live (non-fatal)
+  if (agent.mode === 'shadow') {
+    const wrapped = buildShadowDraftWrapper(row.leadId, draftBody);
+    try {
+      await email.sendNewEmail(agent, {
+        to: agent.gmailAddress,
+        subject: wrapped.subject,
+        body: wrapped.body,
+      });
+      actions.email = 'sent_to_agent_shadow';
+      console.log(`${prefix} shadow draft sent to agent (${agent.gmailAddress})`);
+    } catch (err) {
+      console.log(`${prefix} STEP email (shadow) failed: ${err.message}`);
+      actions.email = 'failed';
+      errors.push({ step: 'email', error: err.message });
+    }
+  } else {
+    try {
+      await email.sendReply(agent, {
+        to: row.leadId,
+        subject: msg.subject || '',
+        body: draftBody,
+        threadId: msg.threadId,
+      });
+      actions.email = 'sent_to_lead';
+      console.log(`${prefix} live reply sent to lead (${row.leadId})`);
+    } catch (err) {
+      console.log(`${prefix} STEP email (live) failed: ${err.message}`);
+      actions.email = 'failed';
+      errors.push({ step: 'email', error: err.message });
+    }
+  }
+
+  // Step g: Escalation email when fallback was used (non-fatal)
+  if (draftSource === 'fallback_template') {
+    const escalationTo = agent.escalationEmail || agent.gmailAddress;
+    const escalationSubject = `[ESCALATION] Path 1A draft failed for lead ${row.name || 'unknown'}`;
+    const escalationBody = [
+      'Claude failed to draft a response after 3 retries. A holding message has been sent to the lead.',
+      '',
+      `Lead: ${row.name || 'unknown'}`,
+      `Email: ${row.leadId}`,
+      `Phone: ${row.phone || 'not on file'}`,
+      '',
+      'Original inquiry:',
+      row.originalMessage || '(not on file)',
+      '',
+      'Current reply that triggered Path 1A:',
+      msg.snippet || '',
+      '',
+      "Categorizer's reasoning:",
+      cat.reasoning || '',
+      '',
+      `Holding message sent to lead: "${draftBody}"`,
+      '',
+      `Please follow up with a real answer manually by replying directly to the lead at ${row.leadId}.`,
+    ].join('\n');
+
+    try {
+      await email.sendNewEmail(agent, {
+        to: escalationTo,
+        subject: escalationSubject,
+        body: escalationBody,
+      });
+      actions.escalationEmail = 'sent';
+      console.log(`${prefix} escalation email sent (draft fallback)`);
+    } catch (err) {
+      console.log(`${prefix} STEP escalationEmail failed: ${err.message}`);
+      actions.escalationEmail = 'failed';
+      errors.push({ step: 'escalationEmail', error: err.message });
+    }
+  } else {
+    actions.escalationEmail = 'not_needed';
+  }
+
+  return { ok: true, actions, skipped: [], errors };
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -433,4 +630,5 @@ module.exports = {
   pathNeedsReview,
   URGENT_KEYWORDS,
   pathStopSignal,
+  pathAnswerGeneral,
 };
