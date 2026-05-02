@@ -8,16 +8,18 @@
 // written, SMS failed) without stopping the processing loop.
 //
 // Paths implemented here so far:
-//   pathHotSignal (Path 2, category: hot_signal)
+//   pathHotSignal  (Path 2, category: hot_signal)
+//   pathStopSignal (Path 3, category: stop_signal)
+//   pathNeedsReview (Path 4, category: needs_review)
 //
 // Coming in subsequent commits:
-//   pathAnswerGeneral         (Path 1A, category: answer_general)
+//   pathAnswerGeneral          (Path 1A, category: answer_general)
 //   pathAnswerPropertySpecific (Path 1B, category: answer_property_specific)
-//   pathStopSignal            (Path 3,  category: stop_signal)
-//   pathNeedsReview           (Path 4,  category: needs_review)
 
 const email = require('./email');
 const twilio = require('./twilio');
+const prompts = require('./prompts');
+const claude = require('./claude');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,6 +46,21 @@ function hasUrgentKeyword(text) {
   if (!text) return false;
   const lower = String(text).toLowerCase();
   return URGENT_KEYWORDS.some((k) => lower.includes(k));
+}
+
+// Wraps a Claude-drafted body for Shadow Mode delivery. The wrapped email goes
+// to the agent, not the lead. Used by Path 3 today; reusable by Path 1A later.
+// Returns { subject, body }.
+function buildShadowDraftWrapper(leadEmail, draftBody) {
+  const body = [
+    'This is a draft. The lead did NOT receive this message.',
+    `If you want to send your own version, reply at ${leadEmail}.`,
+    '',
+    '---',
+    '',
+    draftBody,
+  ].join('\n');
+  return { subject: '[SHADOW DRAFT]', body };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +288,142 @@ async function pathNeedsReview(agent, row, msg, cat) {
 }
 
 // ---------------------------------------------------------------------------
+// Path 3: stop_signal
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a stop_signal reply.
+ *
+ * Steps (in order):
+ *   a. Draft via Claude using buildPath3DraftPrompt. Best-effort: if Claude
+ *      throws or returns escalate=true, fall back to a hardcoded safe template.
+ *      Either way, a draft is always produced before proceeding.
+ *   b. Update Sheet: status -> 'cold', lastActionTimestamp -> now. CRITICAL: failure aborts.
+ *   c. Append entry to column L. Non-fatal.
+ *   d. Send email. Mode-gated:
+ *        shadow: wrap with buildShadowDraftWrapper, sendNewEmail to agent.gmailAddress.
+ *        live:   sendReply to lead, threaded.
+ *      Non-fatal.
+ *
+ * Returns { ok, actions, skipped, errors }.
+ *   actions.draft: 'claude' | 'fallback_template'
+ *   actions.sheet: 'updated'
+ *   actions.columnL: 'logged' | 'failed'
+ *   actions.email: 'sent_to_agent_shadow' | 'sent_to_lead' | 'failed'
+ */
+async function pathStopSignal(agent, row, msg, cat) {
+  const prefix = `[paths.stopSignal] row ${row.rowIndex}:`;
+
+  // Step a: Draft via Claude (best-effort, always produces a draft)
+  const firstName = row.firstName || (row.name || '').split(' ')[0] || 'there';
+  let draftBody;
+  let draftSource;
+  let draftError = null;
+
+  let hasSignature = false;
+  try {
+    hasSignature = await email.getSignaturePresence(agent);
+  } catch (err) {
+    console.log(`${prefix} signature check failed: ${err.message} (assuming no signature)`);
+  }
+
+  const leadContext = { name: row.name || '' };
+  const prompt = prompts.buildPath3DraftPrompt(agent, leadContext, hasSignature, cat.reasoning);
+  const bannedPhrases = prompts.getMergedBannedPhrases(agent);
+
+  try {
+    const result = await claude.draft(prompt, bannedPhrases);
+    if (result.escalate) {
+      throw new Error(
+        `draft escalated after ${result.attempts} attempt(s): violations=[${result.violations.join(', ')}]`
+      );
+    }
+    draftBody = result.text;
+    draftSource = 'claude';
+    console.log(`${prefix} Claude draft ready (${result.attempts} attempt(s))`);
+  } catch (err) {
+    draftError = err.message;
+    console.log(`${prefix} STEP draft failed (using fallback): ${err.message}`);
+    draftBody = [
+      `Hi ${firstName},`,
+      '',
+      "No problem, I'll take you off the list. Wishing you the best with your search.",
+      '',
+      agent.agentName || '',
+    ].join('\n');
+    draftSource = 'fallback_template';
+  }
+
+  // Step b: Update Sheet (critical)
+  console.log(`${prefix} marking cold`);
+  try {
+    await email.updateSheetRow(agent, row.rowIndex, {
+      status: 'cold',
+      lastActionTimestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.log(`${prefix} STEP sheet failed: ${err.message}`);
+    return { ok: false, actions: {}, skipped: [], errors: [{ step: 'sheet', error: err.message }] };
+  }
+
+  const actions = { draft: draftSource, sheet: 'updated' };
+  const skipped = [];
+  const errors = draftError ? [{ step: 'draft', error: draftError }] : [];
+
+  // Step c: Append to column L (non-fatal)
+  const historyEntry = [
+    `stop_signal (confidence ${cat.confidence.toFixed(2)})`,
+    `Reasoning: ${cat.reasoning || ''}`,
+    `Snippet: ${(msg.snippet || '').slice(0, 200)}`,
+    `Draft source: ${draftSource}`,
+  ].join(' | ');
+  try {
+    await email.appendToConversationHistory(agent, row.rowIndex, historyEntry);
+    actions.columnL = 'logged';
+    console.log(`${prefix} column L logged`);
+  } catch (err) {
+    console.log(`${prefix} STEP columnL failed: ${err.message}`);
+    actions.columnL = 'failed';
+    errors.push({ step: 'columnL', error: err.message });
+  }
+
+  // Step d: Send email, shadow or live (non-fatal)
+  if (agent.mode === 'shadow') {
+    const wrapped = buildShadowDraftWrapper(row.leadId, draftBody);
+    try {
+      await email.sendNewEmail(agent, {
+        to: agent.gmailAddress,
+        subject: wrapped.subject,
+        body: wrapped.body,
+      });
+      actions.email = 'sent_to_agent_shadow';
+      console.log(`${prefix} shadow draft sent to agent (${agent.gmailAddress})`);
+    } catch (err) {
+      console.log(`${prefix} STEP email (shadow) failed: ${err.message}`);
+      actions.email = 'failed';
+      errors.push({ step: 'email', error: err.message });
+    }
+  } else {
+    try {
+      await email.sendReply(agent, {
+        to: row.leadId,
+        subject: msg.subject || '',
+        body: draftBody,
+        threadId: msg.threadId,
+      });
+      actions.email = 'sent_to_lead';
+      console.log(`${prefix} live reply sent to lead (${row.leadId})`);
+    } catch (err) {
+      console.log(`${prefix} STEP email (live) failed: ${err.message}`);
+      actions.email = 'failed';
+      errors.push({ step: 'email', error: err.message });
+    }
+  }
+
+  return { ok: true, actions, skipped, errors };
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -279,4 +432,5 @@ module.exports = {
   HOT_SMS_CONFIDENCE_THRESHOLD,
   pathNeedsReview,
   URGENT_KEYWORDS,
+  pathStopSignal,
 };
