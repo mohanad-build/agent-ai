@@ -233,6 +233,29 @@ function main() {
   console.log(path3WithCategorizerReasoning.system);
   console.log();
 
+  console.log(divider('-'));
+  console.log('CHECK 12: Path 1A system prompt contains the FOLLOW UP QUESTION block');
+  console.log(divider('-'));
+  const path1AForFollowUp = buildPath1ADraftPrompt(
+    agent,
+    'How does the pre-approval process work?',
+    { name: 'Sarah Chen', originalInquiry: 'Looking for a 2BR condo in Yorkville' },
+    true
+  );
+  check(
+    'Path 1A system prompt contains "FOLLOW UP QUESTION (OPTIONAL):"',
+    path1AForFollowUp.system.includes('FOLLOW UP QUESTION (OPTIONAL):')
+  );
+  check(
+    'Path 1A system prompt contains "Maximum ONE question"',
+    path1AForFollowUp.system.includes('Maximum ONE question')
+  );
+  check(
+    'Path 1A system prompt contains "Skip the follow up"',
+    path1AForFollowUp.system.includes('Skip the follow up')
+  );
+  console.log();
+
   console.log(divider('='));
   console.log('Test complete. Read the output above and confirm:');
   console.log('  1. Agent context (CHECK 2 system prompt) reads correctly');
@@ -248,6 +271,7 @@ function main() {
   console.log(' 11. Path 1A with history (CHECK 10) user prompt contains the "Prior conversation" block');
   console.log(' 12. Path 3 with categorizerReasoning (CHECK 11) system prompt shows the tone-calibration block');
   console.log(' 13. CHECK 2A automated assertions all passed (conversation_continue present, 6-category schema correct)');
+  console.log(' 14. Path 1A (CHECK 12) automated assertions all passed (FOLLOW UP block present and complete)');
   console.log(divider('='));
   console.log();
   if (checksFailed === 0) {

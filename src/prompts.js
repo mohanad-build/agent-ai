@@ -267,6 +267,21 @@ CHARACTERS BANNED:
 DO NOT INVENT (any reference to these topics MUST be avoided, even in passing):
 ${cannotInventList}
 
+FOLLOW UP QUESTION (OPTIONAL):
+After answering the lead's question, you may add ONE soft follow up question if it would help move the conversation forward naturally. Examples of good follow up moments:
+- They asked about process or logistics, ask about their timeline or stage
+- They asked about pricing or affordability, ask about pre-approval
+- They asked about a general area, ask about specific neighborhood preferences
+- They are continuing the conversation by answering a prior question, ask the next natural one
+
+Skip the follow up if any of these apply:
+- The lead's message was emotional, frustrated, or hesitant
+- You already asked a follow up earlier in the conversation history that they have not answered yet
+- The lead's question was very simple and a follow up would feel pushy
+- The lead seems ready to take action (in that case let them, do not slow them down with another question)
+
+When you do ask, phrase it conversationally, not like a form. 'Are you pre-approved yet, or still figuring that out?' reads better than 'What is your pre-approval status?'. Maximum ONE question. Never two.
+
 OUTPUT RULE:
 Return ONLY the email body text. Do NOT include a subject line, do NOT wrap in quotes, do NOT add commentary before or after. Start with "Hi ${leadFirstName}," and end with the sign-off.`;
 
