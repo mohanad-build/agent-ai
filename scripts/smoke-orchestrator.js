@@ -17,7 +17,7 @@
 require('dotenv').config();
 
 const { loadAgent } = require('../src/agentConfig');
-const { processAgent } = require('../src/index');
+const { processAgent, checkStaleQuestions } = require('../src/index');
 
 function divider() {
   return '='.repeat(60);
@@ -47,6 +47,17 @@ async function main() {
 
   try {
     await processAgent(agent.agentId);
+
+    console.log();
+    console.log(divider());
+    console.log('STEP 4: stale question check');
+    console.log(divider());
+    console.log();
+
+    const staleResult = await checkStaleQuestions(agent);
+
+    console.log();
+    console.log(`Result: reminders=${staleResult.remindersSent} escalations=${staleResult.escalationsSent} errors=${staleResult.errors.length}`);
   } catch (err) {
     console.error();
     console.error(divider());

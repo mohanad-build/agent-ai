@@ -496,4 +496,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent };
+module.exports = { processAgent, checkStaleQuestions };
