@@ -391,6 +391,7 @@ const COLUMN_MAP = {
   lastActionTimestamp: 'P',
   reminderSent: 'Q',
   validationStatus: 'R',
+  operatorEscalated: 'S',
 };
 
 function colLetterToIndex(letter) {
@@ -420,7 +421,7 @@ async function readSheetRows(agentConfig) {
   return withRetry(agentConfig, async () => {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: agentConfig.googleSheetId,
-      range: 'A2:R',
+      range: 'A2:S',
     });
     const rows = res.data.values || [];
     return rows.map((row, i) => {

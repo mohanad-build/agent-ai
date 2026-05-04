@@ -18,6 +18,7 @@ const { loadAgent } = require('./agentConfig');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
+const twilio = require('./twilio');
 const {
   pathHotSignal,
   pathStopSignal,
@@ -30,7 +31,9 @@ const {
 // Constants
 // --------------------------------------------------------------------------
 
-const RATE_LIMIT_MS = 60 * 60 * 1000; // 60 minutes per spec
+const RATE_LIMIT_MS = 60 * 60 * 1000;        // 60 minutes per spec
+const STALE_REMINDER_MS = 2 * 60 * 60 * 1000;    // 2 hours: send reminder SMS to agent
+const STALE_ESCALATION_MS = 24 * 60 * 60 * 1000; // 24 hours: escalate to operator
 const CONFIDENCE_THRESHOLD = 0.7; // Below this, force category to needs_review
 
 const ALLOWED_STATUSES = new Set([
@@ -382,6 +385,83 @@ async function processAgent(agentId) {
 }
 
 // --------------------------------------------------------------------------
+// Step 4: stale Path 1B question handling
+// --------------------------------------------------------------------------
+
+// Sends an escalation email to the operator when a Path 1B question has been
+// unanswered for over 24 hours.
+async function sendOperatorEscalationEmail(agent, row) {
+  const subject = `[agent-ai] Stale Path 1B question for ${row.name}`;
+  const body = [
+    `Heads up - this lead has had a pending property question for over 24 hours and the agent has not responded.`,
+    '',
+    `Lead: ${row.name} (${row.leadId}, ${row.phone || 'no phone on file'})`,
+    `Agent: ${agent.agentName} (${agent.agentPhone})`,
+    `Question: "${row.pendingQuestion}"`,
+    `Question received: ${row.lastActionTimestamp}`,
+    `Reminder SMS sent: ${row.reminderSent || 'no reminder fired'}`,
+    '',
+    'You may want to reach out to the agent directly.',
+    '',
+    '- agent-ai system',
+  ].join('\n');
+  await email.sendNewEmail(agent, {
+    to: agent.escalationEmail,
+    subject,
+    body,
+  });
+}
+
+// Scans all Sheet rows for 'awaiting_agent' leads whose lastActionTimestamp is
+// stale. Two independent branches per row:
+//   Branch A (2h):  send a reminder SMS to the agent if not yet sent.
+//   Branch B (24h): escalate to the operator if not yet escalated.
+// Both branches may fire for the same row in the same pass if it is old enough.
+async function checkStaleQuestions(agent) {
+  const rows = await email.readSheetRows(agent);
+  let remindersSent = 0;
+  let escalationsSent = 0;
+  const errors = [];
+
+  for (const row of rows) {
+    if (row.status !== 'awaiting_agent') continue;
+    const last = new Date(row.lastActionTimestamp).getTime();
+    if (Number.isNaN(last)) continue;
+    const elapsed = Date.now() - last;
+
+    // Branch A: 2-hour reminder SMS
+    if (elapsed >= STALE_REMINDER_MS && !row.reminderSent) {
+      try {
+        await twilio.sendSMS(agent, twilio.TEMPLATES.path1BReminder({ leadName: row.name }));
+        const ts = new Date().toISOString();
+        await email.updateSheetRow(agent, row.rowIndex, { reminderSent: ts });
+        await email.appendToConversationHistory(agent, row.rowIndex, `[${ts}] 2hr reminder SMS sent to agent`);
+        remindersSent++;
+      } catch (e) {
+        errors.push({ rowIndex: row.rowIndex, branch: 'reminder', message: e.message });
+        console.warn(`[${agent.agentId}] row ${row.rowIndex}: reminder failed: ${e.message}`);
+      }
+    }
+
+    // Branch B: 24-hour operator escalation
+    if (elapsed >= STALE_ESCALATION_MS && !row.operatorEscalated) {
+      try {
+        await sendOperatorEscalationEmail(agent, row);
+        const ts = new Date().toISOString();
+        await email.updateSheetRow(agent, row.rowIndex, { operatorEscalated: ts });
+        await email.appendToConversationHistory(agent, row.rowIndex, `[${ts}] 24hr escalation email sent to operator`);
+        escalationsSent++;
+      } catch (e) {
+        errors.push({ rowIndex: row.rowIndex, branch: 'escalation', message: e.message });
+        console.warn(`[${agent.agentId}] row ${row.rowIndex}: escalation failed: ${e.message}`);
+      }
+    }
+  }
+
+  return { remindersSent, escalationsSent, errors };
+}
+
+// --------------------------------------------------------------------------
 // Main
 // --------------------------------------------------------------------------
 
@@ -396,6 +476,9 @@ async function main() {
   for (const id of agentIds) {
     try {
       await processAgent(id);
+      const agent = loadAgent(id);
+      const staleResult = await checkStaleQuestions(agent);
+      console.log(`[${id}] stale check: reminders=${staleResult.remindersSent} escalations=${staleResult.escalationsSent} errors=${staleResult.errors.length}`);
     } catch (err) {
       // One agent's failure must not stop others.
       console.error(`[${id}] uncaught error: ${err.message}`);
