@@ -30,6 +30,8 @@ const ALLOWED_STATUSES = new Set([
   'new',
   'in_conversation',
   'awaiting_agent_info',
+  'awaiting_agent',
+  'warm',
   'HOT',
   'cold',
   'needs_review',
