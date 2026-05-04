@@ -406,7 +406,11 @@ async function main() {
   console.log('\nOrchestrator cycle complete.');
 }
 
-main().catch((err) => {
-  console.error('Orchestrator crashed:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('Orchestrator crashed:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { processAgent };
