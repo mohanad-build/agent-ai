@@ -2,8 +2,8 @@
 // Orchestrator: poll Gmail for replies, categorize, route, act.
 //
 // STEP 1 (current): agent discovery + Sheet read + row validation + filtering.
-// STEP 2 (future): fetch unread Gmail replies, categorize each via claude.js, log to column L.
-// STEP 3 (future): route each categorized reply to its path (1A, 1B, 2, 3, 4) and act.
+// STEP 2 (current): fetch unread Gmail replies, categorize each via claude.js, log to column L.
+// STEP 3 (current): route each categorized reply to its path (1A, 1B, 2, 3, 4) and act.
 // STEP 4 (future): handle the 2-hour Path 1B stalled-reminder via column Q.
 //
 // Run: node src/index.js                    (processes all agents)
@@ -18,6 +18,13 @@ const { loadAgent } = require('./agentConfig');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
+const {
+  pathHotSignal,
+  pathStopSignal,
+  pathAskAgent,
+  pathAnswerGeneral,
+  pathNeedsReview,
+} = require('./paths');
 
 // --------------------------------------------------------------------------
 // Constants
@@ -114,6 +121,32 @@ function isAiEnabled(row) {
   const s = String(v).trim().toLowerCase();
   if (s === 'false' || s === 'no' || s === '0') return false;
   return true;
+}
+
+// --------------------------------------------------------------------------
+// Path dispatch
+// --------------------------------------------------------------------------
+
+// Routes a categorized reply to the correct path function.
+// Both 'answer_general' and 'conversation_continue' map to pathAnswerGeneral.
+// Unknown categories fall through to pathNeedsReview as a safe default.
+async function executePath(agent, row, msg, cat) {
+  switch (cat.category) {
+    case 'hot_signal':
+      return await pathHotSignal(agent, row, msg, cat);
+    case 'stop_signal':
+      return await pathStopSignal(agent, row, msg, cat);
+    case 'answer_property_specific':
+      return await pathAskAgent(agent, row, msg, cat);
+    case 'answer_general':
+    case 'conversation_continue':
+      return await pathAnswerGeneral(agent, row, msg, cat);
+    case 'needs_review':
+      return await pathNeedsReview(agent, row, msg, cat);
+    default:
+      console.warn(`[${agent.agentId}] unknown category "${cat.category}", routing to needs_review`);
+      return await pathNeedsReview(agent, row, msg, cat);
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -253,7 +286,11 @@ async function processAgent(agentId) {
   // Build a quick lookup: lowercased lead email → row.
   const leadIndex = new Map();
   for (const row of processable) {
-    leadIndex.set(String(row.leadId).trim().toLowerCase(), row);
+    const key = String(row.leadId).trim().toLowerCase();
+    if (leadIndex.has(key)) {
+      console.warn(`[${agent.agentId}] duplicate Lead ID ${key} found at row ${leadIndex.get(key).rowIndex} and row ${row.rowIndex}, last-write wins`);
+    }
+    leadIndex.set(key, row);
   }
 
   // Fetch unread replies from Gmail.
@@ -314,8 +351,9 @@ async function processAgent(agentId) {
       : '';
     const logEntry = `Reply categorized: ${cat.category} (confidence ${cat.confidence.toFixed(2)})${downgradeNote}. Reasoning: ${cat.reasoning} | Snippet: ${msg.snippet.slice(0, 200)}`;
 
-    // ORDER A: log to column L first, then mark as read. If markRead fails,
-    // we may double-log next cycle, but we never lose the audit trail.
+    // ORDER A: log to column L, execute path, then mark as read only on success.
+    // If column L write fails, leave unread to retry next cycle.
+    // If path fails, leave unread so the message is not silently dropped.
     try {
       await email.appendToConversationHistory(agent, row.rowIndex, logEntry);
     } catch (err) {
@@ -323,13 +361,19 @@ async function processAgent(agentId) {
       continue;
     }
 
-    try {
-      await email.markRead(agent, msg.messageId);
-    } catch (err) {
-      console.log(`[${agentId}] row ${row.rowIndex} markRead FAILED: ${err.message} (column L was written; next cycle may double-log)`);
+    const result = await executePath(agent, row, msg, cat);
+
+    if (result.ok) {
+      try {
+        await email.markRead(agent, msg.messageId);
+      } catch (err) {
+        console.log(`[${agentId}] row ${row.rowIndex} markRead FAILED: ${err.message} (column L was written; next cycle may double-log)`);
+      }
+    } else {
+      console.warn(`[${agentId}] row ${row.rowIndex} path failed for ${cat.category}, leaving unread for retry. errors: ${JSON.stringify(result.errors)}`);
     }
 
-    console.log(`[${agentId}] row ${row.rowIndex} ${senderEmail} -> ${cat.category}${downgradeNote}`);
+    console.log(`[${agentId}] row ${row.rowIndex} ${senderEmail} -> ${cat.category}${downgradeNote} -> ok=${result.ok}${result.skipped && result.skipped.length > 0 ? ' (skipped)' : ''}`);
   }
 
   console.log(
