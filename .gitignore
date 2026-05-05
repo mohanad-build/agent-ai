@@ -11,6 +11,9 @@ agents/*.json
 !agents/.gitkeep
 !agents/example.json
 
+# Agent state files (runtime state, not committed)
+agents/*.state.json
+
 # OS / editor noise
 .DS_Store
 *.log
