@@ -18,6 +18,8 @@
 
 const email = require('./email');
 const twilio = require('./twilio');
+const { parsePendingQuestions, serializePendingQuestions } = require('./pendingQuestions');
+const { issueToken } = require('./agentState');
 const prompts = require('./prompts');
 const claude = require('./claude');
 
@@ -633,8 +635,9 @@ async function pathAnswerGeneral(agent, row, msg, cat) {
  * the loop when the agent replies via SMS.
  *
  * Steps (in order):
- *   a. Update Sheet: status -> 'awaiting_agent', pendingQuestion (M) -> msg.snippet,
- *      lastActionTimestamp -> now. CRITICAL: failure aborts.
+ *   0. Issue token via agentState.issueToken. CRITICAL: failure aborts before any Sheet write.
+ *   a. Update Sheet: status -> 'awaiting_agent', pendingQuestion (M) -> serialized queue
+ *      (existing entries + new [Qn] entry), lastActionTimestamp -> now. CRITICAL: failure aborts.
  *   b. Append entry to column L. Non-fatal.
  *   c. Send email notification to agent.escalationEmail with full context. Non-fatal.
  *   d. Send SMS to agent (always, no confidence gate). Non-fatal.
@@ -642,20 +645,36 @@ async function pathAnswerGeneral(agent, row, msg, cat) {
  *
  * Returns { ok, actions, skipped, errors }.
  *   actions.sheet: 'updated'
+ *   actions.tokenIssued: the issued token string (e.g. "Q47")
  *   actions.columnL: 'logged' | 'failed'
  *   actions.email: 'sent' | 'failed'
  *   actions.sms: 'delivered' | 'failed'
+ *   actions.smsAttempted: true
  *   actions.leadEmail: 'not_sent_intentional'
  */
 async function pathAskAgent(agent, row, msg, cat) {
   const prefix = `[paths.askAgent] row ${row.rowIndex}:`;
 
+  // Step 0: Issue token before touching the Sheet so the question is always trackable.
+  let token;
+  try {
+    token = issueToken(agent.agentId);
+    console.log(`${prefix} issued token ${token}`);
+  } catch (err) {
+    console.log(`${prefix} issueToken failed: ${err.message}`);
+    return { ok: false, actions: {}, skipped: [], errors: ['issueToken failed: ' + err.message] };
+  }
+
+  const existingEntries = parsePendingQuestions(row.pendingQuestion);
+  const newEntries = [...existingEntries, { token, question: msg.snippet || '' }];
+  const serialized = serializePendingQuestions(newEntries);
+
   // Step a: Update Sheet (critical, determines ok)
-  console.log(`${prefix} marking awaiting_agent`);
+  console.log(`${prefix} marking awaiting_agent, queuing as ${token}`);
   try {
     await email.updateSheetRow(agent, row.rowIndex, {
       status: 'awaiting_agent',
-      pendingQuestion: msg.snippet || '',
+      pendingQuestion: serialized,
       lastActionTimestamp: new Date().toISOString(),
     });
   } catch (err) {
@@ -663,16 +682,12 @@ async function pathAskAgent(agent, row, msg, cat) {
     return { ok: false, actions: {}, skipped: [], errors: [{ step: 'sheet', error: err.message }] };
   }
 
-  const actions = { sheet: 'updated' };
+  const actions = { sheet: 'updated', tokenIssued: token };
   const skipped = [];
   const errors = [];
 
   // Step b: Append to column L (non-fatal)
-  const historyEntry = [
-    `answer_property_specific (confidence ${cat.confidence.toFixed(2)})`,
-    `Reasoning: ${cat.reasoning || ''}`,
-    `Question captured: ${(msg.snippet || '').slice(0, 200)}`,
-  ].join(' | ');
+  const historyEntry = `Property question received, queued as ${token}: ${(msg.snippet || '').slice(0, 200)}`;
   try {
     await email.appendToConversationHistory(agent, row.rowIndex, historyEntry);
     actions.columnL = 'logged';
@@ -718,15 +733,18 @@ async function pathAskAgent(agent, row, msg, cat) {
   const smsBody = twilio.TEMPLATES.leadPropertyQuestion(
     row.name || 'A lead',
     row.leadId,
-    msg.snippet || ''
+    msg.snippet || '',
+    token
   );
   try {
     await twilio.sendSMS(agent, smsBody);
     actions.sms = 'delivered';
+    actions.smsAttempted = true;
     console.log(`${prefix} SMS sent to agent`);
   } catch (err) {
     console.log(`${prefix} STEP sms failed: ${err.message}`);
     actions.sms = 'failed';
+    actions.smsAttempted = true;
     errors.push({ step: 'sms', error: err.message });
   }
 

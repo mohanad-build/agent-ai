@@ -24,8 +24,11 @@
 
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
 const { loadAgent } = require('../src/agentConfig');
 const { pathAskAgent } = require('../src/paths');
+const { parsePendingQuestions } = require('../src/pendingQuestions');
 const email = require('../src/email');
 
 function divider(char = '=', length = 80) {
@@ -34,6 +37,26 @@ function divider(char = '=', length = 80) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const AGENT_STATE_PATH = path.join(__dirname, '..', 'agents', 'mo-test.state.json');
+
+function snapshotAgentState() {
+  if (!fs.existsSync(AGENT_STATE_PATH)) {
+    return null;
+  }
+  return fs.readFileSync(AGENT_STATE_PATH, 'utf8');
+}
+
+function restoreAgentState(snapshot) {
+  if (snapshot === null) {
+    // No file existed at start. Remove if test created one.
+    if (fs.existsSync(AGENT_STATE_PATH)) {
+      fs.unlinkSync(AGENT_STATE_PATH);
+    }
+    return;
+  }
+  fs.writeFileSync(AGENT_STATE_PATH, snapshot, 'utf8');
 }
 
 let totalAssertions = 0;
@@ -98,6 +121,10 @@ async function main() {
   console.log('Scenario B: low-confidence (0.62). SMS still fires (no confidence gate on this path).');
   console.log('Estimated cost: ~$0.016 in Twilio (2 SMS sends). $0 in Claude.');
   console.log();
+
+  const agentStateSnapshot = snapshotAgentState();
+  let tokenA;
+  try {
 
   // --------------------------------------------------------------------------
   // SECTION 1: Environment + agent config check
@@ -234,20 +261,32 @@ async function main() {
   row = rows.find((r) => r.rowIndex === 2);
 
   assert('row status is "awaiting_agent" after Scenario A', row && row.status, 'awaiting_agent');
-  assert(
-    'column M (pendingQuestion) contains the exact lead snippet',
-    row && row.pendingQuestion,
-    snippetA
+  // Queue model assertions
+  assert('resultA.actions.tokenIssued exists', typeof resultA.actions.tokenIssued, 'string');
+
+  tokenA = resultA.actions.tokenIssued;
+  totalAssertions++;
+  if (/^Q\d+$/.test(tokenA)) {
+    passed++;
+    console.log(`  ✓ resultA.actions.tokenIssued matches /^Q\\d+$/ format (got "${tokenA}")`);
+  } else {
+    failed++;
+    console.log(`  ✗ resultA.actions.tokenIssued does not match /^Q\\d+$/ format (got "${tokenA}")`);
+  }
+
+  const entriesA = parsePendingQuestions(row && row.pendingQuestion);
+  assert('column M parses to one entry after Scenario A', entriesA.length, 1);
+  assert('Scenario A entry token matches resultA.actions.tokenIssued', entriesA[0] && entriesA[0].token, tokenA);
+  assert('Scenario A entry question matches snippetA', entriesA[0] && entriesA[0].question, snippetA);
+  assertStringContains(
+    'column L contains "queued as" (queue model log format)',
+    row && row.conversationHistory,
+    'queued as'
   );
   assertStringContains(
-    'column L contains "answer_property_specific"',
+    'column L contains the Scenario A token',
     row && row.conversationHistory,
-    'answer_property_specific'
-  );
-  assertStringContains(
-    'column L contains "Question captured:"',
-    row && row.conversationHistory,
-    'Question captured:'
+    tokenA
   );
 
   // Verify via Gmail: [LEAD QUESTION] email sent to escalationEmail.
@@ -365,11 +404,33 @@ async function main() {
   row = rows.find((r) => r.rowIndex === 2);
 
   assert('row status is "awaiting_agent" after Scenario B', row && row.status, 'awaiting_agent');
-  assert(
-    'column M (pendingQuestion) contains the Scenario B snippet',
-    row && row.pendingQuestion,
-    snippetB
-  );
+  // Queue model assertions for Scenario B
+  assert('resultB.actions.tokenIssued exists', typeof resultB.actions.tokenIssued, 'string');
+
+  const tokenB = resultB.actions.tokenIssued;
+  totalAssertions++;
+  if (/^Q\d+$/.test(tokenB)) {
+    passed++;
+    console.log(`  ✓ resultB.actions.tokenIssued matches /^Q\\d+$/ format (got "${tokenB}")`);
+  } else {
+    failed++;
+    console.log(`  ✗ resultB.actions.tokenIssued does not match /^Q\\d+$/ format (got "${tokenB}")`);
+  }
+
+  // Counter must have advanced between scenarios
+  totalAssertions++;
+  if (tokenB !== tokenA) {
+    passed++;
+    console.log(`  ✓ tokenB ("${tokenB}") differs from tokenA ("${tokenA}") -- counter advanced`);
+  } else {
+    failed++;
+    console.log(`  ✗ tokenB equals tokenA, counter did not advance`);
+  }
+
+  const entriesB = parsePendingQuestions(row && row.pendingQuestion);
+  assert('column M parses to one entry after Scenario B (M was reset between scenarios)', entriesB.length, 1);
+  assert('Scenario B entry token matches resultB.actions.tokenIssued', entriesB[0] && entriesB[0].token, tokenB);
+  assert('Scenario B entry question matches snippetB', entriesB[0] && entriesB[0].question, snippetB);
 
   // Restore column M to empty after assertions.
   console.log();
@@ -378,7 +439,94 @@ async function main() {
   console.log();
 
   // --------------------------------------------------------------------------
-  // SECTION 5: Test summary
+  // SECTION 5: SCENARIO C - queue append (two consecutive Path 1B fires)
+  // --------------------------------------------------------------------------
+  console.log(divider('-'));
+  console.log('SCENARIO C: queue append (two questions on the same row, no reset between)');
+  console.log(divider('-'));
+
+  // Re-read row to start with column M empty (Scenario B restore happened above).
+  rows = await email.readSheetRows(agent);
+  row = rows.find((r) => r.rowIndex === 2);
+
+  const snippetC1 = 'First question for the queue test';
+  const snippetC2 = 'Second question for the queue test';
+
+  const msgC1 = {
+    threadId: row.gmailThreadId,
+    messageId: 'fake-msg-c1',
+    from: row.leadId,
+    snippet: snippetC1,
+    subject: 'Re: Listing inquiry',
+  };
+
+  const msgC2 = {
+    threadId: row.gmailThreadId,
+    messageId: 'fake-msg-c2',
+    from: row.leadId,
+    snippet: snippetC2,
+    subject: 'Re: Listing inquiry',
+  };
+
+  const catC = {
+    category: 'answer_property_specific',
+    confidence: 0.85,
+    reasoning: 'Property-specific question.',
+    downgraded: false,
+    originalCategory: 'answer_property_specific',
+  };
+
+  // Fire 1
+  const resultC1 = await pathAskAgent(agent, row, msgC1, catC);
+  console.log();
+  console.log('Result C1:');
+  console.log(JSON.stringify(resultC1, null, 2));
+
+  assert('resultC1.ok === true', resultC1.ok, true);
+  const tokenC1 = resultC1.actions.tokenIssued;
+
+  // Re-read row so the next pathAskAgent call sees the updated column M
+  rows = await email.readSheetRows(agent);
+  row = rows.find((r) => r.rowIndex === 2);
+
+  // Fire 2
+  const resultC2 = await pathAskAgent(agent, row, msgC2, catC);
+  console.log();
+  console.log('Result C2:');
+  console.log(JSON.stringify(resultC2, null, 2));
+
+  assert('resultC2.ok === true', resultC2.ok, true);
+  const tokenC2 = resultC2.actions.tokenIssued;
+
+  // Tokens must be different
+  totalAssertions++;
+  if (tokenC1 !== tokenC2) {
+    passed++;
+    console.log(`  ✓ tokenC2 ("${tokenC2}") differs from tokenC1 ("${tokenC1}")`);
+  } else {
+    failed++;
+    console.log(`  ✗ tokenC2 equals tokenC1, counter did not advance`);
+  }
+
+  // Re-read final state
+  rows = await email.readSheetRows(agent);
+  row = rows.find((r) => r.rowIndex === 2);
+
+  const entriesC = parsePendingQuestions(row && row.pendingQuestion);
+  assert('column M parses to two entries after Scenario C', entriesC.length, 2);
+  assert('Scenario C first entry token matches tokenC1', entriesC[0] && entriesC[0].token, tokenC1);
+  assert('Scenario C first entry question matches snippetC1', entriesC[0] && entriesC[0].question, snippetC1);
+  assert('Scenario C second entry token matches tokenC2', entriesC[1] && entriesC[1].token, tokenC2);
+  assert('Scenario C second entry question matches snippetC2', entriesC[1] && entriesC[1].question, snippetC2);
+
+  // Restore column M to empty
+  console.log();
+  console.log('  [restoring column M (pendingQuestion) to empty]');
+  await email.updateSheetRow(agent, row.rowIndex, { pendingQuestion: '' });
+  console.log();
+
+  // --------------------------------------------------------------------------
+  // SECTION 6: Test summary
   // --------------------------------------------------------------------------
   console.log(divider('='));
   console.log('TEST SUMMARY');
@@ -394,14 +542,18 @@ async function main() {
     console.log(`${failed} assertion(s) failed. Review output above.`);
   }
 
-  console.log();
-  console.log('CLEANUP REMINDER:');
-  console.log('  Row 2 has been mutated (status -> awaiting_agent, column L appended, lastActionTimestamp updated).');
-  console.log('  Column M (pendingQuestion) was restored to empty by the test.');
-  console.log('  To fully reset for future tests, manually edit row 2 in the Sheet:');
-  console.log('    - Set column G (status) back to "new"');
-  console.log('    - Clear column P (lastActionTimestamp)');
-  console.log('    - Clear column L (conversationHistory) if desired');
+  } finally {
+    restoreAgentState(agentStateSnapshot);
+    console.log('  [restored mo-test.state.json]');
+    console.log();
+    console.log('CLEANUP REMINDER:');
+    console.log('  Row 2 has been mutated (status -> awaiting_agent, column L appended, lastActionTimestamp updated).');
+    console.log('  Column M (pendingQuestion) was restored to empty by the test.');
+    console.log('  To fully reset for future tests, manually edit row 2 in the Sheet:');
+    console.log('    - Set column G (status) back to "new"');
+    console.log('    - Clear column P (lastActionTimestamp)');
+    console.log('    - Clear column L (conversationHistory) if desired');
+  }
 
   if (failed > 0) {
     process.exit(1);
