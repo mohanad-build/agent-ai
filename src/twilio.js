@@ -50,8 +50,8 @@ const TEMPLATES = {
 
   // Path 1B initiation: notify the agent that a lead asked a property-specific question.
   // Positional args so call sites read naturally without destructuring.
-  leadPropertyQuestion(leadName, leadEmail, question) {
-    return `Lead question from ${leadName} (${leadEmail}):\n"${question}"\n\nReply to this SMS with your answer and we will send it to the lead.`;
+  leadPropertyQuestion(leadName, leadEmail, question, token) {
+    return `[${token}] ${leadName} (${leadEmail}): "${question}"\n\nReply: ${token} <your answer>`;
   },
 };
 
