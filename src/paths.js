@@ -766,4 +766,5 @@ module.exports = {
   pathStopSignal,
   pathAnswerGeneral,
   pathAskAgent,
+  buildShadowDraftWrapper,
 };
