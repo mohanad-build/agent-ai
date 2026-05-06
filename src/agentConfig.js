@@ -17,4 +17,22 @@ function loadAgent(agentId) {
   return JSON.parse(raw);
 }
 
-module.exports = { loadAgent };
+function findAgentByPhone(phone) {
+  const agentsDir = path.join(__dirname, '..', 'agents');
+  const files = fs.readdirSync(agentsDir);
+  for (const file of files) {
+    if (!file.endsWith('.json') || file.endsWith('.state.json')) continue;
+    const filePath = path.join(agentsDir, file);
+    let config;
+    try {
+      config = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (err) {
+      console.warn(`findAgentByPhone: skipping ${file} (parse error: ${err.message})`);
+      continue;
+    }
+    if (config.agentPhone === phone) return config;
+  }
+  return null;
+}
+
+module.exports = { loadAgent, findAgentByPhone };
