@@ -4,6 +4,8 @@
 // Handles signature verification, idempotency, agent lookup, token parsing,
 // and the full Path 1B reply flow (draft + send + Sheet update).
 
+require('dotenv').config();
+
 const express = require('express');
 const twilio = require('twilio');
 const { findAgentByPhone } = require('./agentConfig');
