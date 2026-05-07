@@ -1,7 +1,7 @@
 // scripts/setup-sheet.js
 //
 // One-time setup for an agent's Google Sheet.
-// Writes the 19 column headers to row 1, freezes the row, bolds it,
+// Writes the 20 column headers to row 1, freezes the row, bolds it,
 // and auto-resizes columns. Run once per agent during onboarding.
 //
 // Usage: node scripts/setup-sheet.js <agentId>
@@ -31,6 +31,7 @@ const COLUMN_HEADERS = [
   'Reminder Sent At',
   'Validation Status',
   'Operator Escalated At',
+  'Lead Category',
 ];
 
 async function main() {
@@ -74,7 +75,7 @@ async function main() {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: agent.googleSheetId,
-    range: `${tabName}!A1:S1`,
+    range: `${tabName}!A1:T1`,
     valueInputOption: 'RAW',
     requestBody: {
       values: [COLUMN_HEADERS],

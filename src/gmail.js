@@ -392,6 +392,7 @@ const COLUMN_MAP = {
   reminderSent: 'Q',
   validationStatus: 'R',
   operatorEscalated: 'S',
+  leadCategory: 'T',
 };
 
 function colLetterToIndex(letter) {
@@ -421,7 +422,7 @@ async function readSheetRows(agentConfig) {
   return withRetry(agentConfig, async () => {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: agentConfig.googleSheetId,
-      range: 'A2:S',
+      range: 'A2:T',
     });
     const rows = res.data.values || [];
     return rows.map((row, i) => {
@@ -469,7 +470,7 @@ async function appendSheetRow(agentConfig, rowData) {
   return withRetry(agentConfig, async () => {
     await sheets.spreadsheets.values.append({
       spreadsheetId: agentConfig.googleSheetId,
-      range: 'A:R',
+      range: 'A:T',
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] },

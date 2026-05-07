@@ -35,4 +35,11 @@ function findAgentByPhone(phone) {
   return null;
 }
 
-module.exports = { loadAgent, findAgentByPhone };
+// Returns false if the row is an SOI contact that must not be auto-processed.
+// Anything other than exactly 'soi' (case-insensitive) is action-eligible.
+function isLeadCategoryActionable(row) {
+  if (!row || !row.leadCategory) return true;
+  return row.leadCategory.trim().toLowerCase() !== 'soi';
+}
+
+module.exports = { loadAgent, findAgentByPhone, isLeadCategoryActionable };

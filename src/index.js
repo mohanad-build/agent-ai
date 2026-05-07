@@ -14,7 +14,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 
-const { loadAgent } = require('./agentConfig');
+const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
@@ -222,6 +222,7 @@ async function processAgent(agentId) {
     valid: 0,
     invalid: 0,
     aiDisabled: 0,
+    soiFiltered: 0,
     rateLimited: 0,
     processable: 0,
   };
@@ -267,6 +268,17 @@ async function processAgent(agentId) {
       continue;
     }
 
+    // Filter: SOI protection
+    if (!isLeadCategoryActionable(row)) {
+      stats.soiFiltered++;
+      try {
+        await email.appendToConversationHistory(agent, row.rowIndex, 'Skipped (SOI): leadCategory=soi');
+      } catch (err) {
+        console.log(`[${agentId}] row ${row.rowIndex} SOI skip log failed: ${err.message}`);
+      }
+      continue;
+    }
+
     // Filter: per-lead rate limit
     if (isWithinRateLimit(row, now)) {
       stats.rateLimited++;
@@ -278,7 +290,7 @@ async function processAgent(agentId) {
   }
 
   console.log(
-    `[${agentId}] summary: valid=${stats.valid} invalid=${stats.invalid} aiDisabled=${stats.aiDisabled} rateLimited=${stats.rateLimited} processable=${stats.processable}`
+    `[${agentId}] summary: valid=${stats.valid} invalid=${stats.invalid} aiDisabled=${stats.aiDisabled} soiFiltered=${stats.soiFiltered} rateLimited=${stats.rateLimited} processable=${stats.processable}`
   );
 
   if (processable.length === 0) {
