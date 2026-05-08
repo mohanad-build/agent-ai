@@ -501,6 +501,96 @@ async function appendToConversationHistory(agentConfig, rowIndex, entry) {
 }
 
 // ---------------------------------------------------------------------------
+// Inbox email helpers (Lead Intake Tier 2)
+// ---------------------------------------------------------------------------
+
+function extractTextBody(payload) {
+  if (!payload) return '';
+  if (payload.mimeType === 'text/plain' && payload.body && payload.body.data) {
+    return Buffer.from(payload.body.data, 'base64').toString('utf8');
+  }
+  if (Array.isArray(payload.parts)) {
+    for (const part of payload.parts) {
+      const text = extractTextBody(part);
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
+async function fetchUnreadInboxEmails(agentConfig) {
+  const auth = getOAuthClient(agentConfig);
+  const gmail = google.gmail({ version: 'v1', auth });
+
+  return withRetry(agentConfig, async () => {
+    const list = await gmail.users.messages.list({
+      userId: 'me',
+      q: 'is:unread in:inbox',
+      maxResults: 100,
+    });
+    const messages = list.data.messages || [];
+    if (messages.length === 0) return [];
+
+    const fetched = await Promise.all(
+      messages.map((m) =>
+        gmail.users.messages.get({
+          userId: 'me',
+          id: m.id,
+          format: 'full',
+        })
+      )
+    );
+
+    return fetched.map((res) => {
+      const msg = res.data;
+      const parsed = parseGmailMessage(msg);
+      const headers = msg.payload?.headers || [];
+      parsed.inReplyTo = getHeader(headers, 'In-Reply-To') || '';
+      parsed.body = extractTextBody(msg.payload);
+      parsed.labelIds = msg.labelIds || [];
+      parsed.internalDate = msg.internalDate ? parseInt(msg.internalDate, 10) : 0;
+      return parsed;
+    });
+  });
+}
+
+async function listLabels(agentConfig) {
+  const auth = getOAuthClient(agentConfig);
+  const gmail = google.gmail({ version: 'v1', auth });
+  return withRetry(agentConfig, async () => {
+    const res = await gmail.users.labels.list({ userId: 'me' });
+    return res.data.labels || [];
+  });
+}
+
+async function createLabel(agentConfig, name) {
+  const auth = getOAuthClient(agentConfig);
+  const gmail = google.gmail({ version: 'v1', auth });
+  return withRetry(agentConfig, async () => {
+    const res = await gmail.users.labels.create({
+      userId: 'me',
+      requestBody: { name },
+    });
+    return res.data;
+  });
+}
+
+async function applyMessageLabels(agentConfig, messageId, addLabelIds, removeLabelIds) {
+  const auth = getOAuthClient(agentConfig);
+  const gmail = google.gmail({ version: 'v1', auth });
+  return withRetry(agentConfig, async () => {
+    await gmail.users.messages.modify({
+      userId: 'me',
+      id: messageId,
+      requestBody: {
+        addLabelIds: addLabelIds || [],
+        removeLabelIds: removeLabelIds || [],
+      },
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -517,6 +607,11 @@ module.exports = {
   updateSheetRow,
   appendSheetRow,
   appendToConversationHistory,
+  extractTextBody,
+  fetchUnreadInboxEmails,
+  listLabels,
+  createLabel,
+  applyMessageLabels,
   AuthFailureError,
   _internal: {
     normalizeSubject,

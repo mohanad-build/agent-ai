@@ -248,12 +248,38 @@ You MUST rewrite the email without using any of those phrases (or close variants
 }
 
 // ---------------------------------------------------------------------------
+// Raw call (for callers that do their own response parsing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Low-level call that returns raw model text without domain-specific parsing.
+ * Used by callers (e.g. Lead Intake heuristic classifier) that need a
+ * system+user prompt call but validate the response themselves.
+ *
+ * Input: { system, user, model?, maxTokens? }
+ *   model    defaults to MODELS.CATEGORIZATION (Haiku)
+ *   maxTokens defaults to 512
+ *
+ * Returns: raw text string.
+ * Throws on API failure after one retry, same as callApi.
+ */
+async function callRaw({ system, user, model, maxTokens }) {
+  return callApi({
+    model: model || MODELS.CATEGORIZATION,
+    maxTokens: maxTokens || 512,
+    system,
+    user,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Module exports
 // ---------------------------------------------------------------------------
 
 module.exports = {
   categorize,
   draft,
+  callRaw,
   // Utilities exported for testability:
   stripDashes,
   findBannedPhrases,

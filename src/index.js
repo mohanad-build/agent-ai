@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
+const { runLeadIntake } = require('./leadIntake');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
@@ -205,6 +206,16 @@ async function processAgent(agentId) {
   if (agent.isActive === false) {
     console.log(`[${agentId}] skipped: isActive=false`);
     return;
+  }
+
+  // Lead Intake Tier 2: classify unstructured inbox emails before processing replies
+  try {
+    const intakeStats = await runLeadIntake(agent);
+    console.log(
+      `[${agentId}] Lead Intake: candidates=${intakeStats.candidates} leads=${intakeStats.leads} noise=${intakeStats.noise} businessCorrespondence=${intakeStats.businessCorrespondence} errors=${intakeStats.errors}`
+    );
+  } catch (err) {
+    console.error(`[${agentId}] Lead Intake failed: ${err.message}`);
   }
 
   // Sheet read

@@ -189,6 +189,70 @@ Classify this reply. Return JSON only.`;
 }
 
 /**
+ * Build the heuristic classifier prompt for Lead Intake Tier 2.
+ * Used by src/leadIntake.js to classify unstructured inbox emails into
+ * lead / noise / business_correspondence using Claude Haiku.
+ *
+ * Returns { system, user } ready to pass to the Anthropic messages API.
+ * The model is expected to return raw JSON only, no markdown fences:
+ *   { "category": "...", "confidence": 0.0, "name": "...", "email": "...",
+ *     "phone": "...", "inquiryMessage": "...", "propertyReference": "...", "reasoning": "..." }
+ */
+function buildHeuristicClassifierPrompt(subject, body, senderName, senderEmail) {
+  const system = `You are an email triage engine for a real estate agent's inbox. You receive an unstructured email and classify it into exactly one of three categories.
+
+Return ONLY a raw JSON object with this exact shape (no markdown fences, no preamble, no explanation outside the JSON):
+
+{
+  "category": "<one of: lead | noise | business_correspondence>",
+  "confidence": <number between 0.0 and 1.0>,
+  "name": "<extracted sender name, or empty string if not determinable>",
+  "email": "<extracted sender email address, or empty string>",
+  "phone": "<extracted phone number from the body, or empty string if none found>",
+  "inquiryMessage": "<the core inquiry from the lead, verbatim or closely paraphrased, or empty string>",
+  "propertyReference": "<any property address or MLS reference mentioned, or empty string>",
+  "reasoning": "<one sentence explaining the classification>"
+}
+
+THE THREE CATEGORIES:
+
+1. lead
+   A real person reaching out because they want to buy, sell, rent, or learn about real estate. May have found the agent via a listing, referral, sign, website, or ad. Key signals: buying/selling/renting/investing intent, questions about properties or the market, mentions of timeline or financing, someone forwarding a referral.
+   Examples: "I saw your listing on MLS, is it still available?", "My friend referred me, we're looking to buy in the spring", "I'm thinking of selling my house, can we talk?"
+
+2. noise
+   Automated emails, newsletters, marketing, promotions, account notifications, subscription confirmations, receipts, spam, or anything not from a real person intending to communicate with the agent.
+   Examples: "Your DocuSign document is ready", "New listings matching your saved search", "50% off this weekend only", "Your monthly invoice", "You have a new connection on LinkedIn"
+
+3. business_correspondence
+   Emails from professionals (lawyers, mortgage brokers, other agents, inspectors, lenders, title companies, contractors) OR from the agent's own brokerage or admin team, OR any ambiguous email that does not clearly fit 'lead' or 'noise'.
+   Examples: "Re: 42 Oak St - closing documents attached", "Following up on yesterday's offer", "Please find the pre-approval letter attached", "I'm an agent with RE/MAX looking to co-represent"
+
+CRITICAL DEFAULT RULE:
+When uncertain between 'lead' and 'business_correspondence', always choose 'business_correspondence'. When uncertain between 'noise' and 'business_correspondence', always choose 'business_correspondence'. Only use 'lead' when there are clear signals of a real person reaching out for real estate help. Only use 'noise' when you are highly confident (>= 0.85) it is automated or promotional. In all other cases, use 'business_correspondence'.
+
+CONFIDENCE GUIDANCE:
+- 0.9-1.0: clear, unambiguous match
+- 0.7-0.9: probable match with minor ambiguity
+- 0.5-0.7: uncertain; system will treat as business_correspondence
+- below 0.5: very uncertain; system will treat as business_correspondence
+
+For name, email, phone, inquiryMessage, propertyReference: extract from the email content when present. Use empty string if not found. Do NOT invent or infer values.
+
+Output the JSON object and nothing else.`;
+
+  const user = `Subject: ${subject}
+From: ${senderName} <${senderEmail}>
+
+Body:
+${body}
+
+Classify this email. Return JSON only.`;
+
+  return { system, user };
+}
+
+/**
  * Build the sign-off instruction block for drafting prompts.
  * Conditional on whether the agent has a Gmail signature configured.
  *
@@ -472,6 +536,7 @@ Draft the brief acknowledgment email now, following all rules above.`;
 
 module.exports = {
   buildCategorizationPrompt,
+  buildHeuristicClassifierPrompt,
   buildPath1ADraftPrompt,
   buildPath1BDraftPrompt,
   buildPath3DraftPrompt,

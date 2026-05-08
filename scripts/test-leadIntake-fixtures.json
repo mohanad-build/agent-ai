@@ -1,0 +1,320 @@
+[
+  {
+    "id": 1,
+    "description": "Clear lead inquiry with full info and property reference",
+    "msg": {
+      "messageId": "msg001",
+      "threadId": "thread001",
+      "from": "John Smith <john.smith@gmail.com>",
+      "subject": "Interested in 42 Oak Street listing",
+      "body": "Hi, I saw your listing at 42 Oak Street on Realtor.ca. Is it still available? We are pre-approved and looking to buy in the next 2-3 months. Please call me at 416-555-0101. Thanks, John",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000000000,
+      "snippet": "I saw your listing at 42 Oak Street"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "lead",
+      "confidence": 0.95,
+      "name": "John Smith",
+      "email": "john.smith@gmail.com",
+      "phone": "416-555-0101",
+      "inquiryMessage": "Interested in 42 Oak Street listing, pre-approved, buying in 2-3 months",
+      "propertyReference": "42 Oak Street",
+      "reasoning": "Real person with clear buying intent and property reference"
+    }
+  },
+  {
+    "id": 2,
+    "description": "Referral lead with minimal body",
+    "msg": {
+      "messageId": "msg002",
+      "threadId": "thread002",
+      "from": "Maria Garcia <maria@hotmail.com>",
+      "subject": "Looking to buy a home in Toronto",
+      "body": "Hello, Mike Chen recommended you. We are first-time buyers looking in the Beaches area. When can we chat?",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000001000,
+      "snippet": "Mike Chen recommended you"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "lead",
+      "confidence": 0.92,
+      "name": "Maria Garcia",
+      "email": "maria@hotmail.com",
+      "phone": "",
+      "inquiryMessage": "First-time buyers looking in the Beaches area, referred by Mike Chen",
+      "propertyReference": "",
+      "reasoning": "Referral with clear buying intent"
+    }
+  },
+  {
+    "id": 3,
+    "description": "Forwarded referral - neighbor wants to sell",
+    "msg": {
+      "messageId": "msg003",
+      "threadId": "thread003",
+      "from": "Tom Wilson <tom.wilson@outlook.com>",
+      "subject": "Referral - my neighbor wants to sell",
+      "body": "Hi Sarah, my neighbor at 100 Maple Ave is thinking about listing. Her name is Linda Park, email linda@gmail.com. She has been in the house 25 years. I thought you would be a great fit. Tom",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000002000,
+      "snippet": "my neighbor wants to sell"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "lead",
+      "confidence": 0.88,
+      "name": "Tom Wilson",
+      "email": "tom.wilson@outlook.com",
+      "phone": "",
+      "inquiryMessage": "Neighbor at 100 Maple Ave wants to sell",
+      "propertyReference": "100 Maple Ave",
+      "reasoning": "Forwarded referral with clear selling intent"
+    }
+  },
+  {
+    "id": 4,
+    "description": "Lawyer email with closing documents",
+    "msg": {
+      "messageId": "msg004",
+      "threadId": "thread004",
+      "from": "James Patel <james.patel@lawfirm.com>",
+      "subject": "Closing documents for 55 Park Blvd",
+      "body": "Dear Sarah, please find attached the executed Agreement of Purchase and Sale for the property at 55 Park Blvd. Closing is set for November 30. Please confirm receipt. James Patel, Patel and Associates",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000003000,
+      "snippet": "executed Agreement of Purchase and Sale"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "business_correspondence",
+      "confidence": 0.96,
+      "name": "James Patel",
+      "email": "james.patel@lawfirm.com",
+      "phone": "",
+      "inquiryMessage": "",
+      "propertyReference": "55 Park Blvd",
+      "reasoning": "Legal professional sending closing documents"
+    }
+  },
+  {
+    "id": 5,
+    "description": "Fellow real estate agent co-rep inquiry",
+    "msg": {
+      "messageId": "msg005",
+      "threadId": "thread005",
+      "from": "Kevin Li <kevin.li@remax.com>",
+      "subject": "Co-rep inquiry for your listing at 210 Queen St",
+      "body": "Hi Sarah, I am Kevin with RE/MAX. I have a buyer interested in your listing at 210 Queen St. Would you be open to a co-rep arrangement? Let me know. Kevin Li, RE/MAX",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000004000,
+      "snippet": "buyer interested in your listing"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "business_correspondence",
+      "confidence": 0.94,
+      "name": "Kevin Li",
+      "email": "kevin.li@remax.com",
+      "phone": "",
+      "inquiryMessage": "",
+      "propertyReference": "210 Queen St",
+      "reasoning": "Real estate agent co-rep inquiry"
+    }
+  },
+  {
+    "id": 6,
+    "description": "Mortgage broker sending pre-approval letter",
+    "msg": {
+      "messageId": "msg006",
+      "threadId": "thread006",
+      "from": "Amanda Clarke <amanda@tdmortgage.ca>",
+      "subject": "Pre-approval letter for your client David Kim",
+      "body": "Hi Sarah, please find attached the pre-approval letter for David Kim for $850,000. This is valid for 90 days. Let me know if you need anything else. Amanda Clarke, TD Mortgage Specialist",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000005000,
+      "snippet": "pre-approval letter for your client"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "business_correspondence",
+      "confidence": 0.97,
+      "name": "Amanda Clarke",
+      "email": "amanda@tdmortgage.ca",
+      "phone": "",
+      "inquiryMessage": "",
+      "propertyReference": "",
+      "reasoning": "Mortgage broker sending client pre-approval letter"
+    }
+  },
+  {
+    "id": 7,
+    "description": "Automated newsletter from listing portal",
+    "msg": {
+      "messageId": "msg007",
+      "threadId": "thread007",
+      "from": "noreply@realtor.ca",
+      "subject": "New listings matching your saved search - 5 properties found",
+      "body": "Based on your saved search criteria, here are 5 new listings. Property 1: 42 Elm St - $799K. Property 2: 18 Birch Ave - $650K. Update your search preferences. Unsubscribe.",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000006000,
+      "snippet": "5 new listings matching your saved search"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "noise",
+      "confidence": 0.96,
+      "name": "",
+      "email": "",
+      "phone": "",
+      "inquiryMessage": "",
+      "propertyReference": "",
+      "reasoning": "Automated listing alert newsletter with unsubscribe link"
+    }
+  },
+  {
+    "id": 8,
+    "description": "Google Calendar invite - blocked by calendar domain rule",
+    "msg": {
+      "messageId": "msg008",
+      "threadId": "thread008",
+      "from": "noreply@google.com",
+      "subject": "Invitation: Showing at 42 Oak St Thu Nov 30 10am",
+      "body": "You have been invited to: Showing at 42 Oak St on Thursday November 30 at 10am. Accept or Decline.",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000007000,
+      "snippet": "Invitation: Showing at 42 Oak St"
+    },
+    "expected_prefilter_result": { "pass": false, "reason": "calendar domain: google.com" }
+  },
+  {
+    "id": 9,
+    "description": "Reply to existing thread - blocked by inReplyTo rule",
+    "msg": {
+      "messageId": "msg009",
+      "threadId": "thread009",
+      "from": "Rachel Brown <rachel@gmail.com>",
+      "subject": "Re: Properties in Rosedale",
+      "body": "Yes that sounds good, Tuesday works for me. See you then!",
+      "inReplyTo": "<orig-message-id-123@gmail.com>",
+      "labelIds": [],
+      "internalDate": 1700000008000,
+      "snippet": "Tuesday works for me"
+    },
+    "expected_prefilter_result": { "pass": false, "reason": "reply (In-Reply-To present)" }
+  },
+  {
+    "id": 10,
+    "description": "Ambiguous outreach from property management company - defaults to business_correspondence",
+    "msg": {
+      "messageId": "msg010",
+      "threadId": "thread010",
+      "from": "info@propertymanagement.ca",
+      "subject": "Question about your services",
+      "body": "Hello, we are a property management company and wanted to reach out to discuss a potential referral partnership. Let us know if you are interested.",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000009000,
+      "snippet": "potential referral partnership"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "business_correspondence",
+      "confidence": 0.75,
+      "name": "",
+      "email": "",
+      "phone": "",
+      "inquiryMessage": "",
+      "propertyReference": "",
+      "reasoning": "Property management company seeking partnership, ambiguous but not a personal lead"
+    }
+  },
+  {
+    "id": 11,
+    "description": "LinkedIn connection notification - clear noise (second noise fixture)",
+    "msg": {
+      "messageId": "msg011",
+      "threadId": "thread011",
+      "from": "notifications-noreply@linkedin.com",
+      "subject": "You have a new connection on LinkedIn",
+      "body": "Your network is growing! David Kim accepted your invitation to connect on LinkedIn. Message David or view their profile. Manage notifications. Unsubscribe from these emails.",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000010000,
+      "snippet": "David Kim accepted your invitation to connect"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "noise",
+      "confidence": 0.95,
+      "name": "",
+      "email": "",
+      "phone": "",
+      "inquiryMessage": "",
+      "propertyReference": "",
+      "reasoning": "Automated LinkedIn social notification with unsubscribe link, no real estate relevance"
+    }
+  },
+  {
+    "id": 12,
+    "description": "ShowingTime automated showing request - looks like noise but confidence < 0.85 so falls through to business_correspondence",
+    "msg": {
+      "messageId": "msg012",
+      "threadId": "thread012",
+      "from": "notifications@showingtime.com",
+      "subject": "New Showing Request - 42 Oak Street - Sat Nov 25 2:00 PM",
+      "body": "A showing has been requested for your listing at 42 Oak Street. Date: Saturday November 25 at 2:00 PM. Requesting agent: Kevin Brown, RE/MAX City Realty. Please confirm or decline within 2 hours. Log in to ShowingTime to manage this request.",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000011000,
+      "snippet": "New showing request for 42 Oak Street"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "business_correspondence",
+      "confidence": 0.72,
+      "name": "",
+      "email": "",
+      "phone": "",
+      "inquiryMessage": "",
+      "propertyReference": "42 Oak Street",
+      "reasoning": "Automated showing platform notification but contains real actionable request from another agent; noise confidence falls below 0.85 threshold so classified as business_correspondence"
+    }
+  },
+  {
+    "id": 13,
+    "description": "Lead with substantive subject but empty body - passes pre-filter (subject is not short)",
+    "msg": {
+      "messageId": "msg013",
+      "threadId": "thread013",
+      "from": "David Chen <david.chen@gmail.com>",
+      "subject": "Interested in buying in the Annex area, looking for a 2-bedroom",
+      "body": "",
+      "inReplyTo": "",
+      "labelIds": [],
+      "internalDate": 1700000012000,
+      "snippet": "Interested in buying in the Annex area"
+    },
+    "expected_prefilter_result": { "pass": true },
+    "expected_classification": {
+      "category": "lead",
+      "confidence": 0.75,
+      "name": "David Chen",
+      "email": "david.chen@gmail.com",
+      "phone": "",
+      "inquiryMessage": "Looking to buy a 2-bedroom in the Annex area",
+      "propertyReference": "",
+      "reasoning": "Clear buying intent in subject line despite empty body"
+    }
+  }
+]
