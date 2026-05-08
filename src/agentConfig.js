@@ -42,4 +42,24 @@ function isLeadCategoryActionable(row) {
   return row.leadCategory.trim().toLowerCase() !== 'soi';
 }
 
-module.exports = { loadAgent, findAgentByPhone, isLeadCategoryActionable };
+// Returns the follow-up cadence for an agent as an array of positive integers
+// representing days between touches (e.g. [3, 7, 14] means Day 3, Day 7, Day 14).
+// Validates agent.followUpCadence; falls back to the default on invalid config.
+const DEFAULT_FOLLOW_UP_CADENCE = [3, 7, 14];
+
+function getFollowUpCadence(agent) {
+  const raw = agent.followUpCadence;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return DEFAULT_FOLLOW_UP_CADENCE;
+  }
+  const valid = raw.every((d) => Number.isInteger(d) && d > 0);
+  if (!valid) {
+    console.warn(
+      `[${agent.agentId}] getFollowUpCadence: invalid followUpCadence ${JSON.stringify(raw)}, using default [3,7,14]`
+    );
+    return DEFAULT_FOLLOW_UP_CADENCE;
+  }
+  return raw;
+}
+
+module.exports = { loadAgent, findAgentByPhone, isLeadCategoryActionable, getFollowUpCadence };

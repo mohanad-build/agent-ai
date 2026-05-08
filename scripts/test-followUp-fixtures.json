@@ -1,0 +1,280 @@
+[
+  {
+    "id": 1,
+    "description": "Day 3 eligible: status=awaiting_response, followUpCount=0, 4 days since lastFollowUpDate",
+    "row": {
+      "rowIndex": 2,
+      "leadId": "alice@example.com",
+      "name": "Alice Johnson",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_001",
+      "originalMessage": "Interested in buying a 3-bedroom in Rosedale",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 4,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": true,
+      "touchIndex": 0,
+      "newStatus": "awaiting_response",
+      "newFollowUpCount": "1"
+    }
+  },
+  {
+    "id": 2,
+    "description": "Day 7 eligible: followUpCount=1, 8 days since last follow-up",
+    "row": {
+      "rowIndex": 3,
+      "leadId": "bob@example.com",
+      "name": "Bob Martinez",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "1",
+      "gmailThreadId": "thread_002",
+      "originalMessage": "Looking to sell my house this spring",
+      "conversationHistory": "Follow-up Day 3 sent"
+    },
+    "lastFollowUpDaysAgo": 8,
+    "lastActionDaysAgo": 8,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": true,
+      "touchIndex": 1,
+      "newStatus": "awaiting_response",
+      "newFollowUpCount": "2"
+    }
+  },
+  {
+    "id": 3,
+    "description": "Day 14 eligible: followUpCount=2, 15 days since last follow-up - cold flip",
+    "row": {
+      "rowIndex": 4,
+      "leadId": "carol@example.com",
+      "name": "Carol Lee",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "2",
+      "gmailThreadId": "thread_003",
+      "originalMessage": "Want to buy a condo downtown",
+      "conversationHistory": "Follow-up Day 3 sent | Follow-up Day 7 sent"
+    },
+    "lastFollowUpDaysAgo": 15,
+    "lastActionDaysAgo": 15,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": true,
+      "touchIndex": 2,
+      "newStatus": "cold",
+      "newFollowUpCount": "3"
+    }
+  },
+  {
+    "id": 4,
+    "description": "Not eligible: too early, only 2 days since last action (need 3)",
+    "row": {
+      "rowIndex": 5,
+      "leadId": "david@example.com",
+      "name": "David Park",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_004",
+      "originalMessage": "Interested in buying",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 2,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": false,
+      "skipReason": "too_early"
+    }
+  },
+  {
+    "id": 5,
+    "description": "Not eligible: status is warm, not awaiting_response",
+    "row": {
+      "rowIndex": 6,
+      "leadId": "eve@example.com",
+      "name": "Eve Wilson",
+      "status": "warm",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_005",
+      "originalMessage": "Checking out the market",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 5,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": false,
+      "skipReason": "wrong_status"
+    }
+  },
+  {
+    "id": 6,
+    "description": "Not eligible: aiEnabled=FALSE",
+    "row": {
+      "rowIndex": 7,
+      "leadId": "frank@example.com",
+      "name": "Frank Brown",
+      "status": "awaiting_response",
+      "aiEnabled": "FALSE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_006",
+      "originalMessage": "Looking to buy",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 10,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": false,
+      "skipReason": "ai_disabled"
+    }
+  },
+  {
+    "id": 7,
+    "description": "Not eligible: followUpCount=3, all touches exhausted for default [3,7,14] cadence",
+    "row": {
+      "rowIndex": 8,
+      "leadId": "grace@example.com",
+      "name": "Grace Kim",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "3",
+      "gmailThreadId": "thread_007",
+      "originalMessage": "Interested in listing",
+      "conversationHistory": "Day 3 | Day 7 | Day 14"
+    },
+    "lastFollowUpDaysAgo": 20,
+    "lastActionDaysAgo": 20,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": false,
+      "skipReason": "max_touches_reached"
+    }
+  },
+  {
+    "id": 8,
+    "description": "Threading mismatch: thread has reply newer than lastFollowUpDate",
+    "row": {
+      "rowIndex": 9,
+      "leadId": "henry@example.com",
+      "name": "Henry Zhang",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_008",
+      "originalMessage": "Interested in buying",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 4,
+    "threadActivityDaysAgo": 1,
+    "expected": {
+      "shouldFire": false,
+      "skipReason": "threading_mismatch",
+      "threadingMismatchSkippedIncremented": true
+    }
+  },
+  {
+    "id": 9,
+    "description": "Not eligible: no lastFollowUpDate and no lastActionTimestamp",
+    "row": {
+      "rowIndex": 10,
+      "leadId": "iris@example.com",
+      "name": "Iris Chen",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_009",
+      "originalMessage": "Looking to buy",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": null,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": false,
+      "skipReason": "no_reference_timestamp"
+    }
+  },
+  {
+    "id": 10,
+    "description": "Day 3 eligible via lastActionTimestamp fallback (lastFollowUpDate empty)",
+    "row": {
+      "rowIndex": 11,
+      "leadId": "jake@example.com",
+      "name": "Jake Thompson",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_010",
+      "originalMessage": "Want to buy in the east end",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 5,
+    "threadActivityDaysAgo": null,
+    "expected": {
+      "shouldFire": true,
+      "touchIndex": 0,
+      "newStatus": "awaiting_response",
+      "newFollowUpCount": "1"
+    }
+  },
+  {
+    "id": 11,
+    "description": "Shadow mode: follow-up fires but email goes to agent, not lead",
+    "row": {
+      "rowIndex": 12,
+      "leadId": "karen@example.com",
+      "name": "Karen Davis",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_011",
+      "originalMessage": "First-time buyer question",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 4,
+    "threadActivityDaysAgo": null,
+    "agentOverride": { "mode": "shadow" },
+    "expected": {
+      "shouldFire": true,
+      "touchIndex": 0,
+      "sendMode": "shadow"
+    }
+  },
+  {
+    "id": 12,
+    "description": "Custom cadence [5, 10]: Day 5 eligible with followUpCount=0, 6 days elapsed",
+    "row": {
+      "rowIndex": 13,
+      "leadId": "liam@example.com",
+      "name": "Liam Scott",
+      "status": "awaiting_response",
+      "aiEnabled": "TRUE",
+      "followUpCount": "0",
+      "gmailThreadId": "thread_012",
+      "originalMessage": "Looking for an investment property",
+      "conversationHistory": ""
+    },
+    "lastFollowUpDaysAgo": null,
+    "lastActionDaysAgo": 6,
+    "threadActivityDaysAgo": null,
+    "agentOverride": { "followUpCadence": [5, 10] },
+    "expected": {
+      "shouldFire": true,
+      "touchIndex": 0,
+      "newStatus": "awaiting_response",
+      "newFollowUpCount": "1"
+    }
+  }
+]

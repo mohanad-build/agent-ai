@@ -530,6 +530,185 @@ Draft the brief acknowledgment email now, following all rules above.`;
   return { system, user };
 }
 
+/**
+ * Build the Day 3 follow-up draft prompt (first follow-up touch).
+ * For leads in 'awaiting_response' whose last outbound was 3+ days ago.
+ *
+ * Returns { system, user }.
+ */
+function buildFollowUpDay3Prompt(agentConfig, row, conversationHistory, hasGmailSignature) {
+  const agentContextBlock = buildAgentContext(agentConfig);
+  const bannedPhrasesList = buildBannedPhrasesList(agentConfig);
+  const cannotInventList = buildCannotInventList(agentConfig);
+  const signoffBlock = buildSignoffInstructions(agentConfig, hasGmailSignature);
+  const wordRange = EMAIL_LENGTH_RANGES[agentConfig.emailLength] || EMAIL_LENGTH_RANGES.short;
+  const leadFirstName = (row.name || '').split(' ')[0] || 'there';
+
+  const system = `${agentContextBlock}
+
+You are drafting the first follow-up email to a real estate lead who has not replied to your initial outreach. Three days have passed. The tone should be warm, brief, and low-pressure.
+
+DRAFTING RULES:
+
+1. Length: ${wordRange}, in 1 to 2 short paragraphs.
+
+2. Salutation: Start with "Hi ${leadFirstName},"
+
+3. Open with a brief, natural reference to your previous message. Do NOT restate the entire original inquiry. One soft reference is enough.
+
+4. Offer something specific: a question about their timeline, a note about staying available, or a single next step. No generic filler.
+
+5. Close with ONE low-pressure call to action. "Want me to..." or "Happy to..." style. Not pushy.
+
+6. ${signoffBlock}
+
+BANNED PHRASES (do not use any of these, in any form):
+${bannedPhrasesList}
+
+CHARACTERS BANNED:
+- Em-dashes (--) and en-dashes are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+
+DO NOT INVENT:
+${cannotInventList}
+
+OUTPUT RULE:
+Return ONLY the email body text. Do NOT include a subject line. Start with "Hi ${leadFirstName}," and end with the sign-off.`;
+
+  const priorSection = conversationHistory && String(conversationHistory).trim()
+    ? '\n\nPrior conversation:\n"""\n' + conversationHistory + '\n"""'
+    : '';
+
+  const user = `Lead name: ${row.name || 'unknown'}
+Original inquiry: ${row.originalMessage || '(not on file)'}${priorSection}
+
+Draft the Day 3 follow-up email now, following all rules above.`;
+
+  return { system, user };
+}
+
+/**
+ * Build the Day 7 follow-up draft prompt (second follow-up touch).
+ * For leads in 'awaiting_response' whose last outbound was 7+ days ago.
+ *
+ * Returns { system, user }.
+ */
+function buildFollowUpDay7Prompt(agentConfig, row, conversationHistory, hasGmailSignature) {
+  const agentContextBlock = buildAgentContext(agentConfig);
+  const bannedPhrasesList = buildBannedPhrasesList(agentConfig);
+  const cannotInventList = buildCannotInventList(agentConfig);
+  const signoffBlock = buildSignoffInstructions(agentConfig, hasGmailSignature);
+  const wordRange = EMAIL_LENGTH_RANGES[agentConfig.emailLength] || EMAIL_LENGTH_RANGES.short;
+  const leadFirstName = (row.name || '').split(' ')[0] || 'there';
+
+  const system = `${agentContextBlock}
+
+You are drafting the second follow-up email to a real estate lead who has not replied. A week has passed since your last message. Acknowledge that they may be busy, but stay concise and helpful.
+
+DRAFTING RULES:
+
+1. Length: ${wordRange}, in 1 to 2 short paragraphs.
+
+2. Salutation: Start with "Hi ${leadFirstName},"
+
+3. Briefly acknowledge that you are following up again, without sounding impatient or pushy.
+
+4. Add a small amount of value: a relevant observation, a question about how their search is going, or an offer to help with something specific. No invented market data.
+
+5. Close with a clear, easy-to-act-on next step. Keep it simple.
+
+6. ${signoffBlock}
+
+BANNED PHRASES (do not use any of these, in any form):
+${bannedPhrasesList}
+
+CHARACTERS BANNED:
+- Em-dashes (--) and en-dashes are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+
+DO NOT INVENT:
+${cannotInventList}
+
+OUTPUT RULE:
+Return ONLY the email body text. Do NOT include a subject line. Start with "Hi ${leadFirstName}," and end with the sign-off.`;
+
+  const priorSection = conversationHistory && String(conversationHistory).trim()
+    ? '\n\nPrior conversation:\n"""\n' + conversationHistory + '\n"""'
+    : '';
+
+  const user = `Lead name: ${row.name || 'unknown'}
+Original inquiry: ${row.originalMessage || '(not on file)'}${priorSection}
+
+Draft the Day 7 follow-up email now, following all rules above.`;
+
+  return { system, user };
+}
+
+/**
+ * Build the Day 14 follow-up draft prompt (final follow-up touch).
+ * For leads in 'awaiting_response' whose last outbound was 14+ days ago.
+ * After this fires the lead's status is set to 'cold'.
+ *
+ * Returns { system, user }.
+ */
+function buildFollowUpDay14Prompt(agentConfig, row, conversationHistory, hasGmailSignature) {
+  const agentContextBlock = buildAgentContext(agentConfig);
+  const cannotInventList = buildCannotInventList(agentConfig);
+  const signoffBlock = buildSignoffInstructions(agentConfig, hasGmailSignature);
+  const leadFirstName = (row.name || '').split(' ')[0] || 'there';
+
+  // Day 14 adds closure-signaling phrases to the banned list in addition to the
+  // universal set so the model never lets the lead know this is a stopping point.
+  const day14ExtraBanned = [
+    'last follow-up',
+    'final message',
+    'last attempt',
+    'wrapping up',
+    'closing the file',
+  ];
+  const mergedBanned = getMergedBannedPhrases(agentConfig).concat(day14ExtraBanned);
+  const bannedPhrasesListDay14 = mergedBanned.map((p) => `- "${p}"`).join('\n');
+
+  const system = `${agentContextBlock}
+
+You are drafting a follow-up email to a real estate lead. Two weeks have passed since their initial inquiry. The tone should be gracious, zero-pressure, and leave the door open.
+
+DRAFTING RULES:
+
+1. Length: 40 to 80 words. One short paragraph.
+
+2. Salutation: Start with "Hi ${leadFirstName},"
+
+3. Acknowledge that you understand timing matters and you do not want to keep crowding their inbox. Do not signal that you are stopping outreach. Do not say goodbye. The lead should read this as a warm, low-stakes note, nothing more.
+
+4. Leave the door open simply and genuinely. One sentence. No hard sell, no urgency.
+
+5. Close with a single soft offer: if their timing changes or they have questions, you are available. No strong call-to-action.
+
+6. ${signoffBlock}
+
+BANNED PHRASES (do not use any of these, in any form):
+${bannedPhrasesListDay14}
+
+CHARACTERS BANNED:
+- Em-dashes (--) and en-dashes are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+
+DO NOT INVENT:
+${cannotInventList}
+
+OUTPUT RULE:
+Return ONLY the email body text. Do NOT include a subject line. Start with "Hi ${leadFirstName}," and end with the sign-off.`;
+
+  const priorSection = conversationHistory && String(conversationHistory).trim()
+    ? '\n\nPrior conversation:\n"""\n' + conversationHistory + '\n"""'
+    : '';
+
+  const user = `Lead name: ${row.name || 'unknown'}
+Original inquiry: ${row.originalMessage || '(not on file)'}${priorSection}
+
+Draft the follow-up email now, following all rules above.`;
+
+  return { system, user };
+}
+
 // ---------------------------------------------------------------------------
 // Module exports
 // ---------------------------------------------------------------------------
@@ -540,6 +719,9 @@ module.exports = {
   buildPath1ADraftPrompt,
   buildPath1BDraftPrompt,
   buildPath3DraftPrompt,
+  buildFollowUpDay3Prompt,
+  buildFollowUpDay7Prompt,
+  buildFollowUpDay14Prompt,
   buildSignoffInstructions,
 
   // Exported for testing visibility:

@@ -16,6 +16,7 @@ const path = require('path');
 
 const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
 const { runLeadIntake } = require('./leadIntake');
+const followUp = require('./followUp');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
@@ -502,6 +503,12 @@ async function main() {
       const agent = loadAgent(id);
       const staleResult = await checkStaleQuestions(agent);
       console.log(`[${id}] stale check: reminders=${staleResult.remindersSent} escalations=${staleResult.escalationsSent} errors=${staleResult.errors.length}`);
+      try {
+        const followUpResult = await followUp.runFollowUps(agent);
+        console.log(`[${id}] follow-ups: eligible=${followUpResult.eligible} fired=${followUpResult.fired} threadingSkipped=${followUpResult.threadingMismatchSkipped} errors=${followUpResult.errors}`);
+      } catch (fuErr) {
+        console.error(`[${id}] follow-up run failed: ${fuErr.message}`);
+      }
     } catch (err) {
       // One agent's failure must not stop others.
       console.error(`[${id}] uncaught error: ${err.message}`);

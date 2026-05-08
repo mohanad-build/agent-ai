@@ -74,6 +74,156 @@ function normalizeReplySubject(raw) {
   return 'Re: ' + s;
 }
 
+// Parses a CALLED/RESUME command token from the part after the keyword.
+// The token may be a lead email address or a Q-token (e.g. "Q47").
+// Returns { type: 'email'|'qtoken', value } or null if unrecognizable.
+function parseCommandToken(tokenStr) {
+  if (!tokenStr) return null;
+  const s = tokenStr.trim();
+  if (s.includes('@')) return { type: 'email', value: s.toLowerCase() };
+  const qMatch = s.match(/Q\s*-?\s*(\d+)/i);
+  if (qMatch) return { type: 'qtoken', value: 'Q' + qMatch[1] };
+  return null;
+}
+
+// Looks up a sheet row by a command token (email or Q-token).
+// Returns the matched row, or null if not found.
+async function lookupRowByCommandToken(agent, parsed) {
+  const rows = await emailModule.readSheetRows(agent);
+  if (parsed.type === 'email') {
+    return rows.find((r) => String(r.leadId || '').trim().toLowerCase() === parsed.value) || null;
+  }
+  for (const row of rows) {
+    const entries = parsePendingQuestions(row.pendingQuestion);
+    const entry = findEntryByToken(entries, parsed.value);
+    if (entry) return row;
+  }
+  return null;
+}
+
+// Handles "CALLED <token>" from the agent. Sets the lead to manual_handling.
+// Never throws.
+async function handleCalledCommand(agent, body) {
+  const match = body.match(/^CALLED\s+(\S+)/i);
+  if (!match) {
+    await twilioModule.sendSMS(agent, 'Format: CALLED <Q-token or lead email>').catch(() => {});
+    return;
+  }
+  const parsed = parseCommandToken(match[1]);
+  if (!parsed) {
+    await twilioModule.sendSMS(agent, 'Could not parse token: ' + match[1]).catch(() => {});
+    return;
+  }
+
+  let matchedRow;
+  try {
+    matchedRow = await lookupRowByCommandToken(agent, parsed);
+  } catch (err) {
+    console.error('webhook: handleCalledCommand readSheetRows failed for agent ' + agent.agentId + ': ' + err.message);
+    return;
+  }
+
+  if (!matchedRow) {
+    await twilioModule.sendSMS(agent, 'Lead not found for: ' + match[1]).catch(() => {});
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  try {
+    await emailModule.updateSheetRow(agent, matchedRow.rowIndex, {
+      status: 'manual_handling',
+      lastActionTimestamp: nowIso,
+    });
+  } catch (err) {
+    console.error('webhook: handleCalledCommand updateSheetRow failed: ' + err.message);
+    return;
+  }
+
+  try {
+    await emailModule.appendToConversationHistory(
+      agent,
+      matchedRow.rowIndex,
+      'Agent called lead, status set to manual_handling via SMS command'
+    );
+  } catch (err) {
+    console.warn('webhook: handleCalledCommand appendToConversationHistory failed: ' + err.message);
+  }
+
+  await twilioModule.sendSMS(
+    agent,
+    matchedRow.name + ' (' + matchedRow.leadId + ') set to manual_handling.'
+  ).catch(() => {});
+
+  console.log('webhook: CALLED command processed for agent ' + agent.agentId + ', lead ' + matchedRow.leadId);
+}
+
+// Handles "RESUME <token>" from the agent. Validates current status is
+// manual_handling, then flips to awaiting_response and resets follow-up counters.
+// Never throws.
+async function handleResumeCommand(agent, body) {
+  const match = body.match(/^RESUME\s+(\S+)/i);
+  if (!match) {
+    await twilioModule.sendSMS(agent, 'Format: RESUME <Q-token or lead email>').catch(() => {});
+    return;
+  }
+  const parsed = parseCommandToken(match[1]);
+  if (!parsed) {
+    await twilioModule.sendSMS(agent, 'Could not parse token: ' + match[1]).catch(() => {});
+    return;
+  }
+
+  let matchedRow;
+  try {
+    matchedRow = await lookupRowByCommandToken(agent, parsed);
+  } catch (err) {
+    console.error('webhook: handleResumeCommand readSheetRows failed for agent ' + agent.agentId + ': ' + err.message);
+    return;
+  }
+
+  if (!matchedRow) {
+    await twilioModule.sendSMS(agent, 'Lead not found for: ' + match[1]).catch(() => {});
+    return;
+  }
+
+  if (matchedRow.status !== 'manual_handling') {
+    await twilioModule.sendSMS(
+      agent,
+      matchedRow.name + ' is not in manual_handling (current: ' + (matchedRow.status || 'unknown') + '). Use CALLED first.'
+    ).catch(() => {});
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  try {
+    await emailModule.updateSheetRow(agent, matchedRow.rowIndex, {
+      status: 'awaiting_response',
+      lastFollowUpDate: nowIso,
+      followUpCount: '0',
+      lastActionTimestamp: nowIso,
+    });
+  } catch (err) {
+    console.error('webhook: handleResumeCommand updateSheetRow failed: ' + err.message);
+    return;
+  }
+
+  try {
+    await emailModule.appendToConversationHistory(
+      agent,
+      matchedRow.rowIndex,
+      'Agent resumed AI follow-ups via SMS command. Status set to awaiting_response, follow-up count reset to 0.'
+    );
+  } catch (err) {
+    console.warn('webhook: handleResumeCommand appendToConversationHistory failed: ' + err.message);
+  }
+
+  await twilioModule.sendSMS(
+    agent,
+    matchedRow.name + ' (' + matchedRow.leadId + ') AI follow-ups resumed.'
+  ).catch(() => {});
+
+  console.log('webhook: RESUME command processed for agent ' + agent.agentId + ', lead ' + matchedRow.leadId);
+}
+
 // Sends the agent a list of their currently open questions via SMS.
 // Used when the incoming message has no token, multiple tokens, or an
 // unrecognized token (PATH BETA / PATH GAMMA).
@@ -342,9 +492,17 @@ function createApp() {
     res.type('text/xml').status(200).send(EMPTY_TWIML);
 
     setImmediate(() => {
-      handleAgentReply(agent, body, messageSid, type, token).catch((err) => {
+      let dispatchPromise;
+      if (/^CALLED\s+\S/i.test(body.trim())) {
+        dispatchPromise = handleCalledCommand(agent, body);
+      } else if (/^RESUME\s+\S/i.test(body.trim())) {
+        dispatchPromise = handleResumeCommand(agent, body);
+      } else {
+        dispatchPromise = handleAgentReply(agent, body, messageSid, type, token);
+      }
+      dispatchPromise.catch((err) => {
         console.error(
-          'webhook: unhandled error in handleAgentReply for agent ' + agent.agentId + ': ' + err.message
+          'webhook: unhandled error dispatching for agent ' + agent.agentId + ': ' + err.message
         );
       });
     });
@@ -368,4 +526,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, handleAgentReply, sendOpenQuestionsSuggestion };
+module.exports = { createApp, handleAgentReply, sendOpenQuestionsSuggestion, handleCalledCommand, handleResumeCommand };
