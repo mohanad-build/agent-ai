@@ -217,8 +217,22 @@ Return ONLY a raw JSON object with this exact shape (no markdown fences, no prea
 THE THREE CATEGORIES:
 
 1. lead
-   A real person reaching out because they want to buy, sell, rent, or learn about real estate. May have found the agent via a listing, referral, sign, website, or ad. Key signals: buying/selling/renting/investing intent, questions about properties or the market, mentions of timeline or financing, someone forwarding a referral.
-   Examples: "I saw your listing on MLS, is it still available?", "My friend referred me, we're looking to buy in the spring", "I'm thinking of selling my house, can we talk?"
+   A real person reaching out because they (the sender themselves) want to buy, sell, rent, or invest, AND they are asking the agent to do something for them. May have found the agent via a listing, referral, sign, website, or ad.
+
+   REQUIRED signals (at least one must be present):
+   - Explicit ask of the agent (request a viewing, request a callback, ask if a property is available, ask to schedule a meeting, ask the agent to start working with them, share contact info expecting to be contacted)
+   - First-person transaction intent (the sender themselves is buying, selling, renting, or investing, NOT their friend, family member, or colleague unless they are explicitly making an introduction with contact info)
+
+   SUPPORTING signals (reinforce a lead classification but do not establish it on their own):
+   - Property reference (specific address, MLS#, neighborhood, listing)
+   - Timeline mentioned
+   - Financing mentioned (pre-approval, mortgage broker)
+   - Phone number provided in the body
+
+   Examples:
+   - "I saw your listing on MLS, is it still available?" (explicit ask + first-person intent)
+   - "We're pre-approved and looking to buy in the spring, can we set up a call?" (explicit ask + first-person intent + supporting signals)
+   - "My friend Sarah is looking to buy, here's her number, can you reach out to her?" (explicit ask + clear introduction with contact)
 
 2. noise
    Automated emails, newsletters, marketing, promotions, account notifications, subscription confirmations, receipts, spam, or anything not from a real person intending to communicate with the agent.
@@ -227,6 +241,27 @@ THE THREE CATEGORIES:
 3. business_correspondence
    Emails from professionals (lawyers, mortgage brokers, other agents, inspectors, lenders, title companies, contractors) OR from the agent's own brokerage or admin team, OR any ambiguous email that does not clearly fit 'lead' or 'noise'.
    Examples: "Re: 42 Oak St - closing documents attached", "Following up on yesterday's offer", "Please find the pre-approval letter attached", "I'm an agent with RE/MAX looking to co-represent"
+
+NOT-A-LEAD ANTI-PATTERNS (classify these as business_correspondence):
+
+The following look superficially like leads but are NOT. When you see these patterns, classify as business_correspondence even if intent words, area mentions, or timelines are present.
+
+A) Casual conversation from someone in the agent's life. BOTH of these must be true:
+   - Informal tone with conversational register, ongoing-relationship language ("hey", "yo", "talk soon", "long time"), references to past shared context, or similar signals that the email is part of an existing personal relationship rather than a first contact.
+   - No clear ask of the agent. The email is sharing information, asking for an opinion, or making conversation rather than requesting a service (viewing, callback, working together, property availability check).
+   When both conditions hit, this is a friend or family contact, not a prospect.
+
+B) Third-person mentions without an introduction. The sender mentions that someone ELSE (a brother, friend, coworker, family member) is thinking about a real estate transaction, but the sender does NOT:
+   - Provide the third party's contact info, AND
+   - Explicitly ask the agent to reach out to them
+   Without BOTH of those, this is conversation, not a referral. Words like "my brother is thinking about buying" or "my coworker might sell next year" without an introduction are casual conversation.
+
+C) Questions about real estate as a topic, not as a service the agent provides. Educational questions, market curiosity, casual asks about conditions or trends. The sender is curious, not transacting.
+   Examples: "is that area still hot?", "what do you think about the rate cuts?", "curious what you're seeing in the market"
+
+D) Industry chatter from peers. Other agents, mortgage brokers, inspectors, lawyers discussing market conditions, sharing news, or networking, without referencing a specific deal or asking for action.
+
+When the email matches ANY of these patterns, classify as business_correspondence regardless of how many other signals are present. Casual or conversational mention of real estate from someone in the agent's life is the dominant signal.
 
 CRITICAL DEFAULT RULE:
 When uncertain between 'lead' and 'business_correspondence', always choose 'business_correspondence'. When uncertain between 'noise' and 'business_correspondence', always choose 'business_correspondence'. Only use 'lead' when there are clear signals of a real person reaching out for real estate help. Only use 'noise' when you are highly confident (>= 0.85) it is automated or promotional. In all other cases, use 'business_correspondence'.
