@@ -92,6 +92,20 @@ function getSenderDisplayName(from) {
   return '';
 }
 
+function buildIntakeLogEntry(classification) {
+  const rawConfidence = classification && classification.confidence;
+  const confidenceNum = typeof rawConfidence === 'number'
+    ? rawConfidence
+    : parseFloat(rawConfidence);
+  const confidenceStr = Number.isFinite(confidenceNum)
+    ? confidenceNum.toFixed(2)
+    : 'unknown';
+  const reasoning = (classification && classification.reasoning)
+    ? String(classification.reasoning).trim()
+    : 'no reasoning provided';
+  return 'Heuristic intake (confidence ' + confidenceStr + '): ' + reasoning;
+}
+
 // ---------------------------------------------------------------------------
 // Label management
 // ---------------------------------------------------------------------------
@@ -214,7 +228,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
         nextFollowUpDay: '',
         lastFollowUpDate: '',
         reserved: '',
-        conversationHistory: '',
+        conversationHistory: buildIntakeLogEntry(classification),
         pendingQuestion: '',
         gmailThreadId: msg.threadId || '',
         aiEnabled: 'FALSE',
