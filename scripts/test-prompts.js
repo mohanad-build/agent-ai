@@ -256,6 +256,54 @@ function main() {
   );
   console.log();
 
+  console.log(divider('-'));
+  console.log('CHECK 13: Path 1A first-touch mode (isFirstTouch=true)');
+  console.log(divider('-'));
+  const path1AFirstTouch = buildPath1ADraftPrompt(
+    agent,
+    'Hi, I saw your listing for the condo near Davisville and I am interested in viewing it. Are you taking new clients?',
+    { name: 'Sarah Chen', originalInquiry: 'Saw your listing for the condo near Davisville' },
+    true,
+    true
+  );
+  console.log('--- SYSTEM (opening framing and rule 3 should be first-touch variants) ---');
+  console.log(path1AFirstTouch.system);
+  console.log('\n--- USER ---');
+  console.log(path1AFirstTouch.user);
+  console.log();
+
+  check(
+    'First-touch system prompt contains "opening email reply"',
+    path1AFirstTouch.system.includes('opening email reply')
+  );
+  check(
+    'First-touch system prompt mentions "FIRST message"',
+    path1AFirstTouch.system.includes('FIRST message')
+  );
+  check(
+    'First-touch system prompt rule 3 uses softer "brief, warm acknowledgment" wording',
+    path1AFirstTouch.system.includes('brief, warm acknowledgment')
+  );
+  check(
+    'First-touch user prompt uses first-message intro line',
+    path1AFirstTouch.user.includes("first message to the agent")
+  );
+  check(
+    'First-touch user prompt does NOT use the reply intro line',
+    !path1AFirstTouch.user.includes('The lead just replied with this message:')
+  );
+
+  // Negative regression check: confirm CHECK 5 (default reply mode) does NOT render first-touch strings
+  check(
+    'Reply-mode system prompt (CHECK 5 fixture) does NOT contain "opening email reply"',
+    !path1A.system.includes('opening email reply')
+  );
+  check(
+    'Reply-mode user prompt (CHECK 5 fixture) uses the original reply intro line',
+    path1A.user.includes('The lead just replied with this message:')
+  );
+  console.log();
+
   console.log(divider('='));
   console.log('Test complete. Read the output above and confirm:');
   console.log('  1. Agent context (CHECK 2 system prompt) reads correctly');
@@ -272,6 +320,7 @@ function main() {
   console.log(' 12. Path 3 with categorizerReasoning (CHECK 11) system prompt shows the tone-calibration block');
   console.log(' 13. CHECK 2A automated assertions all passed (conversation_continue present, 6-category schema correct)');
   console.log(' 14. Path 1A (CHECK 12) automated assertions all passed (FOLLOW UP block present and complete)');
+  console.log(' 15. Path 1A first-touch mode (CHECK 13) renders correct framing and reply mode is unchanged');
   console.log(divider('='));
   console.log();
   if (checksFailed === 0) {

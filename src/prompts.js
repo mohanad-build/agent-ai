@@ -325,7 +325,7 @@ Do NOT modify, abbreviate, or rephrase this sign-off block.`;
  *
  * Returns { system, user }.
  */
-function buildPath1ADraftPrompt(agentConfig, emailText, leadContext, hasGmailSignature) {
+function buildPath1ADraftPrompt(agentConfig, emailText, leadContext, hasGmailSignature, isFirstTouch) {
   const agentContextBlock = buildAgentContext(agentConfig);
   const cannotInventList = buildCannotInventList(agentConfig);
   const bannedPhrasesList = buildBannedPhrasesList(agentConfig);
@@ -334,9 +334,17 @@ function buildPath1ADraftPrompt(agentConfig, emailText, leadContext, hasGmailSig
 
   const leadFirstName = (leadContext.name || '').split(' ')[0] || 'there';
 
+  const openingFraming = isFirstTouch
+    ? `You are drafting an opening email reply to a real estate lead who has just sent their FIRST message to the agent. This is the lead's first impression of the agent. Your reply will be sent automatically, without the agent reviewing it. Quality and accuracy matter.`
+    : `You are drafting a reply email to a real estate lead who asked a general real estate question. Your reply will be sent automatically, without the agent reviewing it. Quality and accuracy matter.`;
+
+  const rule3 = isFirstTouch
+    ? `3. Open with a brief, warm acknowledgment (one short sentence) of what the lead said, then answer or address their question directly. Do NOT restate their entire question back. Do NOT use generic openers (no "thanks for reaching out", no "great question"; those are also banned below).`
+    : `3. Answer the question directly. No preamble, no throat-clearing, no restating the question back.`;
+
   const system = `${agentContextBlock}
 
-You are drafting a reply email to a real estate lead who asked a general real estate question. Your reply will be sent automatically, without the agent reviewing it. Quality and accuracy matter.
+${openingFraming}
 
 DRAFTING RULES:
 
@@ -344,7 +352,7 @@ DRAFTING RULES:
 
 2. Salutation: Start with "Hi ${leadFirstName},"
 
-3. Answer the question directly. No preamble, no throat-clearing, no restating the question back.
+${rule3}
 
 4. Include ONE piece of insider perspective: a mechanism, a leverage point, a common mistake, or a timing insight. This is what differentiates a real agent's reply from a generic answer.
 
@@ -394,11 +402,15 @@ Return ONLY the email body text. Do NOT include a subject line, do NOT wrap in q
     ? `\n\nPrior conversation with this lead:\n"""\n${leadContext.conversationHistory}\n"""`
     : '';
 
+  const messageIntroLine = isFirstTouch
+    ? `This is the lead's first message to the agent (no prior conversation):`
+    : `The lead just replied with this message:`;
+
   const user = `Lead context:
 Name: ${leadContext.name || 'unknown'}
 ${originalInquiryLine}${conversationHistorySection}
 
-The lead just replied with this message:
+${messageIntroLine}
 
 """
 ${emailText}

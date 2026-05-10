@@ -483,7 +483,8 @@ async function pathAnswerGeneral(agent, row, msg, cat) {
     conversationHistory,
   };
 
-  const prompt = prompts.buildPath1ADraftPrompt(agent, msg.snippet || '', leadContext, hasSignature);
+  const isFirstTouch = row.status === 'new';
+  const prompt = prompts.buildPath1ADraftPrompt(agent, msg.snippet || '', leadContext, hasSignature, isFirstTouch);
   const bannedPhrases = prompts.getMergedBannedPhrases(agent);
 
   // Step c: Draft via Claude (best-effort, always produces a draft)
