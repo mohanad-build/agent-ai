@@ -298,6 +298,7 @@ async function main() {
   check('Lead (new): stats.leads incremented to 1', statsA.leads === 1);
   check('Lead (new): markRead NOT called (left unread for Reply Detection)', markReadCalled === false);
   check('Lead (new): applyMessageLabels called with first-touch-pending label', capturedAddLabelIds !== null && capturedAddLabelIds.includes('Label_FIRST_TOUCH_PENDING'));
+  check('Lead (new): lastActionTimestamp NOT written (intake is not a path action)', capturedSheetRow !== null && (!capturedSheetRow.lastActionTimestamp || capturedSheetRow.lastActionTimestamp === ''));
 
   // Test A2: lead with 0.6 <= confidence < 0.85 -> new row, but aiEnabled stays FALSE
   resetTracking();

@@ -267,7 +267,11 @@ async function processClassification(agentConfig, msg, classification, rows, sta
         pendingQuestion: '',
         gmailThreadId: msg.threadId || '',
         aiEnabled: determineAiEnabledDefault(classification),
-        lastActionTimestamp: now,
+        // lastActionTimestamp intentionally omitted: that field's contract is
+        // "last path action against this lead", and intake is a system event,
+        // not an action. Writing it here triggered the orchestrator's per-lead
+        // rate limit filter and blocked Reply Detection from same-cycle pickup
+        // of first-touch leads.
         reminderSent: '',
         validationStatus: '',
         operatorEscalated: '',
