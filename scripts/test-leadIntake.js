@@ -35,6 +35,7 @@ const {
     LABEL_FIRST_TOUCH_PENDING,
     CALENDAR_DOMAINS,
     labelIdCache,
+    transitionToIntaken,
   },
   LEAD_INTAKE_MAX_PER_CYCLE,
 } = leadIntake;
@@ -89,6 +90,7 @@ let appendToHistoryCalled = false;
 let applyLabelsCalled = false;
 let markReadCalled = false;
 let capturedAddLabelIds = null;
+let capturedRemoveLabelIds = null;
 let capturedSheetRow = null;
 let capturedHistoryEntry = null;
 
@@ -98,6 +100,7 @@ function resetTracking() {
   applyLabelsCalled = false;
   markReadCalled = false;
   capturedAddLabelIds = null;
+  capturedRemoveLabelIds = null;
   capturedSheetRow = null;
   capturedHistoryEntry = null;
 }
@@ -113,9 +116,10 @@ function installMocks() {
   };
   email.readSheetRows = async () => [];
 
-  gmail.applyMessageLabels = async (_agent, _msgId, addLabelIds) => {
+  gmail.applyMessageLabels = async (_agent, _msgId, addLabelIds, removeLabelIds) => {
     applyLabelsCalled = true;
     capturedAddLabelIds = Array.isArray(addLabelIds) ? addLabelIds.slice() : [];
+    capturedRemoveLabelIds = Array.isArray(removeLabelIds) ? removeLabelIds.slice() : [];
   };
   gmail.markRead = async () => { markReadCalled = true; };
   gmail.listLabels = async () => [
@@ -383,6 +387,39 @@ async function main() {
   check('CALENDAR_DOMAINS contains calendly.com', CALENDAR_DOMAINS.has('calendly.com'));
   check('CALENDAR_DOMAINS contains googleusercontent.com', CALENDAR_DOMAINS.has('googleusercontent.com'));
   check('CALENDAR_DOMAINS does not contain realtor.ca', !CALENDAR_DOMAINS.has('realtor.ca'));
+
+  console.log();
+
+  // -------------------------------------------------------------------------
+  // SECTION 7: transitionToIntaken
+  // -------------------------------------------------------------------------
+  console.log(divider('-'));
+  console.log('SECTION 7: transitionToIntaken (label swap on path success)');
+  console.log(divider('-'));
+
+  // Test: transitionToIntaken applies intaken label and removes first-touch-pending
+  resetTracking();
+  setupLabelMocks();
+  await transitionToIntaken(MOCK_AGENT, 'msg_swap_test');
+  check('transitionToIntaken: applyMessageLabels was called', applyLabelsCalled === true);
+  check('transitionToIntaken: addLabelIds includes intaken', capturedAddLabelIds !== null && capturedAddLabelIds.includes('Label_INTAKEN'));
+  check('transitionToIntaken: addLabelIds does NOT include first-touch-pending', capturedAddLabelIds !== null && !capturedAddLabelIds.includes('Label_FIRST_TOUCH_PENDING'));
+  check('transitionToIntaken: removeLabelIds includes first-touch-pending', capturedRemoveLabelIds !== null && capturedRemoveLabelIds.includes('Label_FIRST_TOUCH_PENDING'));
+  check('transitionToIntaken: removeLabelIds does NOT include intaken', capturedRemoveLabelIds !== null && !capturedRemoveLabelIds.includes('Label_INTAKEN'));
+
+  // Test: transitionToIntaken swallows errors gracefully (best-effort)
+  resetTracking();
+  setupLabelMocks();
+  gmail.applyMessageLabels = async () => {
+    throw new Error('simulated Gmail API failure');
+  };
+  let threwError = false;
+  try {
+    await transitionToIntaken(MOCK_AGENT, 'msg_error_test');
+  } catch (err) {
+    threwError = true;
+  }
+  check('transitionToIntaken: does not throw on Gmail API failure (best-effort)', threwError === false);
 
   console.log();
 

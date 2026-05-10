@@ -142,6 +142,28 @@ async function ensureLabelsExist(agentConfig) {
   return result;
 }
 
+async function transitionToIntaken(agentConfig, messageId) {
+  // Idempotent transition from first-touch-pending to intaken after a path
+  // successfully fires. Gmail's labels.modify endpoint tolerates removing a
+  // label not present and adding a label already present, so we blindly
+  // apply both operations without inspecting current labels. Best-effort:
+  // failures are logged and swallowed; the worst case is cosmetic label drift.
+  try {
+    const labelMap = await ensureLabelsExist(agentConfig);
+    const intakenId = labelMap.get(LABEL_INTAKEN);
+    const firstTouchPendingId = labelMap.get(LABEL_FIRST_TOUCH_PENDING);
+    if (!intakenId) return;
+    await gmail.applyMessageLabels(
+      agentConfig,
+      messageId,
+      [intakenId],
+      firstTouchPendingId ? [firstTouchPendingId] : []
+    );
+  } catch (err) {
+    console.log('[' + (agentConfig.agentId || 'unknown') + '] transitionToIntaken failed for ' + messageId + ': ' + err.message);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pre-filter
 // ---------------------------------------------------------------------------
@@ -414,6 +436,7 @@ async function runLeadIntake(agentConfig) {
 
 module.exports = {
   runLeadIntake,
+  transitionToIntaken,
   LEAD_INTAKE_MAX_PER_CYCLE,
   _internal: {
     applyPreFilter,
@@ -427,5 +450,6 @@ module.exports = {
     LABEL_FIRST_TOUCH_PENDING,
     CALENDAR_DOMAINS,
     labelIdCache,
+    transitionToIntaken,
   },
 };

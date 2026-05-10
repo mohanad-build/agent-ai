@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
-const { runLeadIntake } = require('./leadIntake');
+const { runLeadIntake, transitionToIntaken } = require('./leadIntake');
 const followUp = require('./followUp');
 const email = require('./email');
 const claude = require('./claude');
@@ -396,6 +396,9 @@ async function processAgent(agentId) {
       } catch (err) {
         console.log(`[${agentId}] row ${row.rowIndex} markRead FAILED: ${err.message} (column L was written; next cycle may double-log)`);
       }
+      // Transition first-touch-pending -> intaken if applicable.
+      // No-op for non-first-touch messages (Gmail tolerates removing absent labels).
+      await transitionToIntaken(agent, msg.messageId);
     } else {
       console.warn(`[${agentId}] row ${row.rowIndex} path failed for ${cat.category}, leaving unread for retry. errors: ${JSON.stringify(result.errors)}`);
     }
