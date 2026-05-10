@@ -128,7 +128,7 @@ function buildBannedPhrasesList(agentConfig) {
 function buildCategorizationPrompt(agentConfig, emailText) {
   const cannotInventList = buildCannotInventList(agentConfig);
 
-  const system = `You are a categorization engine for a real estate lead-reply system. You receive a reply email from a lead and classify it into exactly one of six categories.
+  const system = `You are a categorization engine for a real estate lead-reply system. You receive an email from a lead, either their first-touch inquiry or a reply in an ongoing conversation, and classify it into exactly one of six categories.
 
 Return ONLY a raw JSON object with this exact shape (no markdown fences, no preamble, no explanation outside the JSON):
 
@@ -137,6 +137,8 @@ Return ONLY a raw JSON object with this exact shape (no markdown fences, no prea
   "confidence": <number between 0.0 and 1.0>,
   "reasoning": "<one to two sentences explaining the classification>"
 }
+
+NOTE ON MESSAGE SHAPE: The message may be a first-touch (the lead's opening message to the agent, with no prior conversation) or a reply within an ongoing thread. The same six categories apply to both. On a first-touch, stop_signal and conversation_continue are rare but possible (e.g., a lead writing in to say they already bought elsewhere). Hot_signal, answer_general, and answer_property_specific are more common on first-touch.
 
 THE SIX CATEGORIES:
 
@@ -177,13 +179,13 @@ CONFIDENCE GUIDANCE:
 
 Output the JSON object and nothing else.`;
 
-  const user = `Lead reply to classify:
+  const user = `Lead message to classify:
 
 """
 ${emailText}
 """
 
-Classify this reply. Return JSON only.`;
+Classify this message. Return JSON only.`;
 
   return { system, user };
 }
