@@ -4,7 +4,7 @@
 // classifies via Claude Haiku, and routes each message to the correct branch.
 //
 // Branches:
-//   lead (confidence >= 0.6)         -> append new Sheet row (aiEnabled=FALSE), or re-engagement log
+//   lead (confidence >= 0.6)         -> append new Sheet row (aiEnabled=TRUE if conf>=0.85, else FALSE), or re-engagement log
 //   noise (confidence >= 0.85)       -> apply noise label, mark read
 //   business_correspondence (or low  -> remove processing label, leave unread so agent sees it normally
 //     confidence anything else)
@@ -104,6 +104,15 @@ function buildIntakeLogEntry(classification) {
     ? String(classification.reasoning).trim()
     : 'no reasoning provided';
   return 'Heuristic intake (confidence ' + confidenceStr + '): ' + reasoning;
+}
+
+function determineAiEnabledDefault(classification) {
+  const rawConfidence = classification && classification.confidence;
+  const confidenceNum = typeof rawConfidence === 'number'
+    ? rawConfidence
+    : parseFloat(rawConfidence);
+  if (Number.isFinite(confidenceNum) && confidenceNum >= 0.85) return 'TRUE';
+  return 'FALSE';
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +240,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
         conversationHistory: buildIntakeLogEntry(classification),
         pendingQuestion: '',
         gmailThreadId: msg.threadId || '',
-        aiEnabled: 'FALSE',
+        aiEnabled: determineAiEnabledDefault(classification),
         lastActionTimestamp: now,
         reminderSent: '',
         validationStatus: '',

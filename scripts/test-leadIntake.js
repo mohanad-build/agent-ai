@@ -273,10 +273,20 @@ async function main() {
   const statsA = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
   await processClassification(MOCK_AGENT, leadMsg, leadClassification, [], statsA);
   check('Lead (new): appendSheetRow called', appendSheetRowCalled === true);
-  check('Lead (new): aiEnabled set to FALSE', capturedSheetRow !== null && capturedSheetRow.aiEnabled === 'FALSE');
+  check('Lead (new, high confidence): aiEnabled set to TRUE', capturedSheetRow !== null && capturedSheetRow.aiEnabled === 'TRUE');
   check('Lead (new): source set to inbox', capturedSheetRow !== null && capturedSheetRow.source === 'inbox');
   check('Lead (new): stats.leads incremented to 1', statsA.leads === 1);
   check('Lead (new): markRead called', markReadCalled === true);
+
+  // Test A2: lead with 0.6 <= confidence < 0.85 -> new row, but aiEnabled stays FALSE
+  resetTracking();
+  setupLabelMocks();
+  const midConfClassification = Object.assign({}, leadClassification, { confidence: 0.75 });
+  const statsA2 = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+  await processClassification(MOCK_AGENT, leadMsg, midConfClassification, [], statsA2);
+  check('Lead (new, mid confidence): appendSheetRow called', appendSheetRowCalled === true);
+  check('Lead (new, mid confidence): aiEnabled set to FALSE', capturedSheetRow !== null && capturedSheetRow.aiEnabled === 'FALSE');
+  check('Lead (new, mid confidence): stats.leads incremented to 1', statsA2.leads === 1);
 
   // Test B: lead with confidence < 0.6 -> treated as business_correspondence
   resetTracking();
