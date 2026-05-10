@@ -20,6 +20,7 @@ const LEAD_INTAKE_MAX_PER_CYCLE = 20;
 const LABEL_PROCESSING = 'agent-ai/processing';
 const LABEL_INTAKEN = 'agent-ai/intaken';
 const LABEL_NOISE = 'agent-ai/noise';
+const LABEL_FIRST_TOUCH_PENDING = 'agent-ai/first-touch-pending';
 const CALENDAR_DOMAINS = new Set(['google.com', 'calendly.com', 'googleusercontent.com']);
 
 // Map<agentId, Map<labelName, labelId>>, persists across runLeadIntake cycles
@@ -123,7 +124,7 @@ async function ensureLabelsExist(agentConfig) {
   const agentId = agentConfig.agentId;
   if (labelIdCache.has(agentId)) return labelIdCache.get(agentId);
 
-  const labelNames = [LABEL_PROCESSING, LABEL_INTAKEN, LABEL_NOISE];
+  const labelNames = [LABEL_PROCESSING, LABEL_INTAKEN, LABEL_NOISE, LABEL_FIRST_TOUCH_PENDING];
   const existingLabels = await gmail.listLabels(agentConfig);
   const existingMap = new Map(existingLabels.map((l) => [l.name, l.id]));
 
@@ -172,11 +173,13 @@ function applyPreFilter(msg, labelMap) {
   const processingId = labelMap && labelMap.get(LABEL_PROCESSING);
   const intakenId = labelMap && labelMap.get(LABEL_INTAKEN);
   const noiseId = labelMap && labelMap.get(LABEL_NOISE);
+  const firstTouchPendingId = labelMap && labelMap.get(LABEL_FIRST_TOUCH_PENDING);
   for (const labelId of msgLabels) {
     if (
       (processingId && labelId === processingId) ||
       (intakenId && labelId === intakenId) ||
-      (noiseId && labelId === noiseId)
+      (noiseId && labelId === noiseId) ||
+      (firstTouchPendingId && labelId === firstTouchPendingId)
     ) {
       return { pass: false, reason: 'already has intake label' };
     }
@@ -198,6 +201,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
   const processingId = labelMap.get(LABEL_PROCESSING);
   const intakenId = labelMap.get(LABEL_INTAKEN);
   const noiseId = labelMap.get(LABEL_NOISE);
+  const firstTouchPendingId = labelMap.get(LABEL_FIRST_TOUCH_PENDING);
 
   // Lead branch: confidence threshold 0.6
   if (category === 'lead' && confidence >= 0.6) {
@@ -250,15 +254,17 @@ async function processClassification(agentConfig, msg, classification, rows, sta
     }
 
     stats.leads++;
-    if (intakenId) {
+    if (firstTouchPendingId) {
       await gmail.applyMessageLabels(
         agentConfig,
         msg.messageId,
-        [intakenId],
+        [firstTouchPendingId],
         processingId ? [processingId] : []
       );
     }
-    await gmail.markRead(agentConfig, msg.messageId);
+    // Email is intentionally left unread so Reply Detection can pick it up
+    // on the next orchestrator cycle as a first-touch message. The intaken
+    // label and markRead will be applied by a downstream path on success.
     return;
   }
 
@@ -418,6 +424,7 @@ module.exports = {
     LABEL_PROCESSING,
     LABEL_INTAKEN,
     LABEL_NOISE,
+    LABEL_FIRST_TOUCH_PENDING,
     CALENDAR_DOMAINS,
     labelIdCache,
   },

@@ -32,6 +32,7 @@ const {
     LABEL_PROCESSING,
     LABEL_INTAKEN,
     LABEL_NOISE,
+    LABEL_FIRST_TOUCH_PENDING,
     CALENDAR_DOMAINS,
     labelIdCache,
   },
@@ -71,6 +72,7 @@ const MOCK_LABEL_MAP = new Map([
   [LABEL_PROCESSING, 'Label_PROCESSING'],
   [LABEL_INTAKEN, 'Label_INTAKEN'],
   [LABEL_NOISE, 'Label_NOISE'],
+  [LABEL_FIRST_TOUCH_PENDING, 'Label_FIRST_TOUCH_PENDING'],
 ]);
 
 const MOCK_AGENT = { agentId: 'test-agent', googleSheetId: 'sheet-id', googleRefreshToken: 'token' };
@@ -86,6 +88,7 @@ let appendSheetRowCalled = false;
 let appendToHistoryCalled = false;
 let applyLabelsCalled = false;
 let markReadCalled = false;
+let capturedAddLabelIds = null;
 let capturedSheetRow = null;
 let capturedHistoryEntry = null;
 
@@ -94,6 +97,7 @@ function resetTracking() {
   appendToHistoryCalled = false;
   applyLabelsCalled = false;
   markReadCalled = false;
+  capturedAddLabelIds = null;
   capturedSheetRow = null;
   capturedHistoryEntry = null;
 }
@@ -109,12 +113,16 @@ function installMocks() {
   };
   email.readSheetRows = async () => [];
 
-  gmail.applyMessageLabels = async () => { applyLabelsCalled = true; };
+  gmail.applyMessageLabels = async (_agent, _msgId, addLabelIds) => {
+    applyLabelsCalled = true;
+    capturedAddLabelIds = Array.isArray(addLabelIds) ? addLabelIds.slice() : [];
+  };
   gmail.markRead = async () => { markReadCalled = true; };
   gmail.listLabels = async () => [
     { name: LABEL_PROCESSING, id: 'Label_PROCESSING' },
     { name: LABEL_INTAKEN, id: 'Label_INTAKEN' },
     { name: LABEL_NOISE, id: 'Label_NOISE' },
+    { name: LABEL_FIRST_TOUCH_PENDING, id: 'Label_FIRST_TOUCH_PENDING' },
   ];
   gmail.createLabel = async (agentConfig, name) => ({ id: 'Label_NEW_' + name });
 
@@ -251,6 +259,14 @@ async function main() {
   const idempotencyResult2 = applyPreFilter(alreadyIntakenMsg, MOCK_LABEL_MAP);
   check('Idempotency: message with intaken label is blocked', idempotencyResult2.pass === false);
 
+  // Idempotency: message already labeled agent-ai/first-touch-pending is blocked
+  const alreadyFirstTouchMsg = Object.assign({}, alreadyProcessedMsg, {
+    messageId: 'msg_idem3',
+    labelIds: ['Label_FIRST_TOUCH_PENDING'],
+  });
+  const idempotencyResult3 = applyPreFilter(alreadyFirstTouchMsg, MOCK_LABEL_MAP);
+  check('Idempotency: message with first-touch-pending label is blocked', idempotencyResult3.pass === false);
+
   console.log();
 
   // -------------------------------------------------------------------------
@@ -267,7 +283,7 @@ async function main() {
   const bizMsg = fixtures[3].msg;
   const bizClassification = fixtures[3].expected_classification;
 
-  // Test A: lead with confidence >= 0.6, sender not in Sheet -> new row + intaken label + mark read
+  // Test A: lead with confidence >= 0.6, sender not in Sheet -> new row + first-touch-pending label, NO markRead
   resetTracking();
   setupLabelMocks();
   const statsA = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
@@ -276,7 +292,8 @@ async function main() {
   check('Lead (new, high confidence): aiEnabled set to TRUE', capturedSheetRow !== null && capturedSheetRow.aiEnabled === 'TRUE');
   check('Lead (new): source set to inbox', capturedSheetRow !== null && capturedSheetRow.source === 'inbox');
   check('Lead (new): stats.leads incremented to 1', statsA.leads === 1);
-  check('Lead (new): markRead called', markReadCalled === true);
+  check('Lead (new): markRead NOT called (left unread for Reply Detection)', markReadCalled === false);
+  check('Lead (new): applyMessageLabels called with first-touch-pending label', capturedAddLabelIds !== null && capturedAddLabelIds.includes('Label_FIRST_TOUCH_PENDING'));
 
   // Test A2: lead with 0.6 <= confidence < 0.85 -> new row, but aiEnabled stays FALSE
   resetTracking();
