@@ -43,6 +43,7 @@ const ALLOWED_STATUSES = new Set([
   'in_conversation',
   'awaiting_agent_info',
   'awaiting_agent',
+  'awaiting_response',
   'warm',
   'HOT',
   'cold',
