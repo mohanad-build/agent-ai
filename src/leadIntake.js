@@ -15,6 +15,7 @@ const claude = require('./claude');
 const gmail = require('./gmail');
 const email = require('./email');
 const prompts = require('./prompts');
+const { getNowDate, getNowIso } = require('./time');
 
 const LEAD_INTAKE_MAX_PER_CYCLE = 20;
 const LABEL_PROCESSING = 'agent-ai/processing';
@@ -235,7 +236,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
     );
 
     if (existingRow) {
-      const now = new Date();
+      const now = getNowDate();
       const daysSince = existingRow.lastActionTimestamp
         ? Math.round((now - new Date(existingRow.lastActionTimestamp)) / (1000 * 60 * 60 * 24))
         : null;
@@ -250,7 +251,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
       );
     } else {
       const senderName = classification.name || getSenderDisplayName(msg.from || '');
-      const now = new Date().toISOString();
+      const now = getNowIso();
       await email.appendSheetRow(agentConfig, {
         leadId: senderAddr,
         name: senderName,

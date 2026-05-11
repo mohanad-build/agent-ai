@@ -16,6 +16,7 @@ const path = require('path');
 
 const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
 const { runLeadIntake, transitionToIntaken } = require('./leadIntake');
+const { getNow, getNowIso } = require('./time');
 const followUp = require('./followUp');
 const email = require('./email');
 const claude = require('./claude');
@@ -230,7 +231,7 @@ async function processAgent(agentId) {
   }
   console.log(`[${agentId}] read ${rows.length} rows`);
 
-  const now = Date.now();
+  const now = getNow();
   const stats = {
     valid: 0,
     invalid: 0,
@@ -455,13 +456,13 @@ async function checkStaleQuestions(agent) {
     if (row.status !== 'awaiting_agent') continue;
     const last = new Date(row.lastActionTimestamp).getTime();
     if (Number.isNaN(last)) continue;
-    const elapsed = Date.now() - last;
+    const elapsed = getNow() - last;
 
     // Branch A: 2-hour reminder SMS
     if (elapsed >= STALE_REMINDER_MS && !row.reminderSent) {
       try {
         await twilio.sendSMS(agent, twilio.TEMPLATES.path1BReminder({ leadName: row.name }));
-        const ts = new Date().toISOString();
+        const ts = getNowIso();
         await email.updateSheetRow(agent, row.rowIndex, { reminderSent: ts });
         await email.appendToConversationHistory(agent, row.rowIndex, `[${ts}] 2hr reminder SMS sent to agent`);
         remindersSent++;
@@ -475,7 +476,7 @@ async function checkStaleQuestions(agent) {
     if (elapsed >= STALE_ESCALATION_MS && !row.operatorEscalated) {
       try {
         await sendOperatorEscalationEmail(agent, row);
-        const ts = new Date().toISOString();
+        const ts = getNowIso();
         await email.updateSheetRow(agent, row.rowIndex, { operatorEscalated: ts });
         await email.appendToConversationHistory(agent, row.rowIndex, `[${ts}] 24hr escalation email sent to operator`);
         escalationsSent++;

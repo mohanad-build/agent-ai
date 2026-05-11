@@ -22,6 +22,7 @@ const { parsePendingQuestions, serializePendingQuestions } = require('./pendingQ
 const { issueToken } = require('./agentState');
 const prompts = require('./prompts');
 const claude = require('./claude');
+const { getNowIso } = require('./time');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -88,7 +89,7 @@ async function pathHotSignal(agent, row, msg, cat) {
   try {
     await email.updateSheetRow(agent, row.rowIndex, {
       status: 'HOT',
-      lastActionTimestamp: new Date().toISOString(),
+      lastActionTimestamp: getNowIso(),
     });
   } catch (err) {
     console.log(`${prefix} STEP sheet failed: ${err.message}`);
@@ -194,7 +195,7 @@ async function pathNeedsReview(agent, row, msg, cat) {
   try {
     await email.updateSheetRow(agent, row.rowIndex, {
       status: 'needs_review',
-      lastActionTimestamp: new Date().toISOString(),
+      lastActionTimestamp: getNowIso(),
     });
   } catch (err) {
     console.log(`${prefix} STEP sheet failed: ${err.message}`);
@@ -361,7 +362,7 @@ async function pathStopSignal(agent, row, msg, cat) {
   try {
     await email.updateSheetRow(agent, row.rowIndex, {
       status: 'cold',
-      lastActionTimestamp: new Date().toISOString(),
+      lastActionTimestamp: getNowIso(),
     });
   } catch (err) {
     console.log(`${prefix} STEP sheet failed: ${err.message}`);
@@ -516,7 +517,7 @@ async function pathAnswerGeneral(agent, row, msg, cat) {
   try {
     await email.updateSheetRow(agent, row.rowIndex, {
       status: newStatus,
-      lastActionTimestamp: new Date().toISOString(),
+      lastActionTimestamp: getNowIso(),
     });
   } catch (err) {
     console.log(`${prefix} STEP sheet failed: ${err.message}`);
@@ -676,7 +677,7 @@ async function pathAskAgent(agent, row, msg, cat) {
     await email.updateSheetRow(agent, row.rowIndex, {
       status: 'awaiting_agent',
       pendingQuestion: serialized,
-      lastActionTimestamp: new Date().toISOString(),
+      lastActionTimestamp: getNowIso(),
     });
   } catch (err) {
     console.log(`${prefix} STEP sheet failed: ${err.message}`);

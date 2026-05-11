@@ -21,6 +21,7 @@ const claude = require('./claude');
 const prompts = require('./prompts');
 const { buildShadowDraftWrapper } = require('./paths');
 const { getFollowUpCadence } = require('./agentConfig');
+const { getNow, getNowIso } = require('./time');
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -59,7 +60,7 @@ async function runFollowUps(agentConfig) {
   }
 
   const cadence = getFollowUpCadence(agentConfig);
-  const now = Date.now();
+  const now = getNow();
 
   for (const row of rows) {
     if (row.status !== 'awaiting_response') continue;
@@ -137,7 +138,7 @@ async function runFollowUps(agentConfig) {
 
     const isFinalTouch = touchIndex === cadence.length - 1;
     const touchLabel = 'Day ' + cadence[touchIndex];
-    const nowIso = new Date().toISOString();
+    const nowIso = getNowIso();
 
     if (agentConfig.mode === 'shadow') {
       const wrapped = buildShadowDraftWrapper(row.leadId, draftBody);
