@@ -94,6 +94,10 @@ function getSenderDisplayName(from) {
   return '';
 }
 
+/**
+ * Builds the column-L intake log entry string for a new lead row.
+ * Exported for testability via module.exports._internal.
+ */
 function buildIntakeLogEntry(classification) {
   const rawConfidence = classification && classification.confidence;
   const confidenceNum = typeof rawConfidence === 'number'
@@ -105,7 +109,16 @@ function buildIntakeLogEntry(classification) {
   const reasoning = (classification && classification.reasoning)
     ? String(classification.reasoning).trim()
     : 'no reasoning provided';
-  return 'Heuristic intake (confidence ' + confidenceStr + '): ' + reasoning;
+
+  const propertyRaw = classification && classification.propertyReference;
+  const propertyTrimmed = propertyRaw ? String(propertyRaw).trim() : '';
+
+  const segments = ['confidence ' + confidenceStr];
+  if (propertyTrimmed) {
+    segments.push('property: ' + propertyTrimmed);
+  }
+
+  return 'Heuristic intake (' + segments.join(', ') + '): ' + reasoning;
 }
 
 function determineAiEnabledDefault(classification) {
@@ -446,6 +459,7 @@ module.exports = {
   _internal: {
     applyPreFilter,
     parseClassifierResponse,
+    buildIntakeLogEntry,
     getSenderEmail,
     getSenderDomain,
     processClassification,
