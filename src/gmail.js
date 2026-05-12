@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
+const { getNowIso } = require('./time');
 
 // Module state
 const oauthClientCache = new Map();
@@ -480,7 +481,7 @@ async function appendSheetRow(agentConfig, rowData) {
 
 async function appendToConversationHistory(agentConfig, rowIndex, entry) {
   const sheets = getSheetsClient(agentConfig);
-  const timestamp = new Date().toISOString();
+  const timestamp = getNowIso();
   const newLine = `[${timestamp}] ${entry}`;
 
   return withRetry(agentConfig, async () => {

@@ -14,8 +14,9 @@
 // Files intentionally NOT migrated:
 //   webhook.js  - Date references are SMS idempotency windows and arrival
 //                 timestamps; these must always reflect real wall-clock.
-//   gmail.js    - Date references are OAuth token expiry caching and MIME
-//                 boundary generation; both require real wall-clock.
+//   gmail.js    - OAuth token expiry caching and MIME boundary generation
+//                 require real wall-clock and remain unmigrated.
+//                 appendToConversationHistory IS migrated (parked 7.8.5).
 
 function resolveBase() {
   const raw = process.env.MOCK_NOW;
