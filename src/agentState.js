@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_STATE = { lastTokenIssued: 0 };
+const DEFAULT_STATE = { lastTokenIssued: 0, weeklyPreflightSkips: 0 };
 
 function statePath(agentId) {
   return path.join(__dirname, '..', 'agents', `${agentId}.state.json`);
@@ -51,4 +51,16 @@ function issueToken(agentId) {
   return 'Q' + newValue;
 }
 
-module.exports = { getState, setState, issueToken };
+function incrementWeeklyPreflightSkips(agentId) {
+  const state = getState(agentId);
+  const newValue = (state.weeklyPreflightSkips || 0) + 1;
+  setState(agentId, { ...state, weeklyPreflightSkips: newValue });
+  return newValue;
+}
+
+function resetWeeklyPreflightSkips(agentId) {
+  const state = getState(agentId);
+  setState(agentId, { ...state, weeklyPreflightSkips: 0 });
+}
+
+module.exports = { getState, setState, issueToken, incrementWeeklyPreflightSkips, resetWeeklyPreflightSkips };

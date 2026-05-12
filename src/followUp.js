@@ -22,6 +22,7 @@ const prompts = require('./prompts');
 const { buildShadowDraftWrapper } = require('./paths');
 const { getFollowUpCadence } = require('./agentConfig');
 const { getNow, getNowIso } = require('./time');
+const agentState = require('./agentState');
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -100,6 +101,11 @@ async function runFollowUps(agentConfig) {
               console.warn(`[${agentId}] Follow-up: row ${row.rowIndex} threading mismatch update failed: ${updateErr.message}`);
             }
             stats.threadingMismatchSkipped++;
+            try {
+              agentState.incrementWeeklyPreflightSkips(agentId);
+            } catch (err) {
+              console.warn(`[${agentId}] Follow-up: row ${row.rowIndex} incrementWeeklyPreflightSkips failed: ${err.message}`);
+            }
             console.log(`[${agentId}] Follow-up: row ${row.rowIndex} threading mismatch skipped (thread activity at ${latest.receivedAt})`);
             continue;
           }
