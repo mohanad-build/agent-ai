@@ -170,6 +170,7 @@ async function gatherWindowData(agentConfig, startIso, endIso) {
  * Annotated row shape (produced by gatherWindowData, step 5a):
  *   firstName: string, lastInitial: string,
  *   propertyReference: string|null,
+ *   createdInWindow: boolean,          // true if the row's first column L entry timestamp falls within [endIso-24h, endIso]; set by gatherWindowData
  *   nextTouchEligibleAt: string|null,  nextTouchDay: number|null,
  *   lastFollowUpFire: {touchDay, timestamp, mode}|null
  *
@@ -265,7 +266,7 @@ function categorizeRowsForDigest(rows, now) {
     }
 
     // ── newToReview ───────────────────────────────────────────────────────────
-    if (row.status === 'new' && isFalseFlag(row.aiEnabled)) {
+    if (row.status === 'new' && isFalseFlag(row.aiEnabled) && row.createdInWindow === true) {
       newToReview.push({
         firstName: row.firstName,
         lastInitial: row.lastInitial,

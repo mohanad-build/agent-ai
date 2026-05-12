@@ -29,6 +29,7 @@ function makeRow(overrides) {
     dateAdded: '2026-05-12',
     rowIndex: 2,
     propertyReference: '45 Maple',
+    createdInWindow: true,
     nextTouchEligibleAt: null,
     nextTouchDay: null,
     lastFollowUpFire: null,
@@ -166,6 +167,24 @@ test('status=new, aiEnabled=false lowercase → IS in newToReview (case-insensit
   const row = makeRow({ status: 'new', aiEnabled: 'false' });
   const { newToReview } = categorizeRowsForDigest([row], NOW);
   expect(newToReview).toHaveLength(1);
+});
+
+test('status=new, aiEnabled=FALSE, createdInWindow=false → NOT in newToReview', () => {
+  const row = makeRow({ status: 'new', aiEnabled: 'FALSE', createdInWindow: false });
+  const { newToReview } = categorizeRowsForDigest([row], NOW);
+  expect(newToReview).toHaveLength(0);
+});
+
+test('status=new, aiEnabled=FALSE, createdInWindow=true → IS in newToReview', () => {
+  const row = makeRow({ status: 'new', aiEnabled: 'FALSE', createdInWindow: true });
+  const { newToReview } = categorizeRowsForDigest([row], NOW);
+  expect(newToReview).toHaveLength(1);
+});
+
+test('status=new, aiEnabled=FALSE, createdInWindow undefined → NOT in newToReview (strict === true)', () => {
+  const row = makeRow({ status: 'new', aiEnabled: 'FALSE', createdInWindow: undefined });
+  const { newToReview } = categorizeRowsForDigest([row], NOW);
+  expect(newToReview).toHaveLength(0);
 });
 
 // ── followUpsDue ──────────────────────────────────────────────────────────────
