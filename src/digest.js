@@ -92,6 +92,26 @@ function buildOpenerLine(systemHandled, hasUrgent) {
 // Churn threshold description rendered at the bottom of every churn section.
 const CHURN_CRITERIA = 'Criteria: needs_review unanswered >48h (High), no Sheet interaction >14d (High), pre-flight skips +50% WoW (Medium), aiEnabled toggled ≥3 rows (Medium), CALLED >5x (Low).';
 
+// ── Categorization helpers ────────────────────────────────────────────────────
+
+function parseISO(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function hoursBetween(later, earlier) {
+  return Math.floor((later.getTime() - earlier.getTime()) / (1000 * 60 * 60));
+}
+
+function daysBetween(later, earlier) {
+  return Math.floor((later.getTime() - earlier.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function isFalseFlag(value) {
+  return String(value == null ? '' : value).trim().toUpperCase() === 'FALSE';
+}
+
 // ── Entry points ──────────────────────────────────────────────────────────────
 
 /**
@@ -140,12 +160,20 @@ async function gatherWindowData(agentConfig, startIso, endIso) {
 }
 
 /**
- * Pure function. Takes rows from gatherWindowData and bucketizes them into the
- * sections the renderers expect. Each row may appear in multiple sections
- * (e.g. a HOT lead is both "urgent" and "hotLeads"). See spec 4.1 for the
- * canonical daily section list and 5.1 for the weekly section list.
+ * Pure function. Takes annotated rows from gatherWindowData and bucketizes them
+ * into the sections renderers consume. A row may appear in multiple sections
+ * (e.g. a HOT lead is in both urgent and hotLeads). systemHandled and
+ * reliability counters are composed at the entry-point layer from
+ * gatherWindowData's stateCounters/reliability output, not here.
+ * See spec 4.1 (daily section list) and 3.4 (urgent definition).
  *
- * @param {object[]} rows
+ * Annotated row shape (produced by gatherWindowData, step 5a):
+ *   firstName: string, lastInitial: string,
+ *   propertyReference: string|null,
+ *   nextTouchEligibleAt: string|null,  nextTouchDay: number|null,
+ *   lastFollowUpFire: {touchDay, timestamp, mode}|null
+ *
+ * @param {object[]} rows  annotated rows from gatherWindowData
  * @param {Date} now
  * @returns {{
  *   urgent: object[],
@@ -153,12 +181,168 @@ async function gatherWindowData(agentConfig, startIso, endIso) {
  *   newToReview: object[],
  *   followUpsDue: object[],
  *   followUpsFiredOvernight: object[],
- *   systemHandled: {intaken: number, noiseFiltered: number, businessIgnored: number, hotAlerts: number, needsReview: number, path1bRoundTrips: number, followUpsFired: number, preflightSkips: number},
- *   reliability: {errors: number, retries: number, threadingSkipped: number}
  * }}
  */
 function categorizeRowsForDigest(rows, now) {
-  throw new Error('not implemented');
+  const MS_24H = 24 * 60 * 60 * 1000;
+  const MS_7D  = 7 * 24 * 60 * 60 * 1000;
+
+  const urgent = [];
+  const hotLeads = [];
+  const newToReview = [];
+  const followUpsDue = [];
+  const followUpsFiredOvernight = [];
+
+  // Priority order for category collision: HOT > needs_review > operatorEscalated > path1b
+  const PRIORITY = { HOT: 3, needs_review: 2, operatorEscalated: 1, path1b: 0 };
+
+  for (const row of rows) {
+    const lastActionDate = parseISO(row.lastActionTimestamp);
+
+    // ── urgent ────────────────────────────────────────────────────────────────
+    let urgentCategory = null;
+    let urgentTrigger = null;
+
+    if (row.status === 'HOT') {
+      urgentCategory = 'HOT';
+      urgentTrigger = row.lastActionTimestamp;
+    }
+
+    if (row.status === 'needs_review') {
+      const p = PRIORITY.needs_review;
+      if (urgentCategory === null || p > PRIORITY[urgentCategory]) {
+        urgentCategory = 'needs_review';
+        urgentTrigger = row.lastActionTimestamp;
+      }
+    }
+
+    {
+      const opDate = parseISO(row.operatorEscalated);
+      if (opDate && (now.getTime() - opDate.getTime()) <= MS_7D) {
+        const p = PRIORITY.operatorEscalated;
+        if (urgentCategory === null || p > PRIORITY[urgentCategory]) {
+          urgentCategory = 'operatorEscalated';
+          urgentTrigger = row.operatorEscalated;
+        }
+      }
+    }
+
+    if (row.status === 'awaiting_agent' && lastActionDate) {
+      if (now.getTime() - lastActionDate.getTime() > MS_24H) {
+        const p = PRIORITY.path1b;
+        if (urgentCategory === null || p > PRIORITY[urgentCategory]) {
+          urgentCategory = 'path1b';
+          urgentTrigger = row.lastActionTimestamp;
+        }
+      }
+    }
+
+    if (urgentCategory !== null) {
+      urgent.push({
+        firstName: row.firstName,
+        lastInitial: row.lastInitial,
+        category: urgentCategory,
+        propertyReference: row.propertyReference || null,
+        hoursAwaiting: urgentCategory === 'path1b' && lastActionDate
+          ? hoursBetween(now, lastActionDate)
+          : null,
+        rowIndex: row.rowIndex,
+        _triggerTimestamp: urgentTrigger,
+      });
+    }
+
+    // ── hotLeads ──────────────────────────────────────────────────────────────
+    if (row.status === 'HOT') {
+      hotLeads.push({
+        firstName: row.firstName,
+        lastInitial: row.lastInitial,
+        propertyReference: row.propertyReference || null,
+        daysAgo: lastActionDate ? daysBetween(now, lastActionDate) : 0,
+        whyHot: '',
+        rowIndex: row.rowIndex,
+        _lastActionTimestamp: row.lastActionTimestamp,
+      });
+    }
+
+    // ── newToReview ───────────────────────────────────────────────────────────
+    if (row.status === 'new' && isFalseFlag(row.aiEnabled)) {
+      newToReview.push({
+        firstName: row.firstName,
+        lastInitial: row.lastInitial,
+        sourceEmailSubject: row.originalMessage || '',
+        whyFlagged: '',
+        rowIndex: row.rowIndex,
+      });
+    }
+
+    // ── followUpsDue ──────────────────────────────────────────────────────────
+    if (
+      row.status === 'awaiting_response' &&
+      !isFalseFlag(row.aiEnabled) &&
+      row.nextTouchEligibleAt !== null && row.nextTouchEligibleAt !== undefined
+    ) {
+      const eligibleAt = parseISO(row.nextTouchEligibleAt);
+      if (eligibleAt) {
+        const msUntil = eligibleAt.getTime() - now.getTime();
+        if (msUntil > 0 && msUntil <= MS_24H) {
+          const lastTouchDate = parseISO(row.lastFollowUpDate) || parseISO(row.lastActionTimestamp);
+          followUpsDue.push({
+            firstName: row.firstName,
+            lastInitial: row.lastInitial,
+            touchDay: row.nextTouchDay || 0,
+            daysSinceLastTouch: lastTouchDate ? daysBetween(now, lastTouchDate) : 0,
+            propertyReference: row.propertyReference || null,
+            rowIndex: row.rowIndex,
+            _nextTouchEligibleAt: row.nextTouchEligibleAt,
+          });
+        }
+      }
+    }
+
+    // ── followUpsFiredOvernight ───────────────────────────────────────────────
+    if (row.lastFollowUpFire !== null && row.lastFollowUpFire !== undefined) {
+      followUpsFiredOvernight.push({
+        firstName: row.firstName,
+        lastInitial: row.lastInitial,
+        touchDay: row.lastFollowUpFire.touchDay,
+        mode: row.lastFollowUpFire.mode,
+        rowIndex: row.rowIndex,
+        _fireTimestamp: row.lastFollowUpFire.timestamp,
+      });
+    }
+  }
+
+  // ── Sort ──────────────────────────────────────────────────────────────────
+  urgent.sort((a, b) => {
+    const ta = parseISO(a._triggerTimestamp);
+    const tb = parseISO(b._triggerTimestamp);
+    return (tb ? tb.getTime() : 0) - (ta ? ta.getTime() : 0);
+  });
+  // Strip sort key before returning
+  urgent.forEach(r => delete r._triggerTimestamp);
+
+  hotLeads.sort((a, b) => {
+    const ta = parseISO(a._lastActionTimestamp);
+    const tb = parseISO(b._lastActionTimestamp);
+    return (tb ? tb.getTime() : 0) - (ta ? ta.getTime() : 0);
+  });
+  hotLeads.forEach(r => delete r._lastActionTimestamp);
+
+  followUpsDue.sort((a, b) => {
+    const ta = parseISO(a._nextTouchEligibleAt);
+    const tb = parseISO(b._nextTouchEligibleAt);
+    return (ta ? ta.getTime() : 0) - (tb ? tb.getTime() : 0);
+  });
+  followUpsDue.forEach(r => delete r._nextTouchEligibleAt);
+
+  followUpsFiredOvernight.sort((a, b) => {
+    const ta = parseISO(a._fireTimestamp);
+    const tb = parseISO(b._fireTimestamp);
+    return (tb ? tb.getTime() : 0) - (ta ? ta.getTime() : 0);
+  });
+  followUpsFiredOvernight.forEach(r => delete r._fireTimestamp);
+
+  return { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight };
 }
 
 /**
