@@ -1,0 +1,140 @@
+'use strict';
+
+const { renderEmail } = require('../src/digest');
+
+// 2026-05-12 12:00 UTC = 08:00 EDT (America/Toronto, UTC-4 in May) — Tuesday, May 12
+const NOW = new Date('2026-05-12T12:00:00Z');
+
+const BASE_AGENT_CONFIG = {
+  timezone: 'America/Toronto',
+  googleSheetId: 'sheet-abc',
+};
+
+function makeEmptySections() {
+  return {
+    urgent: [],
+    hotLeads: [],
+    newToReview: [],
+    followUpsDue: [],
+    followUpsFiredOvernight: [],
+    systemHandled: {
+      intaken: 0,
+      noiseFiltered: 0,
+      businessIgnored: 0,
+      hotAlerts: 0,
+      needsReview: 0,
+      path1bRoundTrips: 0,
+      followUpsFired: 0,
+      preflightSkips: 0,
+    },
+    reliability: { errors: 0, retries: 0, threadingSkipped: 0 },
+  };
+}
+
+test('quiet day — subject is date-formatted, body has systemHandled only', () => {
+  const sections = makeEmptySections();
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.subject).toBe('Your morning brief — Tuesday, May 12');
+  expect(result.body).toContain('— What the system handled —');
+  expect(result.body).not.toContain('— Needs you today —');
+  expect(result.body).not.toContain('— Hot leads to call today —');
+  expect(result.body).not.toContain('— Reliability —');
+  expect(result.body).toContain('0 need you today.');
+});
+
+test('day with one urgent HOT lead — subject names the lead, Needs you today section renders', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K',
+    category: 'HOT', propertyReference: '45 Maple',
+    hoursAwaiting: null, rowIndex: 3,
+  }];
+
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.subject).toBe('Your morning brief — Sarah needs you today');
+  expect(result.body).toContain('— Needs you today —');
+  expect(result.body).toContain('Sarah K');
+  expect(result.body).toContain('— What the system handled —');
+});
+
+test('reliability errors > 0 — Reliability section renders', () => {
+  const sections = makeEmptySections();
+  sections.reliability = { errors: 2, retries: 1, threadingSkipped: 0 };
+
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain('— Reliability —');
+  expect(result.body).toContain('Errors: 2');
+  expect(result.body).toContain('Retries: 1');
+});
+
+test('reliability all zero — Reliability section does not render', () => {
+  const sections = makeEmptySections();
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).not.toContain('— Reliability —');
+});
+
+test('Sheet links present when googleSheetId set — hot lead row includes full link', () => {
+  const sections = makeEmptySections();
+  sections.hotLeads = [{
+    firstName: 'John', lastInitial: 'D',
+    propertyReference: '45 Oak', daysAgo: 3, whyHot: 'called twice', rowIndex: 5,
+  }];
+
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain(
+    'https://docs.google.com/spreadsheets/d/sheet-abc/edit#gid=0&range=A5'
+  );
+});
+
+test('Sheet links absent when googleSheetId undefined — no link in body, no throw', () => {
+  const sections = makeEmptySections();
+  sections.hotLeads = [{
+    firstName: 'John', lastInitial: 'D',
+    propertyReference: '45 Oak', daysAgo: 3, whyHot: 'called twice', rowIndex: 5,
+  }];
+  const agentConfigNoSheet = { timezone: 'America/Toronto' };
+
+  const result = renderEmail(sections, agentConfigNoSheet, NOW);
+
+  expect(result.body).not.toContain('https://docs.google.com/spreadsheets/d/');
+  expect(result.body).toContain('John D');
+});
+
+test('shadow mode rows use shadow header; live mode rows use live header', () => {
+  const sections = makeEmptySections();
+
+  // Shadow
+  sections.followUpsFiredOvernight = [{
+    firstName: 'Jane', lastInitial: 'S', touchDay: 3, mode: 'shadow', rowIndex: 7,
+  }];
+  const shadowResult = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(shadowResult.body).toContain('— Follow-ups fired overnight (shadow drafts) —');
+  expect(shadowResult.body).toContain('Jane S — Day 3 — draft in inbox');
+
+  // Live
+  sections.followUpsFiredOvernight = [{
+    firstName: 'Jane', lastInitial: 'S', touchDay: 7, mode: 'live', rowIndex: 7,
+  }];
+  const liveResult = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(liveResult.body).toContain('— Follow-ups sent overnight —');
+  expect(liveResult.body).toContain('Jane S — Day 7 — sent');
+});
+
+test('systemHandled with all zero counts still renders all eight lines', () => {
+  const sections = makeEmptySections();
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain('— What the system handled —');
+  expect(result.body).toContain('Leads intaken: 0');
+  expect(result.body).toContain('Noise filtered: 0');
+  expect(result.body).toContain('Business correspondence ignored: 0');
+  expect(result.body).toContain('HOT alerts sent: 0');
+  expect(result.body).toContain('Needs-review escalations: 0');
+  expect(result.body).toContain('Path 1B SMS round-trips completed: 0');
+  expect(result.body).toContain('Follow-ups fired: 0');
+  expect(result.body).toContain('Pre-flight skips (you did it manually): 0');
+});

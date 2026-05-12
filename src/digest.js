@@ -16,6 +16,84 @@
 
 // Imports added in later build steps as implementations land.
 
+// ── Renderer helpers ──────────────────────────────────────────────────────────
+
+function urgentVerbPhrase(category) {
+  const map = {
+    HOT: 'wants to call you today',
+    path1b: 'is waiting on you',
+    needs_review: 'needs review',
+    operatorEscalated: 'escalated to you',
+  };
+  return map[category] || 'needs you';
+}
+
+// Short context with surrounding parens, for SMS line 2.
+function urgentShortContext(urgent) {
+  if (urgent.category === 'HOT') {
+    return urgent.propertyReference ? `(${urgent.propertyReference})` : '(HOT signal)';
+  }
+  if (urgent.category === 'path1b') {
+    return `(Path 1B ${Math.floor(urgent.hoursAwaiting)}h)`;
+  }
+  if (urgent.category === 'needs_review') {
+    return urgent.propertyReference ? `(${urgent.propertyReference})` : '(needs review)';
+  }
+  if (urgent.category === 'operatorEscalated') {
+    return urgent.propertyReference ? `(${urgent.propertyReference})` : '(escalated)';
+  }
+  return '';
+}
+
+// Raw context without parens, for email row rendering.
+function urgentDisplayContext(urgent) {
+  if (urgent.category === 'HOT') {
+    return urgent.propertyReference || 'HOT signal';
+  }
+  if (urgent.category === 'path1b') {
+    return `Path 1B ${Math.floor(urgent.hoursAwaiting)}h`;
+  }
+  if (urgent.category === 'needs_review') {
+    return urgent.propertyReference || 'needs review';
+  }
+  if (urgent.category === 'operatorEscalated') {
+    return urgent.propertyReference || 'escalated';
+  }
+  return '';
+}
+
+function sheetLink(googleSheetId, rowIndex) {
+  return `https://docs.google.com/spreadsheets/d/${googleSheetId}/edit#gid=0&range=A${rowIndex}`;
+}
+
+function formatDailyDate(now, timezone) {
+  const tz = timezone || 'America/Toronto';
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tz }).format(now);
+  const month = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: tz }).format(now);
+  const day = new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: tz }).format(now);
+  return `${weekday}, ${month} ${day}`;
+}
+
+function formatWeeklyDate(isoStr, timezone) {
+  const tz = timezone || 'America/Toronto';
+  const date = new Date(isoStr);
+  const month = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: tz }).format(date);
+  const day = new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: tz }).format(date);
+  return `${month} ${day}`;
+}
+
+function buildOpenerLine(systemHandled, hasUrgent) {
+  const { intaken, followUpsFired, noiseFiltered } = systemHandled;
+  const total = intaken + followUpsFired + noiseFiltered;
+  const base = `Handled ${total} leads overnight: ${intaken} new, ${followUpsFired} follow-ups, ${noiseFiltered} filtered.`;
+  return hasUrgent ? base : `${base} 0 need you today.`;
+}
+
+// Churn threshold description rendered at the bottom of every churn section.
+const CHURN_CRITERIA = 'Criteria: needs_review unanswered >48h (High), no Sheet interaction >14d (High), pre-flight skips +50% WoW (Medium), aiEnabled toggled ≥3 rows (Medium), CALLED >5x (Low).';
+
+// ── Entry points ──────────────────────────────────────────────────────────────
+
 /**
  * Entry point: per-agent daily brief.
  * Computes the trailing-24h coverage window from getNow() (per spec section 7.5,
@@ -93,7 +171,23 @@ function categorizeRowsForDigest(rows, now) {
  * @returns {string}
  */
 function renderSMS(stats, urgent) {
-  throw new Error('not implemented');
+  const line1base = buildOpenerLine(
+    { intaken: stats.intaken, followUpsFired: stats.followUpsFired, noiseFiltered: stats.noiseFiltered },
+    urgent !== null,
+  );
+
+  if (urgent === null) {
+    return `${line1base}\nFull brief in your inbox.`;
+  }
+
+  const ctx = urgentShortContext(urgent);
+  const verb = urgentVerbPhrase(urgent.category);
+  const line2base = `🔥 ${urgent.firstName} ${urgent.lastInitial} ${ctx} ${verb}`;
+  const line2 = stats.urgentCount > 1
+    ? `${line2base} + ${stats.urgentCount - 1} more need you.`
+    : `${line2base}.`;
+
+  return `${line1base}\n${line2}\nFull brief in your inbox.`;
 }
 
 /**
@@ -103,22 +197,195 @@ function renderSMS(stats, urgent) {
  *
  * @param {object} sections  the shape returned by categorizeRowsForDigest
  * @param {object} agentConfig  for name, timezone, sheet id (deep links)
+ * @param {Date} now  used for date formatting in the subject line
  * @returns {{subject: string, body: string}}
  */
-function renderEmail(sections, agentConfig) {
-  throw new Error('not implemented');
+function renderEmail(sections, agentConfig, now) {
+  const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability } = sections;
+  const timezone = agentConfig.timezone || 'America/Toronto';
+  const gid = agentConfig.googleSheetId;
+
+  const subject = urgent.length > 0
+    ? `Your morning brief — ${urgent[0].firstName} needs you today`
+    : `Your morning brief — ${formatDailyDate(now, timezone)}`;
+
+  const parts = [];
+
+  parts.push(buildOpenerLine(systemHandled, urgent.length > 0));
+
+  if (urgent.length > 0) {
+    const rows = urgent.map(u => {
+      const verb = urgentVerbPhrase(u.category);
+      const ctx = urgentDisplayContext(u);
+      let line = `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
+      if (gid && u.rowIndex != null) line += ` (${sheetLink(gid, u.rowIndex)})`;
+      return line;
+    });
+    parts.push(`— Needs you today —\n\n${rows.join('\n')}`);
+  }
+
+  if (hotLeads.length > 0) {
+    const rows = hotLeads.map(r => {
+      let line = `${r.firstName} ${r.lastInitial} — ${r.propertyReference} — last touch ${r.daysAgo}d ago — ${r.whyHot}`;
+      if (gid && r.rowIndex != null) line += ` (${sheetLink(gid, r.rowIndex)})`;
+      return line;
+    });
+    parts.push(`— Hot leads to call today —\n\n${rows.join('\n')}`);
+  }
+
+  if (newToReview.length > 0) {
+    const rows = newToReview.map(r =>
+      `${r.firstName} ${r.lastInitial} — ${r.sourceEmailSubject} — ${r.whyFlagged}`
+    );
+    parts.push(`— Possible new leads to review —\n\n${rows.join('\n')}`);
+  }
+
+  if (followUpsDue.length > 0) {
+    const rows = followUpsDue.map(r => {
+      let line = `${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${r.daysSinceLastTouch}d since last touch — ${r.propertyReference}`;
+      if (gid && r.rowIndex != null) line += ` (${sheetLink(gid, r.rowIndex)})`;
+      return line;
+    });
+    parts.push(`— Follow-ups due today —\n\n${rows.join('\n')}`);
+  }
+
+  if (followUpsFiredOvernight.length > 0) {
+    const allLive = followUpsFiredOvernight.every(r => r.mode === 'live');
+    const header = allLive
+      ? '— Follow-ups sent overnight —'
+      : '— Follow-ups fired overnight (shadow drafts) —';
+    const rows = followUpsFiredOvernight.map(r =>
+      `${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${r.mode === 'live' ? 'sent' : 'draft in inbox'}`
+    );
+    parts.push(`${header}\n\n${rows.join('\n')}`);
+  }
+
+  {
+    const sh = systemHandled;
+    const lines = [
+      `Leads intaken: ${sh.intaken}`,
+      `Noise filtered: ${sh.noiseFiltered}`,
+      `Business correspondence ignored: ${sh.businessIgnored}`,
+      `HOT alerts sent: ${sh.hotAlerts}`,
+      `Needs-review escalations: ${sh.needsReview}`,
+      `Path 1B SMS round-trips completed: ${sh.path1bRoundTrips}`,
+      `Follow-ups fired: ${sh.followUpsFired}`,
+      `Pre-flight skips (you did it manually): ${sh.preflightSkips}`,
+    ];
+    parts.push(`— What the system handled —\n\n${lines.join('\n')}`);
+  }
+
+  {
+    const r = reliability;
+    if (r.errors + r.retries + r.threadingSkipped > 0) {
+      const lines = [
+        `Errors: ${r.errors}`,
+        `Retries: ${r.retries}`,
+        `Threading-skipped follow-ups: ${r.threadingSkipped}`,
+      ];
+      parts.push(`— Reliability —\n\n${lines.join('\n')}`);
+    }
+  }
+
+  return { subject, body: parts.join('\n\n') };
 }
 
 /**
  * Pure function. Produces the operator weekly email body per spec section 5.1.
+ * aggregateStats.operatorTimezone is used for date formatting; defaults to
+ * America/Toronto if absent.
  *
- * @param {object} aggregateStats  cross-agent rollup
+ * @param {object} aggregateStats  cross-agent rollup (includes windowStart, windowEnd, operatorTimezone)
  * @param {object[]} perAgentSections  one per agent
  * @param {object[]} agentConfigs
+ * @param {Date} now  reserved for future use
  * @returns {{subject: string, body: string}}
  */
-function renderWeeklyEmail(aggregateStats, perAgentSections, agentConfigs) {
-  throw new Error('not implemented');
+function renderWeeklyEmail(aggregateStats, perAgentSections, agentConfigs, now) {
+  const operatorTz = aggregateStats.operatorTimezone || 'America/Toronto';
+  const startLabel = formatWeeklyDate(aggregateStats.windowStart, operatorTz);
+  const endLabel = formatWeeklyDate(aggregateStats.windowEnd, operatorTz);
+  const subject = `Weekly digest — ${startLabel} to ${endLabel}`;
+
+  const parts = [];
+
+  {
+    const s = aggregateStats;
+    const lines = [
+      `Leads handled across all agents: ${s.leadsHandled}`,
+      `Average response time (lead reply → system action): ${s.avgResponseTime}`,
+    ];
+    if (s.warmToTourRate !== null && s.warmToTourRate !== undefined) {
+      lines.push(`Warm-to-tour conversion rate: ${s.warmToTourRate}`);
+    }
+    lines.push(
+      `Total touches fired: ${s.touchesFired}`,
+      `Total filtered: ${s.filtered}`,
+      `Total escalations: ${s.escalations}`,
+      `Total Path 1B round-trips completed: ${s.path1bRoundTrips}`,
+      `Total pre-flight skips (agents doing it manually): ${s.preflightSkips}`,
+    );
+    parts.push(`— Aggregate stats —\n\n${lines.join('\n')}`);
+  }
+
+  {
+    const sc = aggregateStats.shadowCatches;
+    const lines = [
+      `Drafts sent as-is by agent: ${sc.sentAsIs}`,
+      `Drafts edited then sent: ${sc.editedThenSent}`,
+      `Drafts rejected: ${sc.rejected}`,
+    ];
+    parts.push(`— Shadow Mode catches —\n\n${lines.join('\n')}`);
+  }
+
+  {
+    const agentBlocks = perAgentSections.map(a => [
+      `${a.agentName} [${a.mode}]`,
+      `  Leads handled: ${a.leadsHandled}`,
+      `  Response time: ${a.responseTime}`,
+      `  Pre-flight skips: ${a.preflightSkips}`,
+      `  Last Sheet interaction: ${a.lastSheetInteraction}`,
+    ].join('\n'));
+    parts.push(`— Per-agent breakdown —\n\n${agentBlocks.join('\n\n')}`);
+  }
+
+  {
+    const flagged = perAgentSections.filter(a => a.flaggedReasons && a.flaggedReasons.length > 0);
+    const churnLines = [];
+    if (flagged.length === 0) {
+      churnLines.push('All agents engaged this week.');
+    } else {
+      for (const a of flagged) {
+        for (const reason of a.flaggedReasons) {
+          churnLines.push(`${a.agentName} — ${reason}`);
+        }
+      }
+    }
+    churnLines.push('');
+    churnLines.push(CHURN_CRITERIA);
+    parts.push(`— Churn risk signals —\n\n${churnLines.join('\n')}`);
+  }
+
+  {
+    const r = aggregateStats.reliability;
+    if (r.errors + r.retries + r.threadingSkipped > 0) {
+      const lines = [
+        `Errors: ${r.errors}`,
+        `Retries: ${r.retries}`,
+        `Threading-skipped follow-ups: ${r.threadingSkipped}`,
+      ];
+      parts.push(`— Reliability —\n\n${lines.join('\n')}`);
+    }
+  }
+
+  {
+    const items = aggregateStats.humanItems || [];
+    if (items.length > 0) {
+      parts.push(`— Things that need a human —\n\n${items.join('\n')}`);
+    }
+  }
+
+  return { subject, body: parts.join('\n\n') };
 }
 
 /**
