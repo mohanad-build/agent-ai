@@ -280,6 +280,54 @@ async function searchEmails(agentConfig, query) {
   });
 }
 
+async function searchMessages(agentConfig, gmailQuery, maxResults = 100) {
+  const auth = getOAuthClient(agentConfig);
+  const gmail = google.gmail({ version: 'v1', auth });
+  return withRetry(agentConfig, async () => {
+    const ids = [];
+    let pageToken;
+    do {
+      const batch = Math.min(maxResults - ids.length, 100);
+      const res = await gmail.users.messages.list({
+        userId: 'me',
+        q: gmailQuery,
+        maxResults: batch,
+        ...(pageToken && { pageToken }),
+      });
+      const messages = res.data.messages || [];
+      for (const m of messages) {
+        ids.push(m.id);
+        if (ids.length >= maxResults) break;
+      }
+      pageToken = res.data.nextPageToken;
+    } while (pageToken && ids.length < maxResults);
+    return ids;
+  });
+}
+
+async function fetchMessage(agentConfig, messageId) {
+  const auth = getOAuthClient(agentConfig);
+  const gmail = google.gmail({ version: 'v1', auth });
+  return withRetry(agentConfig, async () => {
+    const res = await gmail.users.messages.get({
+      userId: 'me',
+      id: messageId,
+      format: 'full',
+    });
+    const msg = res.data;
+    const headers = msg.payload?.headers || [];
+    return {
+      id: msg.id,
+      threadId: msg.threadId,
+      from: getHeader(headers, 'From'),
+      to: getHeader(headers, 'To'),
+      subject: getHeader(headers, 'Subject'),
+      body: extractTextBody(msg.payload),
+      internalDate: msg.internalDate ? parseInt(msg.internalDate, 10) : 0,
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Email write
 // ---------------------------------------------------------------------------
@@ -609,6 +657,8 @@ module.exports = {
   appendSheetRow,
   appendToConversationHistory,
   extractTextBody,
+  searchMessages,
+  fetchMessage,
   fetchUnreadInboxEmails,
   listLabels,
   createLabel,

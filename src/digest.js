@@ -18,6 +18,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const email = require('./email');
+const gmail = require('./gmail');
 const agentState = require('./agentState');
 const twilio = require('./twilio');
 const { getFollowUpCadence, loadAgent } = require('./agentConfig');
@@ -537,6 +538,23 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     }
   }
 
+  // Shadow Mode catch detection (one agent at a time, 30s timeout per agent)
+  const shadowCatches = { sentAsIs: 0, editedThenSent: 0, rejected: 0 };
+  let shadowAgentsCovered = 0;
+  let shadowAgentsTimedOut = 0;
+
+  for (const agentCfg of activeAgents) {
+    const result = await pollSentFolderForDraftResolution(agentCfg, startIso, endIso);
+    if (result === null) {
+      shadowAgentsTimedOut++;
+      continue;
+    }
+    shadowAgentsCovered++;
+    shadowCatches.sentAsIs      += result.sentAsIs;
+    shadowCatches.editedThenSent += result.editedThenSent;
+    shadowCatches.rejected       += result.rejected;
+  }
+
   const weeklySections = {
     windowStart: startIso,
     windowEnd:   endIso,
@@ -544,6 +562,9 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     perAgent,
     churnRisk,
     recentlyDeactivated,
+    shadowCatches,
+    shadowAgentsCovered,
+    shadowAgentsTimedOut,
   };
 
   const { subject, body } = renderWeeklyEmail(weeklySections, operatorConfig, nowDate);
@@ -933,18 +954,135 @@ function renderEmail(sections, agentConfig, now) {
 }
 
 
+// ── Shadow Mode catch helpers ─────────────────────────────────────────────────
+
+function secondsFromIso(iso) {
+  return Math.floor(new Date(iso).getTime() / 1000);
+}
+
+function parseShadowDraftBody(rawBody) {
+  const leadEmailMatch = rawBody.match(/reply at (\S+)/i);
+  if (!leadEmailMatch) return null;
+  const leadEmail = leadEmailMatch[1].replace(/\.$/, '').trim();
+
+  const sepIdx = rawBody.indexOf('\n---\n');
+  if (sepIdx === -1) return null;
+  const draftBody = rawBody.slice(sepIdx + 5).trim();
+
+  return { leadEmail, draftBody };
+}
+
+function computeJaccardOverlap(draftBody, sentBody, agentConfig) {
+  function normalize(text) {
+    // Strip quoted-reply text: lines starting with ">" and "On ... wrote:" onward
+    let lines = text.split('\n').filter(line => !line.trimStart().startsWith('>'));
+    text = lines.join('\n');
+    const onWroteMatch = text.match(/on .{1,80} wrote:/i);
+    if (onWroteMatch) text = text.slice(0, onWroteMatch.index);
+
+    // Strip greeting: first non-empty line if it starts with Hi/Hello/Hey
+    lines = text.split('\n');
+    const firstIdx = lines.findIndex(l => l.trim() !== '');
+    if (firstIdx >= 0 && /^(hi|hello|hey)\b/i.test(lines[firstIdx])) {
+      lines.splice(firstIdx, 1);
+      text = lines.join('\n');
+    }
+
+    // Strip sign-off from last occurrence of agentSignature
+    const sig = agentConfig && agentConfig.agentSignature && agentConfig.agentSignature.trim();
+    if (sig) {
+      const idx = text.toLowerCase().lastIndexOf(sig.toLowerCase());
+      if (idx >= 0) text = text.slice(0, idx);
+    }
+
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
+  }
+
+  const tokensA = normalize(draftBody);
+  const tokensB = normalize(sentBody);
+
+  if (tokensA.length === 0 || tokensB.length === 0) return 0;
+
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+
+  let intersection = 0;
+  for (const t of setA) {
+    if (setB.has(t)) intersection++;
+  }
+  const union = setA.size + setB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
 /**
- * Weekly-only helper. For each draftMetadata entry, checks the agent's Sent
- * folder for a message in the same Gmail thread within 48h of the draft. If
- * found and token-overlap >= 30% (Jaccard), classifies as "sent as-is" or
- * "edited then sent." See spec section 5.2.
+ * Detects Shadow Mode catches for a single agent in the given time window.
+ * Searches the agent's Gmail for self-sent [SHADOW DRAFT] emails, then checks
+ * whether the agent sent a follow-up email to each lead within 48h. Classifies
+ * each draft as sentAsIs, editedThenSent, or rejected using Jaccard similarity.
+ * Returns null on timeout or any unexpected error (caller omits the agent from
+ * the aggregate). See spec section 5.2.
  *
  * @param {object} agentConfig
- * @param {object[]} draftMetadata  rows with shadow drafts in the window
- * @returns {Promise<{sentAsIs: number, editedThenSent: number, rejected: number}>}
+ * @param {string} startIso
+ * @param {string} endIso
+ * @returns {Promise<{sentAsIs: number, editedThenSent: number, rejected: number} | null>}
  */
-async function pollSentFolderForDraftResolution(agentConfig, draftMetadata) {
-  throw new Error('not implemented');
+async function pollSentFolderForDraftResolution(agentConfig, startIso, endIso) {
+  try {
+    const timeoutMs = 30000;
+    const startMs = Date.now();
+    const checkTimeout = () => {
+      if (Date.now() - startMs > timeoutMs) {
+        throw new Error('shadow-catch-timeout');
+      }
+    };
+
+    const shadowQuery = `from:${agentConfig.gmailAddress} to:${agentConfig.gmailAddress} subject:"[SHADOW DRAFT]" after:${secondsFromIso(startIso)} before:${secondsFromIso(endIso)}`;
+    const draftIds = await gmail.searchMessages(agentConfig, shadowQuery, 200);
+    checkTimeout();
+
+    const counts = { sentAsIs: 0, editedThenSent: 0, rejected: 0 };
+
+    for (const draftId of draftIds) {
+      checkTimeout();
+      const draftMsg = await gmail.fetchMessage(agentConfig, draftId);
+      const parsed = parseShadowDraftBody(draftMsg.body);
+      if (!parsed) continue;
+
+      const draftTimestampMs = draftMsg.internalDate;
+      const windowEndMs = draftTimestampMs + 48 * 60 * 60 * 1000;
+      const sentQuery = `from:${agentConfig.gmailAddress} to:${parsed.leadEmail} after:${Math.floor(draftTimestampMs / 1000)} before:${Math.floor(windowEndMs / 1000)}`;
+      const sentIds = await gmail.searchMessages(agentConfig, sentQuery, 10);
+      checkTimeout();
+
+      if (sentIds.length === 0) {
+        counts.rejected++;
+        continue;
+      }
+
+      const sentMsgs = [];
+      for (const sid of sentIds) {
+        checkTimeout();
+        sentMsgs.push(await gmail.fetchMessage(agentConfig, sid));
+      }
+      sentMsgs.sort((a, b) => a.internalDate - b.internalDate);
+      const firstSent = sentMsgs[0];
+
+      const jaccard = computeJaccardOverlap(parsed.draftBody, firstSent.body, agentConfig);
+      if (jaccard >= 0.95) counts.sentAsIs++;
+      else if (jaccard >= 0.30) counts.editedThenSent++;
+      else counts.rejected++;
+    }
+
+    return counts;
+  } catch (err) {
+    if (err.message === 'shadow-catch-timeout') {
+      console.warn(`[digest] shadow-catch polling timed out for ${agentConfig.agentId}`);
+    } else {
+      console.error(`[digest] shadow-catch error for ${agentConfig.agentId}: ${err.message}`);
+    }
+    return null;
+  }
 }
 
 // ── Weekly email renderer (operator-facing) ───────────────────────────────────
@@ -955,7 +1093,15 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
   const endLabel   = formatWeeklyDate(weeklySections.windowEnd,   timezone);
   const subject    = `Weekly digest — ${startLabel} to ${endLabel}`;
 
-  const { aggregate, perAgent, churnRisk, recentlyDeactivated } = weeklySections;
+  const {
+    aggregate,
+    perAgent,
+    churnRisk,
+    recentlyDeactivated,
+    shadowCatches = {},
+    shadowAgentsCovered = 0,
+    shadowAgentsTimedOut = 0,
+  } = weeklySections;
   const totalLeads = aggregate.totalLeadsHandled || 0;
   const agentCount = perAgent.length;
   const parts      = [];
@@ -970,6 +1116,28 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
       .map(([key, label]) => `${label}: ${aggregate[key]}`);
     if (lines.length > 0) {
       parts.push(`— Aggregate stats —\n\n${lines.join('\n')}`);
+    }
+  }
+
+  {
+    const hasShadowData = shadowAgentsCovered > 0 || shadowAgentsTimedOut > 0;
+    if (hasShadowData) {
+      const plural = n => (n === 1 ? '' : 's');
+      let shadowText;
+      if (shadowAgentsCovered === 0) {
+        shadowText = `Shadow Mode catches: unavailable this week (Gmail polling timed out for ${shadowAgentsTimedOut} agent${plural(shadowAgentsTimedOut)}).`;
+      } else {
+        shadowText = [
+          `Drafts sent as-is by agent: ${shadowCatches.sentAsIs}`,
+          `Drafts edited then sent: ${shadowCatches.editedThenSent}`,
+          `Drafts rejected: ${shadowCatches.rejected}`,
+        ].join('\n');
+        if (shadowAgentsTimedOut > 0) {
+          shadowText += `\n(Counts exclude ${shadowAgentsTimedOut} agent${plural(shadowAgentsTimedOut)} where Gmail polling timed out.)`;
+        }
+        shadowText += '\nThis is the number that justifies $500/month long-term.';
+      }
+      parts.push(`— Shadow Mode catches —\n\n${shadowText}`);
     }
   }
 
@@ -1157,5 +1325,8 @@ module.exports = {
     annotateRow,
     _sendWithRetry,
     _appendDigestErrorLog,
+    secondsFromIso,
+    parseShadowDraftBody,
+    computeJaccardOverlap,
   },
 };
