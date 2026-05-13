@@ -19,11 +19,6 @@ function makeEmptySections() {
     followUpsFiredOvernight: [],
     systemHandled: {
       intaken: 0,
-      noiseFiltered: 0,
-      businessIgnored: 0,
-      hotAlerts: 0,
-      needsReview: 0,
-      path1bRoundTrips: 0,
       followUpsFired: 0,
       preflightSkips: 0,
     },
@@ -41,6 +36,7 @@ test('quiet day — subject is date-formatted, body has systemHandled only', () 
   expect(result.body).not.toContain('— Hot leads to call today —');
   expect(result.body).not.toContain('— Reliability —');
   expect(result.body).toContain('0 need you today.');
+  expect(result.body).toContain('Leads intaken: 0');
 });
 
 test('day with one urgent HOT lead — subject names the lead, Needs you today section renders', () => {
@@ -124,17 +120,15 @@ test('shadow mode rows use shadow header; live mode rows use live header', () =>
   expect(liveResult.body).toContain('Jane S — Day 7 — sent');
 });
 
-test('systemHandled with all zero counts still renders all eight lines', () => {
+test('systemHandled with all zero counts renders exactly the three Path B lines', () => {
   const sections = makeEmptySections();
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).toContain('— What the system handled —');
   expect(result.body).toContain('Leads intaken: 0');
-  expect(result.body).toContain('Noise filtered: 0');
-  expect(result.body).toContain('Business correspondence ignored: 0');
-  expect(result.body).toContain('HOT alerts sent: 0');
-  expect(result.body).toContain('Needs-review escalations: 0');
-  expect(result.body).toContain('Path 1B SMS round-trips completed: 0');
   expect(result.body).toContain('Follow-ups fired: 0');
-  expect(result.body).toContain('Pre-flight skips (you did it manually): 0');
+  expect(result.body).toContain('Pre-flight skips this week: 0');
+  expect(result.body).not.toContain('Noise filtered:');
+  expect(result.body).not.toContain('Business correspondence ignored:');
+  expect(result.body).not.toContain('HOT alerts sent:');
 });

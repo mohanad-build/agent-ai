@@ -14,7 +14,9 @@
 //   - Step 9: integration test under MOCK_NOW
 //   - Step 10: dry-run mode live verification
 
-// Imports added in later build steps as implementations land.
+const email = require('./email');
+const agentState = require('./agentState');
+const { getFollowUpCadence } = require('./agentConfig');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -83,7 +85,9 @@ function formatWeeklyDate(isoStr, timezone) {
 }
 
 function buildOpenerLine(systemHandled, hasUrgent) {
-  const { intaken, followUpsFired, noiseFiltered } = systemHandled;
+  const intaken = systemHandled.intaken || 0;
+  const followUpsFired = systemHandled.followUpsFired || 0;
+  const noiseFiltered = systemHandled.noiseFiltered || 0;
   const total = intaken + followUpsFired + noiseFiltered;
   const base = `Handled ${total} leads overnight: ${intaken} new, ${followUpsFired} follow-ups, ${noiseFiltered} filtered.`;
   return hasUrgent ? base : `${base} 0 need you today.`;
@@ -91,6 +95,14 @@ function buildOpenerLine(systemHandled, hasUrgent) {
 
 // Churn threshold description rendered at the bottom of every churn section.
 const CHURN_CRITERIA = 'Criteria: needs_review unanswered >48h (High), no Sheet interaction >14d (High), pre-flight skips +50% WoW (Medium), aiEnabled toggled ≥3 rows (Medium), CALLED >5x (Low).';
+
+// Renderer-owned label map for Path B systemHandled section. Key order = render order.
+// Only keys present in the data object will produce a line (absent keys are silently skipped).
+const SYSTEM_HANDLED_LABELS = {
+  intaken: 'Leads intaken',
+  followUpsFired: 'Follow-ups fired',
+  preflightSkips: 'Pre-flight skips this week',
+};
 
 // ── Categorization helpers ────────────────────────────────────────────────────
 
@@ -110,6 +122,108 @@ function daysBetween(later, earlier) {
 
 function isFalseFlag(value) {
   return String(value == null ? '' : value).trim().toUpperCase() === 'FALSE';
+}
+
+// ── Column L parsing helpers ──────────────────────────────────────────────────
+
+// Returns the Date of the timestamp on the first column L line, or null.
+function parseColumnLFirstLineTimestamp(conversationHistory) {
+  if (!conversationHistory || !String(conversationHistory).trim()) return null;
+  const firstLine = String(conversationHistory).split('\n')[0];
+  const m = firstLine.match(/^\[([^\]]+)\]/);
+  if (!m) return null;
+  return parseISO(m[1]);
+}
+
+// Returns the trimmed property reference from the first column L line, or null.
+function parseColumnLPropertyReference(conversationHistory) {
+  if (!conversationHistory) return null;
+  const firstLine = String(conversationHistory).split('\n')[0];
+  const m = firstLine.match(/Heuristic intake \(([^)]+)\):/);
+  if (!m) return null;
+  const segments = m[1].split(', ');
+  const seg = segments.find(s => s.startsWith('property: '));
+  if (!seg) return null;
+  const val = seg.slice('property: '.length).trim();
+  return val || null;
+}
+
+// Returns the most recent in-window follow-up fire, or null.
+function findInWindowFollowUpFire(conversationHistory, startMs, endMs, mode) {
+  if (!conversationHistory) return null;
+  const lines = String(conversationHistory).split('\n');
+  const candidates = [];
+  for (const line of lines) {
+    const m = line.match(/^\[([^\]]+)\] Follow-up Day (\d+) sent/);
+    if (!m) continue;
+    const ts = parseISO(m[1]);
+    if (!ts) continue;
+    const t = ts.getTime();
+    if (t >= startMs && t <= endMs) {
+      candidates.push({ timestamp: m[1], touchDay: parseInt(m[2], 10), t });
+    }
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.t - a.t);
+  return { timestamp: candidates[0].timestamp, touchDay: candidates[0].touchDay, mode };
+}
+
+// ── Row annotation helpers ────────────────────────────────────────────────────
+
+function splitName(rawName) {
+  if (!rawName) return { firstName: '', lastInitial: '' };
+  const trimmed = String(rawName).trim();
+  if (!trimmed) return { firstName: '', lastInitial: '' };
+  const tokens = trimmed.split(/\s+/).filter(t => t.length > 0);
+  if (tokens.length === 0) return { firstName: '', lastInitial: '' };
+  if (tokens.length === 1) return { firstName: tokens[0], lastInitial: '' };
+  return { firstName: tokens[0], lastInitial: tokens[tokens.length - 1].charAt(0).toUpperCase() };
+}
+
+function computeNextTouch(row, cadence) {
+  if (row.status !== 'awaiting_response') return { nextTouchEligibleAt: null, nextTouchDay: null };
+  const touchIndex = parseInt(String(row.followUpCount || '0'), 10);
+  if (Number.isNaN(touchIndex) || touchIndex < 0) return { nextTouchEligibleAt: null, nextTouchDay: null };
+  if (touchIndex >= cadence.length) return { nextTouchEligibleAt: null, nextTouchDay: null };
+  const nextTouchDay = cadence[touchIndex];
+  const refTimestamp = row.lastFollowUpDate || row.lastActionTimestamp;
+  if (!refTimestamp) return { nextTouchEligibleAt: null, nextTouchDay: null };
+  const refDate = parseISO(refTimestamp);
+  if (!refDate) return { nextTouchEligibleAt: null, nextTouchDay: null };
+  const eligibleMs = refDate.getTime() + nextTouchDay * 24 * 60 * 60 * 1000;
+  return { nextTouchEligibleAt: new Date(eligibleMs).toISOString(), nextTouchDay };
+}
+
+function annotateRow(row, cadence, mode, startMs, endMs) {
+  const { firstName, lastInitial } = splitName(row.name);
+  const propertyReference = parseColumnLPropertyReference(row.conversationHistory);
+
+  let createdAt = parseColumnLFirstLineTimestamp(row.conversationHistory);
+  if (!createdAt && row.dateAdded) {
+    const m = String(row.dateAdded).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      const d = new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10)));
+      if (Number.isFinite(d.getTime())) createdAt = d;
+    }
+  }
+  const createdInWindow = createdAt !== null
+    && createdAt !== undefined
+    && createdAt.getTime() >= startMs
+    && createdAt.getTime() <= endMs;
+
+  const { nextTouchEligibleAt, nextTouchDay } = computeNextTouch(row, cadence);
+  const lastFollowUpFire = findInWindowFollowUpFire(row.conversationHistory, startMs, endMs, mode);
+
+  return {
+    ...row,
+    firstName,
+    lastInitial,
+    propertyReference,
+    createdInWindow,
+    nextTouchEligibleAt,
+    nextTouchDay,
+    lastFollowUpFire,
+  };
 }
 
 // ── Entry points ──────────────────────────────────────────────────────────────
@@ -156,7 +270,21 @@ async function runWeeklyDigestForOperator(operatorConfig, agentConfigs) {
  * @returns {Promise<{rows: object[], stateCounters: object, reliability: object}>}
  */
 async function gatherWindowData(agentConfig, startIso, endIso) {
-  throw new Error('not implemented');
+  const rawRows = await email.readSheetRows(agentConfig);
+  const cadence = getFollowUpCadence(agentConfig);
+  const mode = agentConfig.mode || 'live';
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  const rows = rawRows.map(row => annotateRow(row, cadence, mode, startMs, endMs));
+  const state = agentState.getState(agentConfig.agentId);
+  const preflightSkips = state.weeklyPreflightSkips || 0;
+  const intaken = rows.filter(r => r.createdInWindow === true).length;
+  const followUpsFired = rows.filter(r => r.lastFollowUpFire !== null).length;
+  return {
+    rows,
+    stateCounters: { systemHandled: { intaken, followUpsFired, preflightSkips } },
+    reliability: { errors: 0, retries: 0, threadingSkipped: 0 },
+  };
 }
 
 /**
@@ -447,16 +575,9 @@ function renderEmail(sections, agentConfig, now) {
 
   {
     const sh = systemHandled;
-    const lines = [
-      `Leads intaken: ${sh.intaken}`,
-      `Noise filtered: ${sh.noiseFiltered}`,
-      `Business correspondence ignored: ${sh.businessIgnored}`,
-      `HOT alerts sent: ${sh.hotAlerts}`,
-      `Needs-review escalations: ${sh.needsReview}`,
-      `Path 1B SMS round-trips completed: ${sh.path1bRoundTrips}`,
-      `Follow-ups fired: ${sh.followUpsFired}`,
-      `Pre-flight skips (you did it manually): ${sh.preflightSkips}`,
-    ];
+    const lines = Object.entries(SYSTEM_HANDLED_LABELS)
+      .filter(([key]) => key in sh)
+      .map(([key, label]) => `${label}: ${sh[key]}`);
     parts.push(`— What the system handled —\n\n${lines.join('\n')}`);
   }
 
@@ -628,4 +749,12 @@ module.exports = {
   pollSentFolderForDraftResolution,
   shouldRunDailyDigest,
   shouldRunWeeklyDigest,
+  _internal: {
+    splitName,
+    parseColumnLFirstLineTimestamp,
+    parseColumnLPropertyReference,
+    computeNextTouch,
+    findInWindowFollowUpFire,
+    annotateRow,
+  },
 };
