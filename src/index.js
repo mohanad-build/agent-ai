@@ -16,8 +16,10 @@ const path = require('path');
 
 const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
 const { runLeadIntake, transitionToIntaken } = require('./leadIntake');
-const { getNow, getNowIso } = require('./time');
+const { getNow, getNowIso, getNowDate } = require('./time');
 const followUp = require('./followUp');
+const agentState = require('./agentState');
+const { shouldRunDailyDigest, runDailyDigestForAgent } = require('./digest');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
@@ -491,6 +493,29 @@ async function checkStaleQuestions(agent) {
 }
 
 // --------------------------------------------------------------------------
+// Daily digest
+// --------------------------------------------------------------------------
+
+async function maybeRunDailyDigest(agent) {
+  try {
+    const state = agentState.getState(agent.agentId);
+    if (!shouldRunDailyDigest(agent, getNowDate(), state)) {
+      console.log(`[${agent.agentId}] daily digest: not due`);
+      return;
+    }
+    const result = await runDailyDigestForAgent(agent);
+    if (result.skipped !== 'inactive' && (result.smsResult === 'sent' || result.emailResult === 'sent')) {
+      agentState.recordDailyDigestRun(agent.agentId, getNowIso());
+    }
+    const smsLabel   = result.smsResult   || 'n/a';
+    const emailLabel = result.emailResult || 'n/a';
+    console.log(`[${agent.agentId}] daily digest: sms=${smsLabel} email=${emailLabel}`);
+  } catch (err) {
+    console.error(`[${agent.agentId}] daily digest failed: ${err.message}`);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Main
 // --------------------------------------------------------------------------
 
@@ -514,6 +539,7 @@ async function main() {
       } catch (fuErr) {
         console.error(`[${id}] follow-up run failed: ${fuErr.message}`);
       }
+      await maybeRunDailyDigest(agent);
     } catch (err) {
       // One agent's failure must not stop others.
       console.error(`[${id}] uncaught error: ${err.message}`);

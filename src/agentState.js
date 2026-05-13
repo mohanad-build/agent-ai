@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_STATE = { lastTokenIssued: 0, weeklyPreflightSkips: 0 };
+const DEFAULT_STATE = { lastTokenIssued: 0, weeklyPreflightSkips: 0, lastDailyDigestRun: null };
 
 function statePath(agentId) {
   return path.join(__dirname, '..', 'agents', `${agentId}.state.json`);
@@ -63,4 +63,9 @@ function resetWeeklyPreflightSkips(agentId) {
   setState(agentId, { ...state, weeklyPreflightSkips: 0 });
 }
 
-module.exports = { getState, setState, issueToken, incrementWeeklyPreflightSkips, resetWeeklyPreflightSkips };
+function recordDailyDigestRun(agentId, iso) {
+  const state = getState(agentId);
+  setState(agentId, { ...state, lastDailyDigestRun: iso });
+}
+
+module.exports = { getState, setState, issueToken, incrementWeeklyPreflightSkips, resetWeeklyPreflightSkips, recordDailyDigestRun };

@@ -16,7 +16,9 @@
 
 const email = require('./email');
 const agentState = require('./agentState');
+const twilio = require('./twilio');
 const { getFollowUpCadence } = require('./agentConfig');
+const { getNowIso, getNowDate } = require('./time');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -239,8 +241,98 @@ function annotateRow(row, cadence, mode, startMs, endMs) {
  * @param {object} agentConfig
  * @returns {Promise<{smsSent: boolean, emailSent: boolean, sections: object}>}
  */
-async function runDailyDigestForAgent(agentConfig) {
-  throw new Error('not implemented');
+async function runDailyDigestForAgent(agentConfig, options = {}) {
+  const dryRun = options.dryRun === true;
+
+  if (agentConfig.isActive === false) {
+    console.log(`[${agentConfig.agentId}] daily digest: skipped (inactive)`);
+    return { skipped: 'inactive' };
+  }
+
+  const endIso   = getNowIso();
+  const endMs    = new Date(endIso).getTime();
+  const startIso = new Date(endMs - 24 * 60 * 60 * 1000).toISOString();
+
+  const gathered = await gatherWindowData(agentConfig, startIso, endIso);
+  const { rows, stateCounters, reliability } = gathered;
+
+  const now        = getNowDate();
+  const categories = categorizeRowsForDigest(rows, now);
+
+  const systemHandled = stateCounters.systemHandled;
+  const sections = {
+    ...categories,
+    systemHandled,
+    reliability,
+  };
+
+  const topUrgent = categories.urgent.length > 0 ? categories.urgent[0] : null;
+  const smsStats  = {
+    intaken:       systemHandled.intaken       || 0,
+    followUpsFired: systemHandled.followUpsFired || 0,
+    noiseFiltered: systemHandled.noiseFiltered  || 0,
+    urgentCount:   categories.urgent.length,
+  };
+
+  const smsBody         = renderSMS(smsStats, topUrgent);
+  const { subject, body: emailBody } = renderEmail(sections, agentConfig, now);
+
+  const errors = [];
+  let smsResult;
+  let emailResult;
+
+  // digestSmsEnabled: absent/null/'' treated as true (mirrors isAiEnabled absent-as-true)
+  const rawSmsFlag = agentConfig.digestSmsEnabled;
+  const smsEnabled = (rawSmsFlag === undefined || rawSmsFlag === null || rawSmsFlag === '')
+    ? true
+    : (typeof rawSmsFlag === 'boolean' ? rawSmsFlag : String(rawSmsFlag).trim().toLowerCase() !== 'false');
+
+  // SMS send
+  if (!smsEnabled) {
+    smsResult = 'skipped';
+  } else if (dryRun && !agentConfig.operatorPhone) {
+    console.log(`[${agentConfig.agentId}] daily digest dry-run: no operatorPhone, skipping SMS`);
+    smsResult = 'skipped';
+  } else {
+    const smsTarget = dryRun
+      ? { ...agentConfig, agentPhone: agentConfig.operatorPhone }
+      : agentConfig;
+    try {
+      await twilio.sendSMS(smsTarget, smsBody);
+      smsResult = 'sent';
+    } catch (err) {
+      console.error(`[${agentConfig.agentId}] daily digest SMS failed: ${err.message}`);
+      smsResult = 'failed';
+      errors.push({ channel: 'sms', message: err.message });
+    }
+  }
+
+  // Email send (always attempts regardless of SMS outcome)
+  let emailTo;
+  if (dryRun) {
+    emailTo = agentConfig.escalationEmail || null;
+    if (!emailTo) {
+      console.log(`[${agentConfig.agentId}] daily digest dry-run: no escalationEmail, skipping email`);
+    }
+  } else {
+    emailTo = agentConfig.agentEmail || null;
+  }
+
+  if (!emailTo) {
+    emailResult = 'failed';
+    errors.push({ channel: 'email', message: 'no recipient address' });
+  } else {
+    try {
+      await email.sendNewEmail(agentConfig, { to: emailTo, subject, body: emailBody });
+      emailResult = 'sent';
+    } catch (err) {
+      console.error(`[${agentConfig.agentId}] daily digest email failed: ${err.message}`);
+      emailResult = 'failed';
+      errors.push({ channel: 'email', message: err.message });
+    }
+  }
+
+  return { smsResult, emailResult, errors };
 }
 
 /**
@@ -720,7 +812,56 @@ async function pollSentFolderForDraftResolution(agentConfig, draftMetadata) {
  * @returns {boolean}
  */
 function shouldRunDailyDigest(agentConfig, now, agentState) {
-  throw new Error('not implemented');
+  const digestTime = (agentConfig.digestTime && String(agentConfig.digestTime).trim()) || '07:00';
+  const timezone = (agentConfig.timezone && String(agentConfig.timezone).trim()) || 'America/Toronto';
+
+  const colonIdx = digestTime.indexOf(':');
+  const hh = parseInt(digestTime.slice(0, colonIdx), 10);
+  const mm = parseInt(digestTime.slice(colonIdx + 1), 10);
+
+  // Get today's local date in the target timezone
+  const dateParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const year  = parseInt(dateParts.find(p => p.type === 'year').value,  10);
+  const month = parseInt(dateParts.find(p => p.type === 'month').value, 10);
+  const day   = parseInt(dateParts.find(p => p.type === 'day').value,   10);
+
+  // Compute UTC offset using noon UTC (avoids DST transitions which occur at ~2am)
+  const noonUTC   = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const noonParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  const noonLocalHour = parseInt(noonParts.find(p => p.type === 'hour').value,   10) % 24;
+  const noonLocalMin  = parseInt(noonParts.find(p => p.type === 'minute').value, 10);
+
+  // offsetMs = how far UTC is ahead of local (positive for west of UTC)
+  const offsetMs = (12 * 60 - (noonLocalHour * 60 + noonLocalMin)) * 60 * 1000;
+
+  // Scheduled fire moment in UTC: local HH:MM on today's local date
+  const scheduledFireMs = Date.UTC(year, month - 1, day, hh, mm, 0) + offsetMs;
+
+  const MS_1H  = 60 * 60 * 1000;
+  const MS_12H = 12 * 60 * 60 * 1000;
+  const nowMs  = now.getTime();
+  const delta  = nowMs - scheduledFireMs;
+
+  // Condition (a): within the 1h grace window
+  if (delta < 0 || delta > MS_1H) return false;
+
+  // Condition (b): not already run within the last 12h
+  const lastRun = agentState && agentState.lastDailyDigestRun;
+  if (lastRun) {
+    if (nowMs - new Date(lastRun).getTime() <= MS_12H) return false;
+  }
+
+  return true;
 }
 
 /**
