@@ -19,7 +19,9 @@ const { runLeadIntake, transitionToIntaken } = require('./leadIntake');
 const { getNow, getNowIso, getNowDate } = require('./time');
 const followUp = require('./followUp');
 const agentState = require('./agentState');
-const { shouldRunDailyDigest, runDailyDigestForAgent } = require('./digest');
+const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator } = require('./digest');
+const operatorState = require('./operatorState');
+const { loadOperator, discoverOperatorIds } = require('./operatorConfig');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
@@ -516,6 +518,31 @@ async function maybeRunDailyDigest(agent) {
 }
 
 // --------------------------------------------------------------------------
+// Weekly digest (operator-scoped, runs once per cycle after all agents)
+// --------------------------------------------------------------------------
+
+async function maybeRunWeeklyDigest() {
+  const operatorIds = discoverOperatorIds();
+  for (const operatorId of operatorIds) {
+    try {
+      const operator = loadOperator(operatorId);
+      const state    = operatorState.getState(operatorId);
+      if (!shouldRunWeeklyDigest(operator, getNowDate(), state)) {
+        console.log(`[operator:${operatorId}] weekly digest: not due`);
+        continue;
+      }
+      const result = await runWeeklyDigestForOperator(operator);
+      if (result.emailResult === 'sent') {
+        operatorState.recordWeeklyDigestRun(operatorId, getNowIso());
+      }
+      console.log(`[operator:${operatorId}] weekly digest: email=${result.emailResult} agents=${result.activeAgentCount}`);
+    } catch (err) {
+      console.error(`[operator:${operatorId}] weekly digest failed: ${err.message}`);
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
 // Main
 // --------------------------------------------------------------------------
 
@@ -546,6 +573,8 @@ async function main() {
       if (err.stack) console.error(err.stack);
     }
   }
+
+  await maybeRunWeeklyDigest();
 
   console.log('\nOrchestrator cycle complete.');
 }

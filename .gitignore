@@ -14,6 +14,13 @@ agents/*.json
 # Agent state files (runtime state, not committed)
 agents/*.state.json
 
+# Operator runtime configs (per-operator OAuth tokens)
+operators/*.json
+!operators/example.json
+
+# Operator state files (runtime state, not committed)
+operators/*.state.json
+
 # OS / editor noise
 .DS_Store
 *.log

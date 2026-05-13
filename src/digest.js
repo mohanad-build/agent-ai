@@ -14,10 +14,13 @@
 //   - Step 9: integration test under MOCK_NOW
 //   - Step 10: dry-run mode live verification
 
+const fs   = require('fs');
+const path = require('path');
+
 const email = require('./email');
 const agentState = require('./agentState');
 const twilio = require('./twilio');
-const { getFollowUpCadence } = require('./agentConfig');
+const { getFollowUpCadence, loadAgent } = require('./agentConfig');
 const { getNowIso, getNowDate } = require('./time');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
@@ -97,6 +100,17 @@ function buildOpenerLine(systemHandled, hasUrgent) {
 
 // Churn threshold description rendered at the bottom of every churn section.
 const CHURN_CRITERIA = 'Criteria: needs_review unanswered >48h (High), no Sheet interaction >14d (High), pre-flight skips +50% WoW (Medium), aiEnabled toggled ≥3 rows (Medium), CALLED >5x (Low).';
+
+// Renderer-owned label map for weekly aggregate section. Key order = render order.
+// Absent keys are skipped (fields not yet computable are simply omitted from the object).
+const WEEKLY_AGGREGATE_LABELS = {
+  totalLeadsHandled:   'Leads handled',
+  totalTouchesFired:   'Touches fired',
+  totalFiltered:       'Filtered',
+  totalEscalations:    'Escalations',
+  totalPath1bRoundtrips: 'Path 1B round-trips completed',
+  totalPreflightSkips: 'Pre-flight skips (agents doing it manually)',
+};
 
 // Renderer-owned label map for Path B systemHandled section. Key order = render order.
 // Only keys present in the data object will produce a line (absent keys are silently skipped).
@@ -346,8 +360,174 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
  * @param {object[]} agentConfigs
  * @returns {Promise<{emailSent: boolean, sections: object}>}
  */
-async function runWeeklyDigestForOperator(operatorConfig, agentConfigs) {
-  throw new Error('not implemented');
+async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
+  const dryRun = options.dryRun === true;
+
+  const endIso = getNowIso();
+  const endMs  = new Date(endIso).getTime();
+  const MS_7D  = 7 * 24 * 60 * 60 * 1000;
+  const startIso = new Date(endMs - MS_7D).toISOString();
+  const startMs  = new Date(startIso).getTime();
+
+  // Discover all agent IDs (mirrors discoverAgentIds in src/index.js; not imported to avoid circular)
+  const AGENT_BLOCKLIST = new Set(['example.json', '.gitkeep']);
+  const agentsDir = path.join(__dirname, '..', 'agents');
+  let allAgentIds = [];
+  if (fs.existsSync(agentsDir)) {
+    allAgentIds = fs.readdirSync(agentsDir)
+      .filter(f => f.endsWith('.json') && !AGENT_BLOCKLIST.has(f))
+      .map(f => f.replace(/\.json$/, ''))
+      .sort();
+  }
+
+  // Load active agents
+  const activeAgents = [];
+  for (const agentId of allAgentIds) {
+    let cfg;
+    try {
+      cfg = loadAgent(agentId);
+    } catch (err) {
+      console.warn(`[operator:${operatorConfig.operatorId}] skipping ${agentId}: ${err.message}`);
+      continue;
+    }
+    if (cfg.isActive !== true) continue;
+    activeAgents.push(cfg);
+  }
+
+  // Gather window data for each active agent
+  const gatheredByAgent = {};
+  for (const agentCfg of activeAgents) {
+    try {
+      gatheredByAgent[agentCfg.agentId] = await gatherWindowData(agentCfg, startIso, endIso);
+    } catch (err) {
+      console.error(`[operator:${operatorConfig.operatorId}] gather failed for ${agentCfg.agentId}: ${err.message}`);
+    }
+  }
+
+  // Aggregate totals across active agents
+  let totalLeadsHandled  = 0;
+  let totalTouchesFired  = 0;
+  let totalFiltered      = 0;
+  let totalPreflightSkips = 0;
+
+  for (const agentCfg of activeAgents) {
+    const gathered = gatheredByAgent[agentCfg.agentId];
+    if (!gathered) continue;
+    const sh = gathered.stateCounters.systemHandled;
+    totalLeadsHandled  += sh.intaken        || 0;
+    totalTouchesFired  += (sh.intaken || 0) + (sh.followUpsFired || 0);
+    totalFiltered      += sh.noiseFiltered  || 0;
+    totalPreflightSkips += sh.preflightSkips || 0;
+  }
+
+  // Only include fields that have real data; omit unavailable ones (avgResponseTime, warmToTour, etc.)
+  const aggregate = {
+    totalLeadsHandled,
+    totalTouchesFired,
+    totalFiltered,
+    totalPreflightSkips,
+  };
+
+  // Per-agent summaries
+  const nowDate = getNowDate();
+  const perAgent = activeAgents.map(agentCfg => {
+    const gathered = gatheredByAgent[agentCfg.agentId];
+    const sh = gathered ? gathered.stateCounters.systemHandled : {};
+    const cats = gathered ? categorizeRowsForDigest(gathered.rows, nowDate) : { urgent: [] };
+    return {
+      agentId: agentCfg.agentId,
+      agentName: agentCfg.agentName || agentCfg.agentId,
+      intaken:            sh.intaken        || 0,
+      followUpsFired:     sh.followUpsFired  || 0,
+      noiseFiltered:      sh.noiseFiltered   || 0,
+      urgentCount:        cats.urgent.length,
+      weeklyPreflightSkips: sh.preflightSkips || 0,
+    };
+  });
+
+  // Churn risk: compute what we can from available data
+  const MS_48H = 48 * 60 * 60 * 1000;
+  const churnRisk = [];
+  for (const agentCfg of activeAgents) {
+    const gathered = gatheredByAgent[agentCfg.agentId];
+    if (!gathered) continue;
+    const reasons = [];
+    for (const row of gathered.rows) {
+      if (row.status === 'needs_review' && row.lastActionTimestamp) {
+        if (nowDate.getTime() - new Date(row.lastActionTimestamp).getTime() > MS_48H) {
+          reasons.push('needs_review unanswered >48h');
+          break;
+        }
+      }
+    }
+    if (reasons.length > 0) {
+      churnRisk.push({
+        agentId: agentCfg.agentId,
+        agentName: agentCfg.agentName || agentCfg.agentId,
+        reasons,
+      });
+    }
+  }
+
+  // Recently deactivated agents (scan all discovered, not just active)
+  const recentlyDeactivated = [];
+  for (const agentId of allAgentIds) {
+    let stateObj;
+    try {
+      stateObj = agentState.getState(agentId);
+    } catch {
+      continue;
+    }
+    if (!stateObj.deactivatedAt) continue;
+    const deactivatedMs = new Date(stateObj.deactivatedAt).getTime();
+    if (deactivatedMs >= startMs && deactivatedMs <= endMs) {
+      let agentName = agentId;
+      try {
+        const cfg = loadAgent(agentId);
+        agentName = cfg.agentName || agentId;
+      } catch {
+        // fallback to agentId
+      }
+      recentlyDeactivated.push({ agentId, agentName, deactivatedAt: stateObj.deactivatedAt });
+    }
+  }
+
+  const weeklySections = {
+    windowStart: startIso,
+    windowEnd:   endIso,
+    aggregate,
+    perAgent,
+    churnRisk,
+    recentlyDeactivated,
+  };
+
+  const { subject, body } = renderWeeklyEmail(weeklySections, operatorConfig, nowDate);
+
+  const errors = [];
+  let emailResult;
+
+  const emailTo = dryRun
+    ? (operatorConfig.dryRunEmail || operatorConfig.operatorEmail)
+    : operatorConfig.operatorEmail;
+
+  try {
+    await email.sendNewEmail(operatorConfig, { to: emailTo, subject, body });
+    emailResult = 'sent';
+    // Reset preflight skips for each active agent after successful send
+    for (const agentCfg of activeAgents) {
+      try {
+        agentState.resetWeeklyPreflightSkips(agentCfg.agentId);
+      } catch (err) {
+        console.warn(`[operator:${operatorConfig.operatorId}] preflight reset failed for ${agentCfg.agentId}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    console.error(`[operator:${operatorConfig.operatorId}] weekly digest email failed: ${err.message}`);
+    emailResult = 'failed';
+    errors.push({ channel: 'email', message: err.message });
+  }
+
+  return { emailResult, activeAgentCount: activeAgents.length, errors };
 }
 
 /**
@@ -688,103 +868,6 @@ function renderEmail(sections, agentConfig, now) {
   return { subject, body: parts.join('\n\n') };
 }
 
-/**
- * Pure function. Produces the operator weekly email body per spec section 5.1.
- * aggregateStats.operatorTimezone is used for date formatting; defaults to
- * America/Toronto if absent.
- *
- * @param {object} aggregateStats  cross-agent rollup (includes windowStart, windowEnd, operatorTimezone)
- * @param {object[]} perAgentSections  one per agent
- * @param {object[]} agentConfigs
- * @param {Date} now  reserved for future use
- * @returns {{subject: string, body: string}}
- */
-function renderWeeklyEmail(aggregateStats, perAgentSections, agentConfigs, now) {
-  const operatorTz = aggregateStats.operatorTimezone || 'America/Toronto';
-  const startLabel = formatWeeklyDate(aggregateStats.windowStart, operatorTz);
-  const endLabel = formatWeeklyDate(aggregateStats.windowEnd, operatorTz);
-  const subject = `Weekly digest — ${startLabel} to ${endLabel}`;
-
-  const parts = [];
-
-  {
-    const s = aggregateStats;
-    const lines = [
-      `Leads handled across all agents: ${s.leadsHandled}`,
-      `Average response time (lead reply → system action): ${s.avgResponseTime}`,
-    ];
-    if (s.warmToTourRate !== null && s.warmToTourRate !== undefined) {
-      lines.push(`Warm-to-tour conversion rate: ${s.warmToTourRate}`);
-    }
-    lines.push(
-      `Total touches fired: ${s.touchesFired}`,
-      `Total filtered: ${s.filtered}`,
-      `Total escalations: ${s.escalations}`,
-      `Total Path 1B round-trips completed: ${s.path1bRoundTrips}`,
-      `Total pre-flight skips (agents doing it manually): ${s.preflightSkips}`,
-    );
-    parts.push(`— Aggregate stats —\n\n${lines.join('\n')}`);
-  }
-
-  {
-    const sc = aggregateStats.shadowCatches;
-    const lines = [
-      `Drafts sent as-is by agent: ${sc.sentAsIs}`,
-      `Drafts edited then sent: ${sc.editedThenSent}`,
-      `Drafts rejected: ${sc.rejected}`,
-    ];
-    parts.push(`— Shadow Mode catches —\n\n${lines.join('\n')}`);
-  }
-
-  {
-    const agentBlocks = perAgentSections.map(a => [
-      `${a.agentName} [${a.mode}]`,
-      `  Leads handled: ${a.leadsHandled}`,
-      `  Response time: ${a.responseTime}`,
-      `  Pre-flight skips: ${a.preflightSkips}`,
-      `  Last Sheet interaction: ${a.lastSheetInteraction}`,
-    ].join('\n'));
-    parts.push(`— Per-agent breakdown —\n\n${agentBlocks.join('\n\n')}`);
-  }
-
-  {
-    const flagged = perAgentSections.filter(a => a.flaggedReasons && a.flaggedReasons.length > 0);
-    const churnLines = [];
-    if (flagged.length === 0) {
-      churnLines.push('All agents engaged this week.');
-    } else {
-      for (const a of flagged) {
-        for (const reason of a.flaggedReasons) {
-          churnLines.push(`${a.agentName} — ${reason}`);
-        }
-      }
-    }
-    churnLines.push('');
-    churnLines.push(CHURN_CRITERIA);
-    parts.push(`— Churn risk signals —\n\n${churnLines.join('\n')}`);
-  }
-
-  {
-    const r = aggregateStats.reliability;
-    if (r.errors + r.retries + r.threadingSkipped > 0) {
-      const lines = [
-        `Errors: ${r.errors}`,
-        `Retries: ${r.retries}`,
-        `Threading-skipped follow-ups: ${r.threadingSkipped}`,
-      ];
-      parts.push(`— Reliability —\n\n${lines.join('\n')}`);
-    }
-  }
-
-  {
-    const items = aggregateStats.humanItems || [];
-    if (items.length > 0) {
-      parts.push(`— Things that need a human —\n\n${items.join('\n')}`);
-    }
-  }
-
-  return { subject, body: parts.join('\n\n') };
-}
 
 /**
  * Weekly-only helper. For each draftMetadata entry, checks the agent's Sent
@@ -798,6 +881,64 @@ function renderWeeklyEmail(aggregateStats, perAgentSections, agentConfigs, now) 
  */
 async function pollSentFolderForDraftResolution(agentConfig, draftMetadata) {
   throw new Error('not implemented');
+}
+
+// ── Weekly email renderer (operator-facing) ───────────────────────────────────
+
+function renderWeeklyEmail(weeklySections, operatorConfig, now) {
+  const timezone  = operatorConfig.timezone || 'America/Toronto';
+  const startLabel = formatWeeklyDate(weeklySections.windowStart, timezone);
+  const endLabel   = formatWeeklyDate(weeklySections.windowEnd,   timezone);
+  const subject    = `Weekly digest — ${startLabel} to ${endLabel}`;
+
+  const { aggregate, perAgent, churnRisk, recentlyDeactivated } = weeklySections;
+  const totalLeads = aggregate.totalLeadsHandled || 0;
+  const agentCount = perAgent.length;
+  const parts      = [];
+
+  parts.push(
+    `${totalLeads} leads handled across ${agentCount} active agent${agentCount !== 1 ? 's' : ''} this week.`
+  );
+
+  {
+    const lines = Object.entries(WEEKLY_AGGREGATE_LABELS)
+      .filter(([key]) => key in aggregate)
+      .map(([key, label]) => `${label}: ${aggregate[key]}`);
+    if (lines.length > 0) {
+      parts.push(`— Aggregate stats —\n\n${lines.join('\n')}`);
+    }
+  }
+
+  if (churnRisk && churnRisk.length > 0) {
+    const lines = churnRisk.map(a => `${a.agentName} (${a.agentId}): ${a.reasons.join(', ')}`);
+    parts.push(`— Churn risk —\n\n${lines.join('\n')}`);
+  }
+
+  if (recentlyDeactivated && recentlyDeactivated.length > 0) {
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const lines = recentlyDeactivated.map(a => {
+      const daysAgo = Math.floor((now.getTime() - new Date(a.deactivatedAt).getTime()) / MS_DAY);
+      const rel = daysAgo === 0 ? 'today' : daysAgo === 1 ? '1 day ago' : `${daysAgo} days ago`;
+      return `${a.agentName} (${a.agentId}) — deactivated ${rel}`;
+    });
+    parts.push(`— Agents recently deactivated —\n\n${lines.join('\n')}`);
+  }
+
+  if (perAgent && perAgent.length > 0) {
+    const blocks = perAgent.map(a => [
+      `${a.agentName} (${a.agentId})`,
+      `  Leads intaken: ${a.intaken}`,
+      `  Follow-ups fired: ${a.followUpsFired}`,
+      `  Filtered: ${a.noiseFiltered}`,
+      `  Urgent items: ${a.urgentCount}`,
+      `  Pre-flight skips this week: ${a.weeklyPreflightSkips}`,
+    ].join('\n'));
+    parts.push(`— Per-agent breakdown —\n\n${blocks.join('\n\n')}`);
+  }
+
+  parts.push('Pre-flight skip counters reset after this digest.');
+
+  return { subject, body: parts.join('\n\n') };
 }
 
 /**
@@ -875,7 +1016,60 @@ function shouldRunDailyDigest(agentConfig, now, agentState) {
  * @returns {boolean}
  */
 function shouldRunWeeklyDigest(operatorConfig, now, operatorState) {
-  throw new Error('not implemented');
+  const timezone = (operatorConfig.timezone && String(operatorConfig.timezone).trim()) || 'America/Toronto';
+
+  // (a) Must be Sunday in operator's local timezone
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'long',
+  }).format(now);
+  if (weekday !== 'Sunday') return false;
+
+  const digestTime = (operatorConfig.digestTime && String(operatorConfig.digestTime).trim()) || '08:00';
+  const colonIdx = digestTime.indexOf(':');
+  const hh = parseInt(digestTime.slice(0, colonIdx), 10);
+  const mm = parseInt(digestTime.slice(colonIdx + 1), 10);
+
+  // Get today's local date in the target timezone
+  const dateParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const year  = parseInt(dateParts.find(p => p.type === 'year').value,  10);
+  const month = parseInt(dateParts.find(p => p.type === 'month').value, 10);
+  const day   = parseInt(dateParts.find(p => p.type === 'day').value,   10);
+
+  // Compute UTC offset using noon UTC (avoids DST transitions which occur at ~2am)
+  const noonUTC   = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const noonParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  const noonLocalHour = parseInt(noonParts.find(p => p.type === 'hour').value,   10) % 24;
+  const noonLocalMin  = parseInt(noonParts.find(p => p.type === 'minute').value, 10);
+  const offsetMs = (12 * 60 - (noonLocalHour * 60 + noonLocalMin)) * 60 * 1000;
+
+  const scheduledFireMs = Date.UTC(year, month - 1, day, hh, mm, 0) + offsetMs;
+
+  const MS_1H  = 60 * 60 * 1000;
+  const MS_6D  = 6 * 24 * 60 * 60 * 1000;
+  const nowMs  = now.getTime();
+  const delta  = nowMs - scheduledFireMs;
+
+  // (b) Within 1h grace window
+  if (delta < 0 || delta > MS_1H) return false;
+
+  // (c) 6-day idempotency guard
+  const lastRun = operatorState && operatorState.lastWeeklyDigestRun;
+  if (lastRun) {
+    if (nowMs - new Date(lastRun).getTime() <= MS_6D) return false;
+  }
+
+  return true;
 }
 
 module.exports = {

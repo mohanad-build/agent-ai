@@ -1,0 +1,11 @@
+{
+  "_comment": "Template for operators/<id>.json. Copy to operators/<your-id>.json and fill in real values. The runtime config file is gitignored. operatorEmail is where the weekly digest is sent. gmailAddress + googleRefreshToken are used to self-send the digest from the operator's own Gmail.",
+  "operatorId": "example",
+  "operatorName": "Example Operator",
+  "operatorEmail": "operator@example.com",
+  "timezone": "America/Toronto",
+  "digestTime": "08:00",
+  "digestDay": "sunday",
+  "gmailAddress": "operator@example.com",
+  "googleRefreshToken": "REPLACE_ME"
+}
