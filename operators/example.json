@@ -1,8 +1,9 @@
 {
-  "_comment": "Template for operators/<id>.json. Copy to operators/<your-id>.json and fill in real values. The runtime config file is gitignored. operatorEmail is where the weekly digest is sent. gmailAddress + googleRefreshToken are used to self-send the digest from the operator's own Gmail.",
+  "_comment": "Template for operators/<id>.json. Copy to operators/<your-id>.json and fill in real values. The runtime config file is gitignored. operatorEmail is where the weekly digest is sent. operatorPhone is used for SMS fallback notification if the weekly digest email fails to send after retries. Must be Twilio-formatted (E.164, e.g. +14165551234). gmailAddress + googleRefreshToken are used to self-send the digest from the operator's own Gmail.",
   "operatorId": "example",
   "operatorName": "Example Operator",
   "operatorEmail": "operator@example.com",
+  "operatorPhone": "+15555550100",
   "timezone": "America/Toronto",
   "digestTime": "08:00",
   "digestDay": "sunday",

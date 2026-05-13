@@ -242,6 +242,40 @@ function annotateRow(row, cadence, mode, startMs, endMs) {
   };
 }
 
+// ── Send helpers (retry + error log) ─────────────────────────────────────────
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function _sendWithRetry(sendFn, label) {
+  const delays = [10000, 60000];
+  let attempts = 0;
+  let lastError = null;
+  for (let i = 0; i <= delays.length; i++) {
+    attempts++;
+    try {
+      await sendFn();
+      return { ok: true, attempts, lastError: null };
+    } catch (err) {
+      lastError = err;
+      if (i < delays.length) {
+        console.log(`[digest:${label}] attempt ${attempts} failed: ${err.message}, retrying in ${delays[i]}ms`);
+        await sleep(delays[i]);
+      }
+    }
+  }
+  console.log(`[digest:${label}] exhausted after 3 attempts. last error: ${lastError.message}`);
+  return { ok: false, attempts: 3, lastError };
+}
+
+function _appendDigestErrorLog(filepath, label, error) {
+  try {
+    const line = `[${getNowIso()}] ${label} exhausted: ${error.message}\n`;
+    fs.appendFileSync(filepath, line, 'utf8');
+  } catch (err) {
+    console.log(`[digest] failed to append to ${filepath}: ${err.message}`);
+  }
+}
+
 // ── Entry points ──────────────────────────────────────────────────────────────
 
 /**
@@ -311,13 +345,17 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     const smsTarget = dryRun
       ? { ...agentConfig, agentPhone: agentConfig.operatorPhone }
       : agentConfig;
-    try {
-      await twilio.sendSMS(smsTarget, smsBody);
+    const smsRetry = await _sendWithRetry(() => twilio.sendSMS(smsTarget, smsBody), 'daily-sms');
+    if (smsRetry.ok) {
       smsResult = 'sent';
-    } catch (err) {
-      console.error(`[${agentConfig.agentId}] daily digest SMS failed: ${err.message}`);
+    } else {
       smsResult = 'failed';
-      errors.push({ channel: 'sms', message: err.message });
+      errors.push({ channel: 'sms', message: smsRetry.lastError.message });
+      _appendDigestErrorLog(
+        path.join(__dirname, '..', 'agents', `${agentConfig.agentId}.digest-errors.log`),
+        'daily-sms',
+        smsRetry.lastError
+      );
     }
   }
 
@@ -336,13 +374,20 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     emailResult = 'failed';
     errors.push({ channel: 'email', message: 'no recipient address' });
   } else {
-    try {
-      await email.sendNewEmail(agentConfig, { to: emailTo, subject, body: emailBody });
+    const emailRetry = await _sendWithRetry(
+      () => email.sendNewEmail(agentConfig, { to: emailTo, subject, body: emailBody }),
+      'daily-email'
+    );
+    if (emailRetry.ok) {
       emailResult = 'sent';
-    } catch (err) {
-      console.error(`[${agentConfig.agentId}] daily digest email failed: ${err.message}`);
+    } else {
       emailResult = 'failed';
-      errors.push({ channel: 'email', message: err.message });
+      errors.push({ channel: 'email', message: emailRetry.lastError.message });
+      _appendDigestErrorLog(
+        path.join(__dirname, '..', 'agents', `${agentConfig.agentId}.digest-errors.log`),
+        'daily-email',
+        emailRetry.lastError
+      );
     }
   }
 
@@ -510,8 +555,11 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     ? (operatorConfig.dryRunEmail || operatorConfig.operatorEmail)
     : operatorConfig.operatorEmail;
 
-  try {
-    await email.sendNewEmail(operatorConfig, { to: emailTo, subject, body });
+  const emailRetry = await _sendWithRetry(
+    () => email.sendNewEmail(operatorConfig, { to: emailTo, subject, body }),
+    'weekly-email'
+  );
+  if (emailRetry.ok) {
     emailResult = 'sent';
     // Reset preflight skips for each active agent after successful send
     for (const agentCfg of activeAgents) {
@@ -521,10 +569,26 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
         console.warn(`[operator:${operatorConfig.operatorId}] preflight reset failed for ${agentCfg.agentId}: ${err.message}`);
       }
     }
-  } catch (err) {
-    console.error(`[operator:${operatorConfig.operatorId}] weekly digest email failed: ${err.message}`);
+  } else {
     emailResult = 'failed';
-    errors.push({ channel: 'email', message: err.message });
+    errors.push({ channel: 'email', message: emailRetry.lastError.message });
+    _appendDigestErrorLog(
+      path.join(__dirname, '..', 'operators', `${operatorConfig.operatorId}.digest-errors.log`),
+      'weekly-email',
+      emailRetry.lastError
+    );
+    const operatorPhone = operatorConfig.operatorPhone;
+    if (!operatorPhone) {
+      console.log('[digest:weekly-email] no operatorPhone configured, skipping SMS fallback');
+    } else {
+      const fallbackBody = `Weekly digest email to ${operatorConfig.operatorEmail} failed after retries. Check operators/${operatorConfig.operatorId}.digest-errors.log`;
+      const operatorTwilioShim = { agentId: `operator:${operatorConfig.operatorId}`, agentPhone: operatorPhone };
+      try {
+        await twilio.sendSMS(operatorTwilioShim, fallbackBody);
+      } catch (err) {
+        console.log(`[digest:weekly-email] operator SMS fallback failed: ${err.message}`);
+      }
+    }
   }
 
   return { emailResult, activeAgentCount: activeAgents.length, errors };
@@ -1091,5 +1155,7 @@ module.exports = {
     computeNextTouch,
     findInWindowFollowUpFire,
     annotateRow,
+    _sendWithRetry,
+    _appendDigestErrorLog,
   },
 };
