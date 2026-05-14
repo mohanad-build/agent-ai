@@ -113,7 +113,31 @@ function encodeHeaderValue(value) {
   return '=?UTF-8?B?' + base64 + '?=';
 }
 
-function buildRfc5322Message({ from, to, cc, bcc, subject, body, attachments }) {
+function encodeQuotedPrintable(str) {
+  let out = '';
+  const buf = Buffer.from(str, 'utf8');
+  let lineLen = 0;
+  for (const byte of buf) {
+    let encoded;
+    if (
+      (byte >= 33 && byte <= 126 && byte !== 61) ||
+      byte === 9 || byte === 32
+    ) {
+      encoded = String.fromCharCode(byte);
+    } else {
+      encoded = '=' + byte.toString(16).toUpperCase().padStart(2, '0');
+    }
+    if (lineLen + encoded.length > 75) {
+      out += '=\r\n';
+      lineLen = 0;
+    }
+    out += encoded;
+    lineLen += encoded.length;
+  }
+  return out;
+}
+
+function buildRfc5322Message({ from, to, cc, bcc, subject, body, html, attachments }) {
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   const headers = [];
   headers.push(`From: ${from}`);
@@ -124,10 +148,28 @@ function buildRfc5322Message({ from, to, cc, bcc, subject, body, attachments }) 
   headers.push('MIME-Version: 1.0');
 
   let raw;
-  if (!hasAttachments) {
+  if (!html && !hasAttachments) {
     headers.push('Content-Type: text/plain; charset="UTF-8"');
     headers.push('Content-Transfer-Encoding: 7bit');
     raw = headers.join('\r\n') + '\r\n\r\n' + body;
+  } else if (html && !hasAttachments) {
+    const boundary = `----=_Alt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    const parts = [];
+    parts.push(
+      `--${boundary}\r\n` +
+      `Content-Type: text/plain; charset="UTF-8"\r\n` +
+      `Content-Transfer-Encoding: quoted-printable\r\n\r\n` +
+      `${encodeQuotedPrintable(body)}\r\n`
+    );
+    parts.push(
+      `--${boundary}\r\n` +
+      `Content-Type: text/html; charset="UTF-8"\r\n` +
+      `Content-Transfer-Encoding: quoted-printable\r\n\r\n` +
+      `${encodeQuotedPrintable(html)}\r\n`
+    );
+    parts.push(`--${boundary}--`);
+    raw = headers.join('\r\n') + '\r\n\r\n' + parts.join('');
   } else {
     const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
@@ -355,7 +397,7 @@ async function sendReply(agentConfig, { to, subject, body, threadId, attachments
   });
 }
 
-async function sendNewEmail(agentConfig, { to, subject, body, attachments }) {
+async function sendNewEmail(agentConfig, { to, subject, body, html, attachments }) {
   const auth = getOAuthClient(agentConfig);
   const gmail = google.gmail({ version: 'v1', auth });
 
@@ -366,6 +408,7 @@ async function sendNewEmail(agentConfig, { to, subject, body, attachments }) {
     bcc: agentConfig.bccEmails || [],
     subject,
     body,
+    html,
     attachments,
   });
 

@@ -122,6 +122,57 @@ test('shadow mode rows use shadow header; live mode rows use live header', () =>
   expect(liveResult.body).toContain('Jane S — Day 7 — sent');
 });
 
+// ── Option A plaintext action lines ──────────────────────────────────────────
+
+test('urgent HOT row with phone — body contains tel: action line', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
+    propertyReference: '45 Maple', hoursAwaiting: null, rowIndex: 3,
+    phone: '+16475551234', gmailThreadId: '', leadId: 'lead@example.com',
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).toContain('→ Call Sarah: tel:+16475551234');
+});
+
+test('urgent needs_review with thread — body contains mail.google.com action line', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'John', lastInitial: 'D', category: 'needs_review',
+    propertyReference: null, hoursAwaiting: null, rowIndex: 4,
+    phone: '', gmailThreadId: 'thread-xyz', leadId: 'jd@example.com',
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).toContain('→ Open thread: https://mail.google.com/mail/u/0/#inbox/thread-xyz');
+});
+
+test('hot lead with no phone or thread — body contains docs.google.com action line', () => {
+  const sections = makeEmptySections();
+  sections.hotLeads = [{
+    firstName: 'John', lastInitial: 'D', propertyReference: '45 Oak',
+    daysAgo: 3, whyHot: '', rowIndex: 5,
+    phone: '', gmailThreadId: '', leadId: 'jd@example.com',
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).toContain(
+    '→ Open row: https://docs.google.com/spreadsheets/d/sheet-abc/edit#gid=0&range=A5'
+  );
+});
+
+test('when buildActionLink returns null — no arrow action line rendered', () => {
+  const sections = makeEmptySections();
+  // operatorEscalated with no googleSheetId → buildActionLink returns null
+  sections.urgent = [{
+    firstName: 'Eve', lastInitial: 'C', category: 'operatorEscalated',
+    propertyReference: '10 Pine', hoursAwaiting: null, rowIndex: 9,
+    phone: '', gmailThreadId: '', leadId: 'ec@example.com',
+  }];
+  const agentNoSheet = { timezone: 'America/Toronto' };
+  const result = renderEmail(sections, agentNoSheet, NOW);
+  expect(result.body).toContain('Eve C');
+  expect(result.body).not.toContain('→');
+});
+
 test('systemHandled with all zero counts renders exactly the three Path B lines', () => {
   const sections = makeEmptySections();
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);

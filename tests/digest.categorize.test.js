@@ -277,3 +277,47 @@ test('mode and touchDay copied from lastFollowUpFire annotation', () => {
   expect(followUpsFiredOvernight[0].mode).toBe('live');
   expect(followUpsFiredOvernight[0].touchDay).toBe(14);
 });
+
+// ── field forwarding: phone, gmailThreadId, leadId ────────────────────────────
+
+test('HOT row → urgent carries phone, gmailThreadId, leadId from source row', () => {
+  const row = makeRow({
+    status: 'HOT',
+    lastActionTimestamp: hoursAgo(3),
+    phone: '+16475551234',
+    gmailThreadId: 'thread-abc',
+    leadId: 'foo@example.com',
+  });
+  const { urgent } = categorizeRowsForDigest([row], NOW);
+  expect(urgent[0].phone).toBe('+16475551234');
+  expect(urgent[0].gmailThreadId).toBe('thread-abc');
+  expect(urgent[0].leadId).toBe('foo@example.com');
+});
+
+test('HOT row → hotLeads carries phone, gmailThreadId, leadId from source row', () => {
+  const row = makeRow({
+    status: 'HOT',
+    lastActionTimestamp: hoursAgo(3),
+    phone: '+16475551234',
+    gmailThreadId: 'thread-abc',
+    leadId: 'foo@example.com',
+  });
+  const { hotLeads } = categorizeRowsForDigest([row], NOW);
+  expect(hotLeads[0].phone).toBe('+16475551234');
+  expect(hotLeads[0].gmailThreadId).toBe('thread-abc');
+  expect(hotLeads[0].leadId).toBe('foo@example.com');
+});
+
+test('needs_review row with empty phone → urgent.phone is null', () => {
+  const row = makeRow({
+    status: 'needs_review',
+    lastActionTimestamp: hoursAgo(3),
+    phone: '',
+    gmailThreadId: 'thread-xyz',
+    leadId: 'bar@example.com',
+  });
+  const { urgent } = categorizeRowsForDigest([row], NOW);
+  expect(urgent[0].phone).toBeNull();
+  expect(urgent[0].gmailThreadId).toBe('thread-xyz');
+  expect(urgent[0].leadId).toBe('bar@example.com');
+});

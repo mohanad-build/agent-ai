@@ -74,6 +74,64 @@ function sheetLink(googleSheetId, rowIndex) {
   return `https://docs.google.com/spreadsheets/d/${googleSheetId}/edit#gid=0&range=A${rowIndex}`;
 }
 
+/**
+ * Pure function. Builds the primary action link for a digest row, implementing
+ * the per-category preferred-link + fallback chain (Decision 1, HTML email spec):
+ *
+ *   HOT            tel:${phone}          → Gmail thread  → Sheet row
+ *   needs_review   Gmail thread          → Sheet row
+ *   operatorEscalated  Sheet row         (no fallback)
+ *   path1b         Gmail thread          → Sheet row
+ *
+ * @param {object} rowData  digest row — must carry category, phone, gmailThreadId, rowIndex
+ * @param {object} agentConfig  must carry googleSheetId for sheet links
+ * @returns {{ label: string, url: string, isFallback: boolean } | null}
+ *   Returns null only when no link is constructable (missing all three data points).
+ *   isFallback=false means the preferred link for the category was used.
+ *   isFallback=true  means a fallback link was substituted.
+ */
+function buildActionLink(rowData, agentConfig) {
+  const category  = rowData.category || 'HOT';
+  const firstName = rowData.firstName || '';
+  const gid       = agentConfig && agentConfig.googleSheetId;
+
+  // Normalise phone: strip all non-digit characters except a leading '+'
+  const rawPhone = String(rowData.phone || '');
+  const normalised = rawPhone.startsWith('+')
+    ? '+' + rawPhone.slice(1).replace(/\D/g, '')
+    : rawPhone.replace(/\D/g, '');
+  const hasPhone = normalised.length > 0;
+
+  const rawThread = rowData.gmailThreadId || '';
+  const hasThread = rawThread.length > 0;
+  const threadUrl = hasThread
+    ? `https://mail.google.com/mail/u/0/#inbox/${rawThread}`
+    : null;
+
+  const hasSheet = !!(gid && rowData.rowIndex != null);
+  const sheetUrl = hasSheet ? sheetLink(gid, rowData.rowIndex) : null;
+
+  if (category === 'HOT') {
+    if (hasPhone)  return { label: `Call ${firstName}`, url: `tel:${normalised}`, isFallback: false };
+    if (hasThread) return { label: 'Open thread',       url: threadUrl,           isFallback: true };
+    if (hasSheet)  return { label: 'Open row',          url: sheetUrl,            isFallback: true };
+    return null;
+  }
+
+  if (category === 'needs_review' || category === 'path1b') {
+    if (hasThread) return { label: 'Open thread', url: threadUrl, isFallback: false };
+    if (hasSheet)  return { label: 'Open row',    url: sheetUrl,  isFallback: true };
+    return null;
+  }
+
+  if (category === 'operatorEscalated') {
+    if (hasSheet) return { label: 'Open row', url: sheetUrl, isFallback: false };
+    return null;
+  }
+
+  return null;
+}
+
 function formatDailyDate(now, timezone) {
   const tz = timezone || 'America/Toronto';
   const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tz }).format(now);
@@ -125,6 +183,25 @@ const SYSTEM_HANDLED_LABELS = {
   followUpsFired: 'Follow-ups fired',
   preflightSkips: 'Pre-flight skips this week',
   soiFiltered: 'SOI rows excluded',
+};
+
+// Design tokens for HTML email rendering (Decision 4). All visual choices live
+// here. Branding update = change tokens, nothing else.
+const STYLE_TOKENS = {
+  buttonBackground:   '#1a1a1a',
+  buttonTextColor:    '#ffffff',
+  buttonBorderRadius: '6px',
+  buttonPadding:      '12px 20px',
+  buttonFontWeight:   '600',
+  containerMaxWidth:  '560px',
+  containerPadding:   '24px',
+  fontStack:          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  bodyTextColor:      '#1a1a1a',
+  mutedTextColor:     '#666666',
+  sectionDividerColor: '#e0e0e0',
+  bodyBackground:     '#ffffff',
+  fontSize:           '16px',
+  lineHeight:         '1.5',
 };
 
 // ── Categorization helpers ────────────────────────────────────────────────────
@@ -331,6 +408,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
 
   const smsBody         = renderSMS(smsStats, topUrgent);
   const { subject, body: emailBody } = renderEmail(sections, agentConfig, now);
+  const { html: emailHtml } = renderEmailHtml(sections, agentConfig, now);
 
   const errors = [];
   let smsResult;
@@ -382,7 +460,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     errors.push({ channel: 'email', message: 'no recipient address' });
   } else {
     const emailRetry = await _sendWithRetry(
-      () => email.sendNewEmail(agentConfig, { to: emailTo, subject, body: emailBody }),
+      () => email.sendNewEmail(agentConfig, { to: emailTo, subject, body: emailBody, html: emailHtml }),
       'daily-email'
     );
     if (emailRetry.ok) {
@@ -575,6 +653,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
   };
 
   const { subject, body } = renderWeeklyEmail(weeklySections, operatorConfig, nowDate);
+  const { html: weeklyHtml } = renderWeeklyEmailHtml(weeklySections, operatorConfig, nowDate);
 
   const errors = [];
   let emailResult;
@@ -584,7 +663,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     : operatorConfig.operatorEmail;
 
   const emailRetry = await _sendWithRetry(
-    () => email.sendNewEmail(operatorConfig, { to: emailTo, subject, body }),
+    () => email.sendNewEmail(operatorConfig, { to: emailTo, subject, body, html: weeklyHtml }),
     'weekly-email'
   );
   if (emailRetry.ok) {
@@ -744,6 +823,9 @@ function categorizeRowsForDigest(rows, now) {
           ? hoursBetween(now, lastActionDate)
           : null,
         rowIndex: row.rowIndex,
+        phone: row.phone || null,
+        gmailThreadId: row.gmailThreadId || null,
+        leadId: row.leadId || null,
         _triggerTimestamp: urgentTrigger,
       });
     }
@@ -757,6 +839,9 @@ function categorizeRowsForDigest(rows, now) {
         daysAgo: lastActionDate ? daysBetween(now, lastActionDate) : 0,
         whyHot: '',
         rowIndex: row.rowIndex,
+        phone: row.phone || null,
+        gmailThreadId: row.gmailThreadId || null,
+        leadId: row.leadId || null,
         _lastActionTimestamp: row.lastActionTimestamp,
       });
     }
@@ -906,7 +991,8 @@ function renderEmail(sections, agentConfig, now) {
       let line = dropCtx
         ? `${u.firstName} ${u.lastInitial} — ${verb}`
         : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
-      if (gid && u.rowIndex != null) line += ` (${sheetLink(gid, u.rowIndex)})`;
+      const link = buildActionLink(u, agentConfig);
+      if (link) line += `\n→ ${link.label}: ${link.url}`;
       return line;
     });
     parts.push(`— Needs you today —\n\n${rows.join('\n')}`);
@@ -917,7 +1003,8 @@ function renderEmail(sections, agentConfig, now) {
   if (deduplicatedHotLeads.length > 0) {
     const rows = deduplicatedHotLeads.map(r => {
       let line = `${r.firstName} ${r.lastInitial} — ${r.propertyReference || '(property not captured)'} — last touch ${r.daysAgo}d ago`;
-      if (gid && r.rowIndex != null) line += ` (${sheetLink(gid, r.rowIndex)})`;
+      const link = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
+      if (link) line += `\n→ ${link.label}: ${link.url}`;
       return line;
     });
     parts.push(`— Hot leads to call today —\n\n${rows.join('\n')}`);
@@ -971,6 +1058,187 @@ function renderEmail(sections, agentConfig, now) {
   }
 
   return { subject, body: parts.join('\n\n') };
+}
+
+/**
+ * Pure function. Produces the HTML email body for the daily digest per the
+ * HTML email spec (Decisions 1-10). Same section ordering and input shape as
+ * renderEmail. All styles inline (Gmail strips <style> blocks). All visual
+ * values sourced from STYLE_TOKENS — no hardcoded colours or sizes in templates.
+ *
+ * Each urgent/hotLeads row renders as:
+ *   <div> row text </div>
+ *   <div> <a styled-button> action label </a> </div>   ← omitted when buildActionLink returns null
+ *
+ * "What the system handled" section uses mutedTextColor; no action buttons.
+ * Opener line suppressed when urgent.length > 0 (same policy as renderEmail).
+ *
+ * @param {object} sections  same shape as renderEmail input
+ * @param {object} agentConfig
+ * @param {Date} now
+ * @returns {{ subject: string, html: string }}
+ */
+function renderEmailHtml(sections, agentConfig, now) {
+  const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability } = sections;
+  const timezone = agentConfig.timezone || 'America/Toronto';
+
+  const subject = urgent.length > 0
+    ? `Your morning brief — ${urgent[0].firstName} needs you today`
+    : `Your morning brief — ${formatDailyDate(now, timezone)}`;
+
+  const T = STYLE_TOKENS;
+  const parts = [];
+
+  function esc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function button(link) {
+    if (!link) return '';
+    return (
+      `<div style="margin-top:8px;">` +
+      `<a href="${esc(link.url)}" ` +
+      `style="display:inline-block;padding:${T.buttonPadding};background:${T.buttonBackground};` +
+      `color:${T.buttonTextColor};border-radius:${T.buttonBorderRadius};` +
+      `font-weight:${T.buttonFontWeight};text-decoration:none;` +
+      `font-family:${T.fontStack};font-size:${T.fontSize};">` +
+      `${esc(link.label)}</a>` +
+      `</div>`
+    );
+  }
+
+  function sectionHeader(title) {
+    return (
+      `<div style="margin-top:24px;margin-bottom:12px;padding-bottom:8px;` +
+      `border-bottom:1px solid ${T.sectionDividerColor};` +
+      `font-weight:${T.buttonFontWeight};color:${T.bodyTextColor};">` +
+      `${esc(title)}</div>`
+    );
+  }
+
+  // Opener (suppressed when urgent rows exist — section headers carry the tone)
+  if (urgent.length === 0) {
+    parts.push(`<p style="margin:0 0 16px 0;">${esc(buildOpenerLine(systemHandled, false, 0))}</p>`);
+  }
+
+  // Urgent section
+  const CONTEXT_FALLBACKS_HTML = new Set(['HOT signal', 'needs review', 'escalated']);
+  if (urgent.length > 0) {
+    parts.push(sectionHeader('Needs you today'));
+    for (const u of urgent) {
+      const verb = urgentVerbPhrase(u.category);
+      const ctx  = urgentDisplayContext(u);
+      const dropCtx = u.propertyReference == null && CONTEXT_FALLBACKS_HTML.has(ctx);
+      const rowText = dropCtx
+        ? `${u.firstName} ${u.lastInitial} — ${verb}`
+        : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
+      const link = buildActionLink(u, agentConfig);
+      parts.push(
+        `<div style="margin-bottom:16px;">` +
+        `<div>${esc(rowText)}</div>` +
+        button(link) +
+        `</div>`
+      );
+    }
+  }
+
+  // Hot leads section (deduped against urgent, same logic as renderEmail)
+  const urgentRowIndexes = new Set(urgent.filter(u => u.rowIndex != null).map(u => u.rowIndex));
+  const deduplicatedHotLeads = hotLeads.filter(r => !urgentRowIndexes.has(r.rowIndex));
+  if (deduplicatedHotLeads.length > 0) {
+    parts.push(sectionHeader('Hot leads to call today'));
+    for (const r of deduplicatedHotLeads) {
+      const propRef  = r.propertyReference || '(property not captured)';
+      const rowText  = `${r.firstName} ${r.lastInitial} — ${propRef} — last touch ${r.daysAgo}d ago`;
+      const link     = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
+      parts.push(
+        `<div style="margin-bottom:16px;">` +
+        `<div>${esc(rowText)}</div>` +
+        button(link) +
+        `</div>`
+      );
+    }
+  }
+
+  // Possible new leads to review (no buttons — agent reviews manually)
+  if (newToReview.length > 0) {
+    parts.push(sectionHeader('Possible new leads to review'));
+    for (const r of newToReview) {
+      parts.push(
+        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} — ${r.sourceEmailSubject}`)}</div>`
+      );
+    }
+  }
+
+  // Follow-ups due today (no buttons)
+  if (followUpsDue.length > 0) {
+    parts.push(sectionHeader('Follow-ups due today'));
+    for (const r of followUpsDue) {
+      parts.push(
+        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${r.daysSinceLastTouch}d since last touch`)}</div>`
+      );
+    }
+  }
+
+  // Follow-ups fired overnight (no buttons)
+  if (followUpsFiredOvernight.length > 0) {
+    const allLive = followUpsFiredOvernight.every(r => r.mode === 'live');
+    const hdr = allLive ? 'Follow-ups sent overnight' : 'Follow-ups fired overnight (shadow drafts)';
+    parts.push(sectionHeader(hdr));
+    for (const r of followUpsFiredOvernight) {
+      const status = r.mode === 'live' ? 'sent' : 'draft in inbox';
+      parts.push(
+        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${status}`)}</div>`
+      );
+    }
+  }
+
+  // What the system handled (always renders, muted text, no buttons)
+  {
+    const sh = systemHandled;
+    const lines = Object.entries(SYSTEM_HANDLED_LABELS)
+      .filter(([key]) => key in sh)
+      .map(([key, label]) => `<div>${esc(`${label}: ${sh[key]}`)}</div>`)
+      .join('');
+    parts.push(
+      sectionHeader('What the system handled') +
+      `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};">${lines}</div>`
+    );
+  }
+
+  // Reliability (only when non-zero)
+  {
+    const r = reliability;
+    if (r.errors + r.retries + r.threadingSkipped > 0) {
+      const lines = [
+        `<div>${esc(`Errors: ${r.errors}`)}</div>`,
+        `<div>${esc(`Retries: ${r.retries}`)}</div>`,
+        `<div>${esc(`Threading-skipped follow-ups: ${r.threadingSkipped}`)}</div>`,
+      ].join('');
+      parts.push(
+        sectionHeader('Reliability') +
+        `<div style="color:${T.mutedTextColor};">${lines}</div>`
+      );
+    }
+  }
+
+  const html =
+    `<!DOCTYPE html>\n` +
+    `<html>\n` +
+    `<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>\n` +
+    `<body style="margin:0;padding:0;background-color:${T.bodyBackground};">\n` +
+    `<div style="max-width:${T.containerMaxWidth};margin:0 auto;padding:${T.containerPadding};` +
+    `font-family:${T.fontStack};font-size:${T.fontSize};line-height:${T.lineHeight};color:${T.bodyTextColor};">\n` +
+    parts.join('\n') + '\n' +
+    `</div>\n` +
+    `</body>\n` +
+    `</html>`;
+
+  return { subject, html };
 }
 
 
@@ -1194,6 +1462,156 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
 }
 
 /**
+ * Pure function. Produces the HTML email body for the operator weekly digest,
+ * mirroring the daily HTML renderer pattern (same STYLE_TOKENS, same section
+ * header style, same 560px centered container). No per-lead rows so no action
+ * buttons — all content is aggregate statistics in muted text.
+ *
+ * @param {object} weeklySections  same shape as renderWeeklyEmail input
+ * @param {object} operatorConfig
+ * @param {Date} now
+ * @returns {{ subject: string, html: string }}
+ */
+function renderWeeklyEmailHtml(weeklySections, operatorConfig, now) {
+  const timezone   = operatorConfig.timezone || 'America/Toronto';
+  const startLabel = formatWeeklyDate(weeklySections.windowStart, timezone);
+  const endLabel   = formatWeeklyDate(weeklySections.windowEnd,   timezone);
+  const subject    = `Weekly digest — ${startLabel} to ${endLabel}`;
+
+  const {
+    aggregate,
+    perAgent,
+    churnRisk,
+    recentlyDeactivated,
+    shadowCatches = {},
+    shadowAgentsCovered = 0,
+    shadowAgentsTimedOut = 0,
+  } = weeklySections;
+  const totalLeads = aggregate.totalLeadsHandled || 0;
+  const agentCount = perAgent.length;
+
+  const T = STYLE_TOKENS;
+  const parts = [];
+
+  function esc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function sectionHeader(title) {
+    return (
+      `<div style="margin-top:24px;margin-bottom:12px;padding-bottom:8px;` +
+      `border-bottom:1px solid ${T.sectionDividerColor};` +
+      `font-weight:${T.buttonFontWeight};color:${T.bodyTextColor};">` +
+      `${esc(title)}</div>`
+    );
+  }
+
+  function statLines(lines) {
+    return (
+      `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};">` +
+      lines.map(l => `<div>${esc(l)}</div>`).join('') +
+      `</div>`
+    );
+  }
+
+  // Opener
+  parts.push(
+    `<p style="margin:0 0 16px 0;">${esc(`${totalLeads} leads handled across ${agentCount} active agent${agentCount !== 1 ? 's' : ''} this week.`)}</p>`
+  );
+
+  // Aggregate stats
+  {
+    const lines = Object.entries(WEEKLY_AGGREGATE_LABELS)
+      .filter(([key]) => key in aggregate)
+      .map(([key, label]) => `${label}: ${aggregate[key]}`);
+    if (lines.length > 0) {
+      parts.push(sectionHeader('Aggregate stats') + statLines(lines));
+    }
+  }
+
+  // Shadow Mode catches
+  {
+    const hasShadowData = shadowAgentsCovered > 0 || shadowAgentsTimedOut > 0;
+    if (hasShadowData) {
+      const plural = n => (n === 1 ? '' : 's');
+      let shadowLines;
+      if (shadowAgentsCovered === 0) {
+        shadowLines = [`Shadow Mode catches: unavailable this week (Gmail polling timed out for ${shadowAgentsTimedOut} agent${plural(shadowAgentsTimedOut)}).`];
+      } else {
+        shadowLines = [
+          `Drafts sent as-is by agent: ${shadowCatches.sentAsIs}`,
+          `Drafts edited then sent: ${shadowCatches.editedThenSent}`,
+          `Drafts rejected: ${shadowCatches.rejected}`,
+        ];
+        if (shadowAgentsTimedOut > 0) {
+          shadowLines.push(`Counts exclude ${shadowAgentsTimedOut} agent${plural(shadowAgentsTimedOut)} where Gmail polling timed out.`);
+        }
+        shadowLines.push('This is the number that justifies $500/month long-term.');
+      }
+      parts.push(sectionHeader('Shadow Mode catches') + statLines(shadowLines));
+    }
+  }
+
+  // Churn risk
+  if (churnRisk && churnRisk.length > 0) {
+    const lines = churnRisk.map(a => `${a.agentName} (${a.agentId}): ${a.reasons.join(', ')}`);
+    parts.push(sectionHeader('Churn risk') + statLines(lines));
+  }
+
+  // Recently deactivated
+  if (recentlyDeactivated && recentlyDeactivated.length > 0) {
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const lines = recentlyDeactivated.map(a => {
+      const daysAgo = Math.floor((now.getTime() - new Date(a.deactivatedAt).getTime()) / MS_DAY);
+      const rel = daysAgo === 0 ? 'today' : daysAgo === 1 ? '1 day ago' : `${daysAgo} days ago`;
+      return `${a.agentName} (${a.agentId}) — deactivated ${rel}`;
+    });
+    parts.push(sectionHeader('Agents recently deactivated') + statLines(lines));
+  }
+
+  // Per-agent breakdown
+  if (perAgent && perAgent.length > 0) {
+    parts.push(sectionHeader('Per-agent breakdown'));
+    for (const a of perAgent) {
+      const agentLines = [
+        `Leads intaken: ${a.intaken}`,
+        `Follow-ups fired: ${a.followUpsFired}`,
+        `Filtered: ${a.noiseFiltered}`,
+        `Urgent items: ${a.urgentCount}`,
+        `Pre-flight skips this week: ${a.weeklyPreflightSkips}`,
+      ];
+      parts.push(
+        `<div style="margin-bottom:16px;">` +
+        `<div style="font-weight:${T.buttonFontWeight};margin-bottom:4px;">${esc(`${a.agentName} (${a.agentId})`)}</div>` +
+        statLines(agentLines) +
+        `</div>`
+      );
+    }
+  }
+
+  // Footer
+  parts.push(`<p style="margin:16px 0 0 0;color:${T.mutedTextColor};font-size:${T.fontSize};">${esc('Pre-flight skip counters reset after this digest.')}</p>`);
+
+  const html =
+    `<!DOCTYPE html>\n` +
+    `<html>\n` +
+    `<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>\n` +
+    `<body style="margin:0;padding:0;background-color:${T.bodyBackground};">\n` +
+    `<div style="max-width:${T.containerMaxWidth};margin:0 auto;padding:${T.containerPadding};` +
+    `font-family:${T.fontStack};font-size:${T.fontSize};line-height:${T.lineHeight};color:${T.bodyTextColor};">\n` +
+    parts.join('\n') + '\n' +
+    `</div>\n` +
+    `</body>\n` +
+    `</html>`;
+
+  return { subject, html };
+}
+
+/**
  * Idempotency + time-of-day gate for the per-agent daily digest. Returns true
  * if (a) the agent's configured digest time falls within the current cycle
  * window in the agent's local timezone, AND (b) agentState.lastDailyDigestRun
@@ -1330,9 +1748,12 @@ module.exports = {
   // internal helpers exposed for unit testing
   gatherWindowData,
   categorizeRowsForDigest,
+  buildActionLink,
   renderSMS,
   renderEmail,
+  renderEmailHtml,
   renderWeeklyEmail,
+  renderWeeklyEmailHtml,
   pollSentFolderForDraftResolution,
   shouldRunDailyDigest,
   shouldRunWeeklyDigest,
@@ -1348,5 +1769,6 @@ module.exports = {
     secondsFromIso,
     parseShadowDraftBody,
     computeJaccardOverlap,
+    STYLE_TOKENS,
   },
 };

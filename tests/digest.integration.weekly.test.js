@@ -205,4 +205,16 @@ describe('runWeeklyDigestForOperator integration', () => {
   test('poll function invoked once per active agent', () => {
     expect(mockPoll).toHaveBeenCalledTimes(2);
   });
+
+  test('sendNewEmail called with html field that is a valid HTML string', () => {
+    expect(typeof capturedEmailArgs.html).toBe('string');
+    expect(capturedEmailArgs.html).toContain('<!DOCTYPE html>');
+    expect(capturedEmailArgs.html).toContain('<body');
+  });
+
+  test('html field and body field both present in the same sendNewEmail call', () => {
+    expect(capturedEmailArgs).toHaveProperty('body');
+    expect(capturedEmailArgs).toHaveProperty('html');
+    expect(capturedEmailArgs.body).not.toContain('<!DOCTYPE');
+  });
 });
