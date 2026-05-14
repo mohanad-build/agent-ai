@@ -409,6 +409,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
  */
 async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
   const dryRun = options.dryRun === true;
+  const _pollFn = (typeof options.pollFn === 'function') ? options.pollFn : pollSentFolderForDraftResolution;
 
   const endIso = getNowIso();
   const endMs  = new Date(endIso).getTime();
@@ -545,7 +546,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
   let shadowAgentsTimedOut = 0;
 
   for (const agentCfg of activeAgents) {
-    const result = await pollSentFolderForDraftResolution(agentCfg, startIso, endIso);
+    const result = await _pollFn(agentCfg, startIso, endIso);
     if (result === null) {
       shadowAgentsTimedOut++;
       continue;
