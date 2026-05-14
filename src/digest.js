@@ -119,6 +119,7 @@ const SYSTEM_HANDLED_LABELS = {
   intaken: 'Leads intaken',
   followUpsFired: 'Follow-ups fired',
   preflightSkips: 'Pre-flight skips this week',
+  soiFiltered: 'SOI rows excluded',
 };
 
 // ── Categorization helpers ────────────────────────────────────────────────────
@@ -632,14 +633,18 @@ async function gatherWindowData(agentConfig, startIso, endIso) {
   const mode = agentConfig.mode || 'live';
   const startMs = new Date(startIso).getTime();
   const endMs = new Date(endIso).getTime();
-  const rows = rawRows.map(row => annotateRow(row, cadence, mode, startMs, endMs));
+  const soiCount = rawRows.filter(r => String(r.leadCategory || '').trim().toLowerCase() === 'soi').length;
+  const actionable = rawRows.filter(r => String(r.leadCategory || '').trim().toLowerCase() !== 'soi');
+  const rows = actionable.map(row => annotateRow(row, cadence, mode, startMs, endMs));
   const state = agentState.getState(agentConfig.agentId);
   const preflightSkips = state.weeklyPreflightSkips || 0;
   const intaken = rows.filter(r => r.createdInWindow === true).length;
   const followUpsFired = rows.filter(r => r.lastFollowUpFire !== null).length;
+  const systemHandled = { intaken, followUpsFired, preflightSkips };
+  if (soiCount > 0) systemHandled.soiFiltered = soiCount;
   return {
     rows,
-    stateCounters: { systemHandled: { intaken, followUpsFired, preflightSkips } },
+    stateCounters: { systemHandled },
     reliability: { errors: 0, retries: 0, threadingSkipped: 0 },
   };
 }

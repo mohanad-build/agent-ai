@@ -130,6 +130,18 @@ test('gatherWindowData: returned rows have propertyReference extracted from colu
   expect(result.rows[0].propertyReference).toBe('45 Maple');
 });
 
+test('gatherWindowData: row with leadCategory=soi is excluded from returned rows', async () => {
+  emailMod.readSheetRows.mockResolvedValue([makeRawRow({ leadCategory: 'soi' })]);
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
+  expect(result.rows).toHaveLength(0);
+});
+
+test('gatherWindowData: row with leadCategory=soi increments soiFiltered counter', async () => {
+  emailMod.readSheetRows.mockResolvedValue([makeRawRow({ leadCategory: 'soi' })]);
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
+  expect(result.stateCounters.systemHandled.soiFiltered).toBe(1);
+});
+
 test('gatherWindowData: two rows with separate annotations → correct combined counts', async () => {
   const inWindowCreated = '[2026-05-12T08:00:00Z] Heuristic intake (confidence 0.90): inquiry';
   // Row 2: created a week ago (outside window), but has an in-window follow-up fire
