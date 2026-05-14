@@ -53,6 +53,8 @@ test('day with one urgent HOT lead — subject names the lead, Needs you today s
   expect(result.body).toContain('— Needs you today —');
   expect(result.body).toContain('Sarah K');
   expect(result.body).toContain('— What the system handled —');
+  expect(result.body).not.toContain('Handled');
+  expect(result.body).not.toContain('this morning');
 });
 
 test('reliability errors > 0 — Reliability section renders', () => {

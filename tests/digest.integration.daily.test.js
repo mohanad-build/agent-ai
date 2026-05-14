@@ -79,7 +79,10 @@ function makeColumnL(entries) {
 // Key = section title lowercased with non-alnum replaced by underscores.
 function parseSections(emailBody) {
   const EM = '—';
-  const chunks = emailBody.split(`\n\n${EM} `);
+  // When urgent rows exist the email leads directly with a section header (no opener).
+  // Prepend \n\n so the split delimiter catches it too.
+  const normalized = emailBody.startsWith(`${EM} `) ? `\n\n${emailBody}` : emailBody;
+  const chunks = normalized.split(`\n\n${EM} `);
   const result = { opener: chunks[0].trim() };
   for (let i = 1; i < chunks.length; i++) {
     const chunk = chunks[i];

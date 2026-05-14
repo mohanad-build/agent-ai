@@ -27,7 +27,7 @@ test('active morning, multiple urgent items — appends correct "+ N more" suffi
   const urgent = makeHotUrgent('Sarah', 'K', '45 Maple');
   const expected = [
     'Handled 12 leads overnight: 4 new, 5 follow-ups, 3 filtered.',
-    '🔥 Sarah K (45 Maple) wants to call you today + 2 more need you.',
+    '🔥 Sarah K (45 Maple) wants to call you today + 2 more.',
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, urgent)).toBe(expected);
@@ -70,6 +70,17 @@ test('HOT urgent with no property reference — falls back to (HOT signal) conte
   const expected = [
     'Handled 2 leads overnight: 1 new, 0 follow-ups, 1 filtered.',
     '🔥 Sarah K (HOT signal) wants to call you today.',
+    'Full brief in your inbox.',
+  ].join('\n');
+  expect(renderSMS(stats, urgent)).toBe(expected);
+});
+
+test('quiet automation but urgent leads present — SMS opener counts urgent leads, not automation', () => {
+  const stats = makeStats(0, 0, 0, 2);
+  const urgent = makeHotUrgent('Sarah', 'K', '45 Maple');
+  const expected = [
+    '2 leads need you this morning.',
+    '🔥 Sarah K (45 Maple) wants to call you today + 1 more.',
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, urgent)).toBe(expected);

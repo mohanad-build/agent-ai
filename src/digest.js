@@ -90,11 +90,16 @@ function formatWeeklyDate(isoStr, timezone) {
   return `${month} ${day}`;
 }
 
-function buildOpenerLine(systemHandled, hasUrgent) {
+function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0) {
   const intaken = systemHandled.intaken || 0;
   const followUpsFired = systemHandled.followUpsFired || 0;
   const noiseFiltered = systemHandled.noiseFiltered || 0;
   const total = intaken + followUpsFired + noiseFiltered;
+  if (total === 0 && hasUrgent) {
+    const noun = urgentCount === 1 ? 'lead' : 'leads';
+    const verb = urgentCount === 1 ? 'needs' : 'need';
+    return `${urgentCount} ${noun} ${verb} you this morning.`;
+  }
   const base = `Handled ${total} leads overnight: ${intaken} new, ${followUpsFired} follow-ups, ${noiseFiltered} filtered.`;
   return hasUrgent ? base : `${base} 0 need you today.`;
 }
@@ -850,6 +855,7 @@ function renderSMS(stats, urgent) {
   const line1base = buildOpenerLine(
     { intaken: stats.intaken, followUpsFired: stats.followUpsFired, noiseFiltered: stats.noiseFiltered },
     urgent !== null,
+    stats.urgentCount,
   );
 
   if (urgent === null) {
@@ -860,7 +866,7 @@ function renderSMS(stats, urgent) {
   const verb = urgentVerbPhrase(urgent.category);
   const line2base = `🔥 ${urgent.firstName} ${urgent.lastInitial} ${ctx} ${verb}`;
   const line2 = stats.urgentCount > 1
-    ? `${line2base} + ${stats.urgentCount - 1} more need you.`
+    ? `${line2base} + ${stats.urgentCount - 1} more.`
     : `${line2base}.`;
 
   return `${line1base}\n${line2}\nFull brief in your inbox.`;
@@ -887,22 +893,30 @@ function renderEmail(sections, agentConfig, now) {
 
   const parts = [];
 
-  parts.push(buildOpenerLine(systemHandled, urgent.length > 0));
+  if (urgent.length === 0) {
+    parts.push(buildOpenerLine(systemHandled, false, 0));
+  }
 
+  const CONTEXT_FALLBACKS = new Set(['HOT signal', 'needs review', 'escalated']);
   if (urgent.length > 0) {
     const rows = urgent.map(u => {
       const verb = urgentVerbPhrase(u.category);
       const ctx = urgentDisplayContext(u);
-      let line = `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
+      const dropCtx = u.propertyReference == null && CONTEXT_FALLBACKS.has(ctx);
+      let line = dropCtx
+        ? `${u.firstName} ${u.lastInitial} — ${verb}`
+        : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
       if (gid && u.rowIndex != null) line += ` (${sheetLink(gid, u.rowIndex)})`;
       return line;
     });
     parts.push(`— Needs you today —\n\n${rows.join('\n')}`);
   }
 
-  if (hotLeads.length > 0) {
-    const rows = hotLeads.map(r => {
-      let line = `${r.firstName} ${r.lastInitial} — ${r.propertyReference} — last touch ${r.daysAgo}d ago — ${r.whyHot}`;
+  const urgentRowIndexes = new Set(urgent.filter(u => u.rowIndex != null).map(u => u.rowIndex));
+  const deduplicatedHotLeads = hotLeads.filter(r => !urgentRowIndexes.has(r.rowIndex));
+  if (deduplicatedHotLeads.length > 0) {
+    const rows = deduplicatedHotLeads.map(r => {
+      let line = `${r.firstName} ${r.lastInitial} — ${r.propertyReference || '(property not captured)'} — last touch ${r.daysAgo}d ago`;
       if (gid && r.rowIndex != null) line += ` (${sheetLink(gid, r.rowIndex)})`;
       return line;
     });
