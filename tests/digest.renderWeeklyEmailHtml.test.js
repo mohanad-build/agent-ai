@@ -191,3 +191,63 @@ test('special characters in agent name are HTML-escaped', () => {
   expect(html).toContain('Alice &lt;Test&gt; &amp; Co');
   expect(html).not.toContain('Alice <Test>');
 });
+
+// ── Data layer section ────────────────────────────────────────────────────────
+
+test('data layer absent when dataFreshness not provided', () => {
+  const { html } = renderWeeklyEmailHtml(makeWeeklySections(), BASE_OPERATOR, NOW);
+  expect(html).not.toContain('Data layer');
+  expect(html).not.toContain('all sources current');
+});
+
+test('data layer renders quiet line when all sources are fresh', () => {
+  const sections = makeWeeklySections({
+    dataFreshness: [
+      { sourceKey: 'bank_of_canada', name: 'Bank of Canada', status: 'fresh', lastPulledAt: '2026-05-15T06:00:00.000Z', ageHours: 6 },
+    ],
+  });
+  const { html } = renderWeeklyEmailHtml(sections, BASE_OPERATOR, NOW);
+  expect(html).toContain('Data layer: all sources current.');
+  expect(html).not.toContain('Data layer</');
+});
+
+test('data layer renders loud alert section when a source is overdue', () => {
+  const sections = makeWeeklySections({
+    dataFreshness: [
+      { sourceKey: 'bank_of_canada', name: 'Bank of Canada', status: 'overdue', lastPulledAt: '2026-05-14T10:00:00.000Z', ageHours: 26 },
+    ],
+  });
+  const { html } = renderWeeklyEmailHtml(sections, BASE_OPERATOR, NOW);
+  expect(html).toContain('Data layer');
+  expect(html).toContain('Bank of Canada: overdue');
+  expect(html).toContain('26h ago');
+});
+
+test('data layer renders loud alert section when a source has never been pulled', () => {
+  const sections = makeWeeklySections({
+    dataFreshness: [
+      { sourceKey: 'bank_of_canada', name: 'Bank of Canada', status: 'never_pulled', lastPulledAt: null, ageHours: null },
+    ],
+  });
+  const { html } = renderWeeklyEmailHtml(sections, BASE_OPERATOR, NOW);
+  expect(html).toContain('Data layer');
+  expect(html).toContain('Bank of Canada: never pulled');
+});
+
+test('data layer renders loud alert when checkAllSourcesFreshness threw (check_failed synthetic entry)', () => {
+  // Simulates what runWeeklyDigestForOperator produces when the freshness
+  // check itself throws — the try/catch injects this synthetic entry so the
+  // infrastructure problem surfaces in the digest instead of being silently dropped.
+  const sections = makeWeeklySections({
+    dataFreshness: [{
+      sourceKey: '_check_error',
+      name: 'Data freshness check',
+      status: 'check_failed',
+      checkError: 'ENOENT: no such file or directory',
+    }],
+  });
+  const { html } = renderWeeklyEmailHtml(sections, BASE_OPERATOR, NOW);
+  expect(html).toContain('Data layer');
+  expect(html).toContain('Data freshness check failed: ENOENT: no such file or directory');
+  expect(html).not.toContain('all sources current');
+});

@@ -23,6 +23,7 @@ const agentState = require('./agentState');
 const twilio = require('./twilio');
 const { getFollowUpCadence, loadAgent } = require('./agentConfig');
 const { getNowIso, getNowDate } = require('./time');
+const { checkAllSourcesFreshness } = require('./content/sources');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -640,6 +641,18 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     shadowCatches.rejected       += result.rejected;
   }
 
+  let dataFreshness;
+  try {
+    dataFreshness = await checkAllSourcesFreshness(nowDate);
+  } catch (err) {
+    dataFreshness = [{
+      sourceKey: '_check_error',
+      name: 'Data freshness check',
+      status: 'check_failed',
+      checkError: err.message,
+    }];
+  }
+
   const weeklySections = {
     windowStart: startIso,
     windowEnd:   endIso,
@@ -650,6 +663,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     shadowCatches,
     shadowAgentsCovered,
     shadowAgentsTimedOut,
+    dataFreshness,
   };
 
   const { subject, body } = renderWeeklyEmail(weeklySections, operatorConfig, nowDate);
@@ -1444,6 +1458,23 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
     parts.push(`— Agents recently deactivated —\n\n${lines.join('\n')}`);
   }
 
+  {
+    const dataFreshness = weeklySections.dataFreshness || [];
+    if (dataFreshness.length > 0) {
+      const notFresh = dataFreshness.filter(s => s.status !== 'fresh');
+      if (notFresh.length === 0) {
+        parts.push('Data layer: all sources current.');
+      } else {
+        const lines = notFresh.map(s => {
+          if (s.status === 'never_pulled') return `${s.name}: never pulled`;
+          if (s.status === 'check_failed') return `${s.name} failed: ${s.checkError}`;
+          return `${s.name}: overdue — last pulled ${Math.round(s.ageHours)}h ago`;
+        });
+        parts.push(`— Data layer —\n\n${lines.join('\n')}`);
+      }
+    }
+  }
+
   if (perAgent && perAgent.length > 0) {
     const blocks = perAgent.map(a => [
       `${a.agentName} (${a.agentId})`,
@@ -1571,6 +1602,24 @@ function renderWeeklyEmailHtml(weeklySections, operatorConfig, now) {
       return `${a.agentName} (${a.agentId}) — deactivated ${rel}`;
     });
     parts.push(sectionHeader('Agents recently deactivated') + statLines(lines));
+  }
+
+  // Data layer
+  {
+    const dataFreshness = weeklySections.dataFreshness || [];
+    if (dataFreshness.length > 0) {
+      const notFresh = dataFreshness.filter(s => s.status !== 'fresh');
+      if (notFresh.length === 0) {
+        parts.push(`<p style="margin:16px 0 0 0;color:${T.mutedTextColor};font-size:${T.fontSize};">${esc('Data layer: all sources current.')}</p>`);
+      } else {
+        const lines = notFresh.map(s => {
+          if (s.status === 'never_pulled') return `${s.name}: never pulled`;
+          if (s.status === 'check_failed') return `${s.name} failed: ${s.checkError}`;
+          return `${s.name}: overdue — last pulled ${Math.round(s.ageHours)}h ago`;
+        });
+        parts.push(sectionHeader('Data layer') + statLines(lines));
+      }
+    }
   }
 
   // Per-agent breakdown
