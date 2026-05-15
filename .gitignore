@@ -26,3 +26,8 @@ operators/*.state.json
 *.log
 .vscode/
 .idea/
+
+# Content Engine data cache (runtime data, do not commit)
+data/market/**/*.json
+data/market/**/*.jsonl
+!data/market/.gitkeep
