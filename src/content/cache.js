@@ -239,6 +239,58 @@ async function appendPullLog(entry, opts = {}) {
   await fs.appendFile(logPath, JSON.stringify(record) + '\n', 'utf8');
 }
 
+/**
+ * Returns the ISO 8601 week period string ('YYYY-WNN') for the week containing now.
+ * Uses the ISO week-year, which may differ from the calendar year at year boundaries:
+ *   - Jan 1-3 can fall in week 52/53 of the prior year
+ *   - Dec 29-31 can fall in week 1 of the next year
+ * Uses UTC date components for consistency with asOf timestamps.
+ *
+ * @param {Date|string} now
+ * @returns {string} e.g. '2026-W20'
+ */
+function currentWeek(now) {
+  const date = (now instanceof Date) ? now : new Date(now);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error('currentWeek: now must be a valid Date or ISO string');
+  }
+
+  // Work in UTC: extract the calendar date only
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+  // Shift to this week's Thursday (Mon=0…Sun=6 → +3 puts Mon on Thu, Sun on +3 from prior Mon)
+  const dayOfWeek = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  d.setUTCDate(d.getUTCDate() - dayOfWeek + 3);
+
+  // The ISO week-year is the year of that Thursday
+  const isoYear = d.getUTCFullYear();
+
+  // Week 1 is the week whose Thursday is closest to Jan 4 (i.e. contains Jan 4)
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4));
+  const jan4Day = (jan4.getUTCDay() + 6) % 7;
+  const week1Monday = new Date(Date.UTC(isoYear, 0, 4 - jan4Day));
+
+  const weekNum = Math.round((d.getTime() - week1Monday.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+  return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+/**
+ * Returns the calendar month period string ('YYYY-MM') for the month containing now.
+ * Uses UTC components to avoid timezone edge issues (e.g. May 31 23:00 EST = Jun 1 UTC → '06').
+ *
+ * @param {Date|string} now
+ * @returns {string} e.g. '2026-05'
+ */
+function currentMonth(now) {
+  const date = (now instanceof Date) ? now : new Date(now);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error('currentMonth: now must be a valid Date or ISO string');
+  }
+  const year  = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -248,4 +300,6 @@ module.exports = {
   isStale,
   getFreshPoint,
   appendPullLog,
+  currentWeek,
+  currentMonth,
 };

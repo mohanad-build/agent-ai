@@ -11,6 +11,8 @@ const {
   isStale,
   getFreshPoint,
   appendPullLog,
+  currentWeek,
+  currentMonth,
 } = require('../src/content/cache');
 
 // ── Fixture helpers ───────────────────────────────────────────────────────────
@@ -432,5 +434,83 @@ describe('appendPullLog', () => {
     for (const line of lines) {
       expect(() => JSON.parse(line)).not.toThrow();
     }
+  });
+});
+
+// ── currentWeek ───────────────────────────────────────────────────────────────
+
+describe('currentWeek', () => {
+  test("returns '2026-W20' for a Wednesday in week 20 of 2026", () => {
+    // Week 20 of 2026: May 11–17. Wednesday = May 13.
+    expect(currentWeek('2026-05-13T12:00:00.000Z')).toBe('2026-W20');
+  });
+
+  test('returns ISO week-year for early-January edge case (Jan 1 falls in prior year week)', () => {
+    // 2027-01-01 is a Friday; it falls in ISO week 53 of 2026, not week 1 of 2027
+    expect(currentWeek('2027-01-01T00:00:00.000Z')).toBe('2026-W53');
+  });
+
+  test('returns ISO week-year for late-December edge case (Dec 30 falls in next year week 1)', () => {
+    // 2024-12-30 is a Monday; it falls in ISO week 1 of 2025
+    expect(currentWeek('2024-12-30T00:00:00.000Z')).toBe('2025-W01');
+  });
+
+  test("returns 'YYYY-W53' for 2026 (a year with 53 ISO weeks)", () => {
+    // 2026-12-31 is a Thursday; it is the last day of 2026-W53
+    expect(currentWeek('2026-12-31T00:00:00.000Z')).toBe('2026-W53');
+  });
+
+  test('accepts a Date object', () => {
+    const d = new Date('2026-05-13T12:00:00.000Z');
+    expect(currentWeek(d)).toBe('2026-W20');
+  });
+
+  test('accepts an ISO string', () => {
+    expect(currentWeek('2026-05-13T12:00:00.000Z')).toBe('2026-W20');
+  });
+
+  test('throws on invalid now input', () => {
+    expect(() => currentWeek('not-a-date')).toThrow();
+    expect(() => currentWeek(undefined)).toThrow();
+  });
+
+  test('output format matches PERIOD_RE (round-trips through readSnapshot without throwing)', async () => {
+    const period = currentWeek('2026-05-13T12:00:00.000Z');
+    expect(period).toMatch(/^\d{4}-W\d{2}$/);
+  });
+});
+
+// ── currentMonth ──────────────────────────────────────────────────────────────
+
+describe('currentMonth', () => {
+  test("returns '2026-05' for a date in May 2026", () => {
+    expect(currentMonth('2026-05-13T12:00:00.000Z')).toBe('2026-05');
+  });
+
+  test("zero-pads single-digit months ('2026-01' not '2026-1')", () => {
+    expect(currentMonth('2026-01-15T00:00:00.000Z')).toBe('2026-01');
+  });
+
+  test('uses UTC components — May 31 23:00 EST (Jun 1 03:00 UTC) returns 2026-06', () => {
+    // May 31 23:00 EST = UTC-5 = June 1 04:00 UTC
+    expect(currentMonth('2026-06-01T03:00:00.000Z')).toBe('2026-06');
+  });
+
+  test('accepts a Date object', () => {
+    const d = new Date('2026-05-13T12:00:00.000Z');
+    expect(currentMonth(d)).toBe('2026-05');
+  });
+
+  test('accepts an ISO string', () => {
+    expect(currentMonth('2026-05-13T12:00:00.000Z')).toBe('2026-05');
+  });
+
+  test('throws on invalid now input', () => {
+    expect(() => currentMonth('not-a-date')).toThrow();
+    expect(() => currentMonth(undefined)).toThrow();
+  });
+
+  test('output format matches PERIOD_RE (YYYY-MM)', () => {
+    expect(currentMonth('2026-05-13T12:00:00.000Z')).toMatch(/^\d{4}-\d{2}$/);
   });
 });
