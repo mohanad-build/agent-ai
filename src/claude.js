@@ -20,6 +20,8 @@ const MODELS = {
   CATEGORIZATION: 'claude-haiku-4-5-20251001',
   // Sonnet for quality-sensitive low-volume calls (drafting lead-facing emails).
   DRAFTING: 'claude-sonnet-4-6',
+  // Alias for Content Engine callers -- same model, intent-clear name.
+  SONNET: 'claude-sonnet-4-6',
 };
 
 const MAX_TOKENS = {
