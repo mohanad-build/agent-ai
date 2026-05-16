@@ -5,7 +5,7 @@ const os   = require('node:os');
 const path = require('node:path');
 
 const { pullBankOfCanada, _internal } = require('../src/content/pullData');
-const { parseOvernightRate, parseLatestDecisionDate } = _internal;
+const { parseOvernightRate, parseLatestDecisionDate, fetch5YrYield } = _internal;
 const { readSnapshot, writeSnapshot, currentWeek } = require('../src/content/cache');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -81,6 +81,12 @@ describe('parseOvernightRate', () => {
     const badObs = [{ d: '2026-05-08', B114039: { v: 'N/A' } }];
     expect(() => parseOvernightRate(badObs)).toThrow(/non-finite/i);
   });
+
+  test('returned point does not include staleThresholdDays or refreshCadence', () => {
+    const point = parseOvernightRate(OVERNIGHT_FIXTURE.observations);
+    expect(point).not.toHaveProperty('staleThresholdDays');
+    expect(point).not.toHaveProperty('refreshCadence');
+  });
 });
 
 // ── parseLatestDecisionDate (pure parser) ─────────────────────────────────────
@@ -124,6 +130,31 @@ describe('parseLatestDecisionDate', () => {
     const singleObs = [{ d: '2026-05-08', B114039: { v: '2.5000' } }];
     const point = parseLatestDecisionDate(singleObs);
     expect(point.asOf).toBe('2026-05-08T00:00:00.000Z');
+  });
+
+  test('returned point does not include staleThresholdDays or refreshCadence', () => {
+    const point = parseLatestDecisionDate(OVERNIGHT_FIXTURE.observations);
+    expect(point).not.toHaveProperty('staleThresholdDays');
+    expect(point).not.toHaveProperty('refreshCadence');
+  });
+});
+
+// ── fetch5YrYield (internal -- policy field absence) ─────────────────────────
+
+describe('fetch5YrYield', () => {
+  beforeEach(() => {
+    globalThis.fetch = jest.fn();
+  });
+  afterEach(() => {
+    delete globalThis.fetch;
+  });
+
+  test('returned point does not include staleThresholdDays or refreshCadence', async () => {
+    globalThis.fetch.mockResolvedValueOnce(okJson(YIELD_FIXTURE));
+    const point = await fetch5YrYield();
+    expect(point).not.toHaveProperty('staleThresholdDays');
+    expect(point).not.toHaveProperty('refreshCadence');
+    expect(point.metric).toBe('goc_5yr_yield');
   });
 });
 
@@ -198,6 +229,13 @@ describe('pullBankOfCanada — successful pull', () => {
   test('sourceUrl for each metric starts with https:// and contains bankofcanada.ca', () => {
     for (const p of snapshot) {
       expect(p.sourceUrl).toMatch(/^https:\/\/.*bankofcanada\.ca/);
+    }
+  });
+
+  test('written snapshot points do not carry staleThresholdDays or refreshCadence', () => {
+    for (const p of snapshot) {
+      expect(p).not.toHaveProperty('staleThresholdDays');
+      expect(p).not.toHaveProperty('refreshCadence');
     }
   });
 });

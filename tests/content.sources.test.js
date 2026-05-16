@@ -4,7 +4,15 @@ const fs   = require('node:fs/promises');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { SOURCES, checkSourceFreshness, checkAllSourcesFreshness } = require('../src/content/sources');
+const {
+  SOURCES,
+  UnknownMetricError,
+  validateMetricRegistryEntry,
+  resolveMetricPolicy,
+  checkSourceFreshness,
+  checkAllSourcesFreshness,
+  _internal: { buildMetricIndex },
+} = require('../src/content/sources');
 
 // ── Hermetic setup ────────────────────────────────────────────────────────────
 
@@ -72,8 +80,8 @@ describe('checkSourceFreshness', () => {
   });
 
   test('returns fresh when pulled within the expected interval', async () => {
-    // 12h ago — within the 24h window
-    const pulledAt = new Date(NOW_MS - 12 * 60 * 60 * 1000).toISOString();
+    // 5h ago -- within the 6h window
+    const pulledAt = new Date(NOW_MS - 5 * 60 * 60 * 1000).toISOString();
     await writeLog([
       { pulledAt, metricsWritten: ['boc_overnight_rate', 'boc_last_decision_date', 'goc_5yr_yield'], success: true },
     ]);
@@ -81,7 +89,7 @@ describe('checkSourceFreshness', () => {
     const result = await checkSourceFreshness('bank_of_canada', NOW, { baseDir });
     expect(result.status).toBe('fresh');
     expect(result.lastPulledAt).toBe(pulledAt);
-    expect(result.ageHours).toBeCloseTo(12, 2);
+    expect(result.ageHours).toBeCloseTo(5, 2);
   });
 
   test('returns overdue when pulled outside the expected interval', async () => {
@@ -97,8 +105,8 @@ describe('checkSourceFreshness', () => {
   });
 
   test('exactly at threshold is fresh (strict greater-than)', async () => {
-    // Exactly 24h ago — not overdue (ageHours must be strictly > threshold)
-    const pulledAt = new Date(NOW_MS - 24 * 60 * 60 * 1000).toISOString();
+    // Exactly 6h ago -- not overdue (ageHours must be strictly > threshold)
+    const pulledAt = new Date(NOW_MS - 6 * 60 * 60 * 1000).toISOString();
     await writeLog([
       { pulledAt, metricsWritten: ['boc_overnight_rate'], success: true },
     ]);
@@ -122,7 +130,7 @@ describe('checkSourceFreshness', () => {
   });
 
   test('falls back to loggedAt when pulledAt is absent', async () => {
-    const loggedAt = new Date(NOW_MS - 8 * 60 * 60 * 1000).toISOString();
+    const loggedAt = new Date(NOW_MS - 5 * 60 * 60 * 1000).toISOString();
     await writeLog([
       { loggedAt, metricsWritten: ['boc_overnight_rate'], success: true },
     ]);
@@ -176,5 +184,120 @@ describe('checkAllSourcesFreshness', () => {
 
     const results = await checkAllSourcesFreshness(NOW, { baseDir });
     expect(results.every(r => r.status === 'fresh')).toBe(true);
+  });
+});
+
+// ── resolveMetricPolicy ───────────────────────────────────────────────────────
+
+describe('resolveMetricPolicy', () => {
+  test('boc_overnight_rate: event_driven cadence, 365-day threshold', () => {
+    const policy = resolveMetricPolicy('boc_overnight_rate');
+    expect(policy.refreshCadence).toBe('event_driven');
+    expect(policy.staleThresholdDays).toBe(365);
+    expect(policy.source).toBe('bank_of_canada');
+  });
+
+  test('boc_last_decision_date: event_driven cadence, 365-day threshold', () => {
+    const policy = resolveMetricPolicy('boc_last_decision_date');
+    expect(policy.refreshCadence).toBe('event_driven');
+    expect(policy.staleThresholdDays).toBe(365);
+  });
+
+  test('goc_5yr_yield: daily cadence, 7-day threshold', () => {
+    const policy = resolveMetricPolicy('goc_5yr_yield');
+    expect(policy.refreshCadence).toBe('daily');
+    expect(policy.staleThresholdDays).toBe(7);
+  });
+
+  test('throws UnknownMetricError for unregistered metric', () => {
+    expect(() => resolveMetricPolicy('nonexistent_metric')).toThrow(UnknownMetricError);
+  });
+
+  test('UnknownMetricError carries the metricName property', () => {
+    let caught;
+    try {
+      resolveMetricPolicy('no_such_thing');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(UnknownMetricError);
+    expect(caught.metricName).toBe('no_such_thing');
+    expect(caught.name).toBe('UnknownMetricError');
+  });
+});
+
+// ── validateMetricRegistryEntry ───────────────────────────────────────────────
+
+describe('validateMetricRegistryEntry', () => {
+  test('valid entry returns { valid: true }', () => {
+    const result = validateMetricRegistryEntry({ refreshCadence: 'daily', staleThresholdDays: 7 });
+    expect(result.valid).toBe(true);
+  });
+
+  test('invalid cadence returns { valid: false } with an errors array', () => {
+    const result = validateMetricRegistryEntry({ refreshCadence: 'hourly', staleThresholdDays: 7 });
+    expect(result.valid).toBe(false);
+    expect(Array.isArray(result.errors)).toBe(true);
+    expect(result.errors.some(e => /refreshCadence/.test(e))).toBe(true);
+  });
+
+  test('zero staleThresholdDays (non-positive) returns { valid: false }', () => {
+    const result = validateMetricRegistryEntry({ refreshCadence: 'daily', staleThresholdDays: 0 });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => /staleThresholdDays/.test(e))).toBe(true);
+  });
+
+  test('non-integer staleThresholdDays returns { valid: false }', () => {
+    const result = validateMetricRegistryEntry({ refreshCadence: 'event_driven', staleThresholdDays: 3.5 });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => /staleThresholdDays/.test(e))).toBe(true);
+  });
+
+  test('both fields invalid: errors array contains two entries', () => {
+    const result = validateMetricRegistryEntry({ refreshCadence: 'weekly', staleThresholdDays: -1 });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toHaveLength(2);
+  });
+});
+
+// ── buildMetricIndex ──────────────────────────────────────────────────────────
+
+describe('buildMetricIndex', () => {
+  test('throws on invalid registry entry (bad cadence)', () => {
+    const badSources = {
+      test_source: {
+        metrics: {
+          some_metric: { refreshCadence: 'quarterly', staleThresholdDays: 90 },
+        },
+      },
+    };
+    expect(() => buildMetricIndex(badSources)).toThrow(/Invalid registry entry/);
+  });
+
+  test('throws on duplicate metric appearing under two different sources', () => {
+    const dupSources = {
+      source_a: {
+        metrics: { shared_metric: { refreshCadence: 'daily', staleThresholdDays: 7 } },
+      },
+      source_b: {
+        metrics: { shared_metric: { refreshCadence: 'event_driven', staleThresholdDays: 30 } },
+      },
+    };
+    expect(() => buildMetricIndex(dupSources)).toThrow(/Duplicate metric/);
+  });
+
+  test('valid multi-source input builds a flat index with source annotation', () => {
+    const validSources = {
+      src_a: {
+        metrics: { metric_a: { refreshCadence: 'daily', staleThresholdDays: 7 } },
+      },
+      src_b: {
+        metrics: { metric_b: { refreshCadence: 'event_driven', staleThresholdDays: 365 } },
+      },
+    };
+    const index = buildMetricIndex(validSources);
+    expect(index.metric_a.source).toBe('src_a');
+    expect(index.metric_b.source).toBe('src_b');
+    expect(index.metric_a.staleThresholdDays).toBe(7);
   });
 });

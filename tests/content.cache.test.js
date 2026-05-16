@@ -1,5 +1,26 @@
 'use strict';
 
+// Mock sources.js so isStale / getFreshPoint tests are not bound to real
+// registry contents. The test registry maps all fixture metric names to a
+// 30-day threshold. UnknownMetricError is the real class (from requireActual).
+jest.mock('../src/content/sources', () => {
+  const actual = jest.requireActual('../src/content/sources');
+  const { UnknownMetricError } = actual;
+  const TEST_POLICY = { refreshCadence: 'monthly', staleThresholdDays: 30, source: 'test_registry' };
+  const KNOWN = new Set([
+    'avg_home_price', 'sales_volume', 'other', 'first', 'second',
+    'boc_overnight_rate', 'boc_last_decision_date', 'goc_5yr_yield',
+  ]);
+  return {
+    ...actual,
+    resolveMetricPolicy: jest.fn((metricName) => {
+      if (KNOWN.has(metricName)) return { ...TEST_POLICY };
+      throw new UnknownMetricError(metricName);
+    }),
+    UnknownMetricError,
+  };
+});
+
 const fs   = require('node:fs/promises');
 const os   = require('node:os');
 const path = require('node:path');
@@ -15,19 +36,21 @@ const {
   currentMonth,
 } = require('../src/content/cache');
 
+const { UnknownMetricError } = require('../src/content/sources');
+
 // ── Fixture helpers ───────────────────────────────────────────────────────────
 
+// Observation-level fields only -- staleThresholdDays and refreshCadence are
+// policy fields owned by the metric registry and must not appear on data points.
 function makePoint(overrides) {
   return {
-    metric:             'avg_home_price',
-    value:              1200000,
-    unit:               'CAD',
-    asOf:               '2026-05-01T00:00:00.000Z',
-    source:             'TRREB',
-    sourceUrl:          'https://trreb.ca/stats',
-    refreshCadence:     'monthly',
-    staleThresholdDays: 35,
-    confidence:         'high',
+    metric:     'avg_home_price',
+    value:      1200000,
+    unit:       'CAD',
+    asOf:       '2026-05-01T00:00:00.000Z',
+    source:     'TRREB',
+    sourceUrl:  'https://trreb.ca/stats',
+    confidence: 'high',
     ...overrides,
   };
 }
@@ -75,18 +98,6 @@ describe('validateDataPoint', () => {
     expect(r.error).toMatch(/sourceUrl/);
   });
 
-  test('rejects missing refreshCadence', () => {
-    const r = validateDataPoint(makePoint({ refreshCadence: undefined }));
-    expect(r.valid).toBe(false);
-    expect(r.error).toMatch(/refreshCadence/);
-  });
-
-  test('rejects missing staleThresholdDays', () => {
-    const r = validateDataPoint(makePoint({ staleThresholdDays: undefined }));
-    expect(r.valid).toBe(false);
-    expect(r.error).toMatch(/staleThresholdDays/);
-  });
-
   test('rejects missing confidence', () => {
     const r = validateDataPoint(makePoint({ confidence: undefined }));
     expect(r.valid).toBe(false);
@@ -123,12 +134,6 @@ describe('validateDataPoint', () => {
     expect(r.error).toMatch(/value/);
   });
 
-  test('rejects invalid refreshCadence', () => {
-    const r = validateDataPoint(makePoint({ refreshCadence: 'biannual' }));
-    expect(r.valid).toBe(false);
-    expect(r.error).toMatch(/refreshCadence/);
-  });
-
   test('rejects invalid confidence value', () => {
     const r = validateDataPoint(makePoint({ confidence: 'certain' }));
     expect(r.valid).toBe(false);
@@ -141,28 +146,27 @@ describe('validateDataPoint', () => {
     expect(r.error).toMatch(/sourceUrl/);
   });
 
-  test('rejects staleThresholdDays = 0', () => {
-    const r = validateDataPoint(makePoint({ staleThresholdDays: 0 }));
-    expect(r.valid).toBe(false);
-    expect(r.error).toMatch(/staleThresholdDays/);
-  });
-
-  test('rejects staleThresholdDays = -1', () => {
-    const r = validateDataPoint(makePoint({ staleThresholdDays: -1 }));
-    expect(r.valid).toBe(false);
-    expect(r.error).toMatch(/staleThresholdDays/);
-  });
-
-  test('rejects staleThresholdDays = 1.5 (non-integer)', () => {
-    const r = validateDataPoint(makePoint({ staleThresholdDays: 1.5 }));
-    expect(r.valid).toBe(false);
-    expect(r.error).toMatch(/staleThresholdDays/);
-  });
-
   test('rejects malformed asOf', () => {
     const r = validateDataPoint(makePoint({ asOf: 'not-a-date' }));
     expect(r.valid).toBe(false);
     expect(r.error).toMatch(/asOf/);
+  });
+
+  // Policy fields are no longer required on the data point.
+  test('accepts point without staleThresholdDays (policy lives in registry)', () => {
+    const r = validateDataPoint(makePoint());
+    expect(r.valid).toBe(true);
+  });
+
+  test('accepts point without refreshCadence (policy lives in registry)', () => {
+    const r = validateDataPoint(makePoint());
+    expect(r.valid).toBe(true);
+  });
+
+  test('accepts legacy point that still carries staleThresholdDays and refreshCadence', () => {
+    // Legacy fields silently accepted -- they will be stripped on writeSnapshot.
+    const r = validateDataPoint(makePoint({ staleThresholdDays: 35, refreshCadence: 'monthly' }));
+    expect(r.valid).toBe(true);
   });
 });
 
@@ -272,48 +276,71 @@ describe('writeSnapshot', () => {
     await expect(writeSnapshot('canada', '2026-5', [], { baseDir }))
       .rejects.toThrow(/period/);
   });
+
+  test('strips staleThresholdDays and refreshCadence from serialized points', async () => {
+    const point = makePoint({ staleThresholdDays: 35, refreshCadence: 'monthly' });
+    await writeSnapshot('canada', '2026-05', [point], { baseDir });
+    const saved = await readSnapshot('canada', '2026-05', { baseDir });
+    expect(saved[0].staleThresholdDays).toBeUndefined();
+    expect(saved[0].refreshCadence).toBeUndefined();
+    // All observation-level fields are preserved
+    expect(saved[0].metric).toBe('avg_home_price');
+    expect(saved[0].value).toBe(1200000);
+  });
 });
 
 // ── isStale ───────────────────────────────────────────────────────────────────
 
 describe('isStale', () => {
-  const asOf = '2026-05-01T00:00:00.000Z';
-  const threshold = 30;
+  // Mock registry maps 'avg_home_price' to staleThresholdDays: 30.
+  // The asOf for all test points is 2026-05-01.
 
-  function makeTestPoint(daysOld) {
-    const asOfDate = new Date('2026-05-01T00:00:00.000Z');
-    return makePoint({
-      asOf: asOfDate.toISOString(),
-      staleThresholdDays: threshold,
-    });
+  const asOf = '2026-05-01T00:00:00.000Z';
+
+  function makeTestPoint() {
+    return makePoint({ asOf });
   }
 
   test('returns false for point exactly at threshold (boundary)', () => {
     const now = new Date('2026-05-31T00:00:00.000Z'); // exactly 30 days after asOf
-    expect(isStale(makeTestPoint(), now)).toBe(false);
+    expect(isStale(makeTestPoint(), { now })).toBe(false);
   });
 
   test('returns false for point well within threshold', () => {
     const now = new Date('2026-05-10T00:00:00.000Z'); // 9 days after asOf
-    expect(isStale(makeTestPoint(), now)).toBe(false);
+    expect(isStale(makeTestPoint(), { now })).toBe(false);
   });
 
   test('returns true for point one day past threshold', () => {
     const now = new Date('2026-06-01T00:00:00.000Z'); // 31 days after asOf
-    expect(isStale(makeTestPoint(), now)).toBe(true);
+    expect(isStale(makeTestPoint(), { now })).toBe(true);
   });
 
   test('accepts now as Date object', () => {
     const now = new Date('2026-06-01T00:00:00.000Z');
-    expect(typeof isStale(makeTestPoint(), now)).toBe('boolean');
+    expect(typeof isStale(makeTestPoint(), { now })).toBe('boolean');
   });
 
   test('accepts now as ISO string', () => {
-    expect(typeof isStale(makeTestPoint(), '2026-06-01T00:00:00.000Z')).toBe('boolean');
+    expect(typeof isStale(makeTestPoint(), { now: '2026-06-01T00:00:00.000Z' })).toBe('boolean');
   });
 
   test('throws on invalid now input', () => {
-    expect(() => isStale(makeTestPoint(), 'not-a-date')).toThrow();
+    expect(() => isStale(makeTestPoint(), { now: 'not-a-date' })).toThrow();
+  });
+
+  test('uses registry threshold, not any staleThresholdDays field on the point', () => {
+    // Point carries staleThresholdDays: 90, but mock registry says 30.
+    // 31 days past asOf: stale by 30-day threshold, fresh by 90-day threshold.
+    // The result must be true (registry wins).
+    const point = makePoint({ asOf, staleThresholdDays: 90 });
+    const now = '2026-06-01T00:00:00.000Z'; // 31 days after asOf
+    expect(isStale(point, { now })).toBe(true);
+  });
+
+  test('throws UnknownMetricError for a metric not in the registry', () => {
+    const point = makePoint({ metric: 'totally_unregistered_metric' });
+    expect(() => isStale(point, { now: '2026-06-01T00:00:00.000Z' })).toThrow(UnknownMetricError);
   });
 });
 
@@ -331,39 +358,42 @@ describe('getFreshPoint', () => {
   });
 
   test('returns the point when present and fresh', async () => {
-    const point = makePoint({ asOf: '2026-05-14T00:00:00.000Z', staleThresholdDays: 7 });
+    // 1 day old; mock registry threshold is 30 days -- fresh.
+    const point = makePoint({ asOf: '2026-05-14T00:00:00.000Z' });
     await writeSnapshot('canada', '2026-05', [point], { baseDir });
-    const result = await getFreshPoint('canada', '2026-05', 'avg_home_price', NOW, { baseDir });
-    expect(result).toEqual(point);
+    const result = await getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir });
+    expect(result).not.toBeNull();
+    expect(result.metric).toBe('avg_home_price');
   });
 
   test('returns null when file is missing', async () => {
-    const result = await getFreshPoint('canada', '2026-05', 'avg_home_price', NOW, { baseDir });
+    const result = await getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir });
     expect(result).toBeNull();
   });
 
   test('returns null when metric is not in the snapshot', async () => {
     const point = makePoint({ metric: 'sales_volume' });
     await writeSnapshot('canada', '2026-05', [point], { baseDir });
-    const result = await getFreshPoint('canada', '2026-05', 'avg_home_price', NOW, { baseDir });
+    const result = await getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir });
     expect(result).toBeNull();
   });
 
   test('returns null when point is present but stale', async () => {
-    const point = makePoint({ asOf: '2026-04-01T00:00:00.000Z', staleThresholdDays: 7 });
+    // 44 days old; mock registry threshold is 30 days -- stale.
+    const point = makePoint({ asOf: '2026-04-01T00:00:00.000Z' });
     await writeSnapshot('canada', '2026-05', [point], { baseDir });
-    const result = await getFreshPoint('canada', '2026-05', 'avg_home_price', NOW, { baseDir });
+    const result = await getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir });
     expect(result).toBeNull();
   });
 
   test('does not throw on missing file (returns null)', async () => {
-    await expect(getFreshPoint('canada', '2026-05', 'any', NOW, { baseDir }))
+    await expect(getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir }))
       .resolves.toBeNull();
   });
 
-  test('does not throw on missing metric (returns null)', async () => {
+  test('does not throw on missing metric (returns null, no registry lookup attempted)', async () => {
     await writeSnapshot('canada', '2026-05', [makePoint({ metric: 'other' })], { baseDir });
-    await expect(getFreshPoint('canada', '2026-05', 'avg_home_price', NOW, { baseDir }))
+    await expect(getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir }))
       .resolves.toBeNull();
   });
 
@@ -371,13 +401,23 @@ describe('getFreshPoint', () => {
     const dir = path.join(baseDir, 'data', 'market', 'canada');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, '2026-05.json'), 'not json at all', 'utf8');
-    await expect(getFreshPoint('canada', '2026-05', 'avg_home_price', NOW, { baseDir }))
+    await expect(getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir }))
       .rejects.toThrow(/JSON|parse|unexpected/i);
   });
 
   test('returns null when file missing (locks the missing-file contract)', async () => {
-    const result = await getFreshPoint('canada', '2026-05', 'avg_home_price', NOW, { baseDir });
+    const result = await getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir });
     expect(result).toBeNull();
+  });
+
+  test('propagates UnknownMetricError for a metric not in the registry', async () => {
+    // Write the unregistered metric so getFreshPoint finds it and calls isStale,
+    // which then calls resolveMetricPolicy and throws.
+    const point = makePoint({ metric: 'totally_unregistered_metric', asOf: '2026-05-14T00:00:00.000Z' });
+    await writeSnapshot('canada', '2026-05', [point], { baseDir });
+    await expect(
+      getFreshPoint('totally_unregistered_metric', 'canada', '2026-05', { now: NOW, baseDir })
+    ).rejects.toBeInstanceOf(UnknownMetricError);
   });
 });
 
@@ -441,22 +481,18 @@ describe('appendPullLog', () => {
 
 describe('currentWeek', () => {
   test("returns '2026-W20' for a Wednesday in week 20 of 2026", () => {
-    // Week 20 of 2026: May 11–17. Wednesday = May 13.
     expect(currentWeek('2026-05-13T12:00:00.000Z')).toBe('2026-W20');
   });
 
   test('returns ISO week-year for early-January edge case (Jan 1 falls in prior year week)', () => {
-    // 2027-01-01 is a Friday; it falls in ISO week 53 of 2026, not week 1 of 2027
     expect(currentWeek('2027-01-01T00:00:00.000Z')).toBe('2026-W53');
   });
 
   test('returns ISO week-year for late-December edge case (Dec 30 falls in next year week 1)', () => {
-    // 2024-12-30 is a Monday; it falls in ISO week 1 of 2025
     expect(currentWeek('2024-12-30T00:00:00.000Z')).toBe('2025-W01');
   });
 
   test("returns 'YYYY-W53' for 2026 (a year with 53 ISO weeks)", () => {
-    // 2026-12-31 is a Thursday; it is the last day of 2026-W53
     expect(currentWeek('2026-12-31T00:00:00.000Z')).toBe('2026-W53');
   });
 
@@ -491,8 +527,7 @@ describe('currentMonth', () => {
     expect(currentMonth('2026-01-15T00:00:00.000Z')).toBe('2026-01');
   });
 
-  test('uses UTC components — May 31 23:00 EST (Jun 1 03:00 UTC) returns 2026-06', () => {
-    // May 31 23:00 EST = UTC-5 = June 1 04:00 UTC
+  test('uses UTC components -- May 31 23:00 EST (Jun 1 03:00 UTC) returns 2026-06', () => {
     expect(currentMonth('2026-06-01T03:00:00.000Z')).toBe('2026-06');
   });
 

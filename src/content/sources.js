@@ -3,34 +3,97 @@
 const fs   = require('node:fs/promises');
 const path = require('node:path');
 
+// ── Error class ───────────────────────────────────────────────────────────────
+
+class UnknownMetricError extends Error {
+  constructor(metricName) {
+    super(`Unknown metric: '${metricName}'`);
+    this.name = 'UnknownMetricError';
+    this.metricName = metricName;
+  }
+}
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 const SOURCES = {
   bank_of_canada: {
     name: 'Bank of Canada',
-    expectedPullIntervalHours: 24,
-    metrics: ['boc_overnight_rate', 'boc_last_decision_date', 'goc_5yr_yield'],
+    homepageUrl: 'https://www.bankofcanada.ca',
+    expectedPullIntervalHours: 6,
+    metrics: {
+      boc_overnight_rate: {
+        refreshCadence:     'event_driven',
+        staleThresholdDays: 365,
+      },
+      boc_last_decision_date: {
+        refreshCadence:     'event_driven',
+        staleThresholdDays: 365,
+      },
+      goc_5yr_yield: {
+        refreshCadence:     'daily',
+        staleThresholdDays: 7,
+      },
+    },
   },
 };
 
-// ── Freshness check ───────────────────────────────────────────────────────────
+// ── Per-metric entry validation ───────────────────────────────────────────────
 
-/**
- * Reads _pullLog.jsonl and returns the freshness status of a single data source.
- * Scans lines newest-first for the most recent entry that wrote at least one of
- * the source's metrics.
- *
- * @param {string} sourceKey - Key in SOURCES registry.
- * @param {Date|string} now
- * @param {{ baseDir?: string }} [opts]
- * @returns {Promise<{
- *   sourceKey: string,
- *   name: string,
- *   status: 'fresh' | 'overdue' | 'never_pulled',
- *   lastPulledAt: string | null,
- *   ageHours: number | null
- * }>}
- */
+const VALID_CADENCES = new Set(['event_driven', 'daily']);
+
+function validateMetricRegistryEntry(entry) {
+  const errors = [];
+
+  if (!VALID_CADENCES.has(entry.refreshCadence)) {
+    errors.push(
+      `refreshCadence: must be one of ${[...VALID_CADENCES].join(', ')}, got '${entry.refreshCadence}'`
+    );
+  }
+
+  if (!Number.isInteger(entry.staleThresholdDays) || entry.staleThresholdDays < 1) {
+    errors.push(
+      `staleThresholdDays: must be a positive integer, got ${entry.staleThresholdDays}`
+    );
+  }
+
+  return errors.length === 0 ? { valid: true } : { valid: false, errors };
+}
+
+// ── Flat index build with load-time validation and duplicate guard ─────────────
+
+function buildMetricIndex(sources) {
+  const index = {};
+  for (const [sourceKey, source] of Object.entries(sources)) {
+    for (const [metricName, entry] of Object.entries(source.metrics)) {
+      if (Object.prototype.hasOwnProperty.call(index, metricName)) {
+        throw new Error(
+          `Duplicate metric in registry: '${metricName}' appears under both '${index[metricName].source}' and '${sourceKey}'`
+        );
+      }
+      const validation = validateMetricRegistryEntry(entry);
+      if (!validation.valid) {
+        throw new Error(
+          `Invalid registry entry for metric '${metricName}' under source '${sourceKey}': ${validation.errors.join('; ')}`
+        );
+      }
+      index[metricName] = { ...entry, source: sourceKey };
+    }
+  }
+  return index;
+}
+
+const METRIC_INDEX = buildMetricIndex(SOURCES);
+
+// ── Policy resolver ───────────────────────────────────────────────────────────
+
+function resolveMetricPolicy(metricName) {
+  const policy = METRIC_INDEX[metricName];
+  if (!policy) throw new UnknownMetricError(metricName);
+  return policy;
+}
+
+// ── Source freshness check ────────────────────────────────────────────────────
+
 async function checkSourceFreshness(sourceKey, now, opts = {}) {
   const source = SOURCES[sourceKey];
   if (!source) throw new Error(`Unknown source key: ${sourceKey}`);
@@ -43,7 +106,13 @@ async function checkSourceFreshness(sourceKey, now, opts = {}) {
   const baseDir = opts.baseDir || process.cwd();
   const logPath = path.join(baseDir, 'data', 'market', '_pullLog.jsonl');
 
-  const neverPulled = { sourceKey, name: source.name, status: 'never_pulled', lastPulledAt: null, ageHours: null };
+  const neverPulled = {
+    sourceKey,
+    name: source.name,
+    status: 'never_pulled',
+    lastPulledAt: null,
+    ageHours: null,
+  };
 
   let raw;
   try {
@@ -56,7 +125,7 @@ async function checkSourceFreshness(sourceKey, now, opts = {}) {
   const lines = raw.trim().split('\n').filter(l => l.trim() !== '');
   if (lines.length === 0) return neverPulled;
 
-  // Walk newest-first (last line = most recent append)
+  const metricKeys = Object.keys(source.metrics);
   let lastPulledAt = null;
   for (let i = lines.length - 1; i >= 0; i--) {
     let entry;
@@ -66,7 +135,7 @@ async function checkSourceFreshness(sourceKey, now, opts = {}) {
       continue;
     }
     const written = Array.isArray(entry.metricsWritten) ? entry.metricsWritten : [];
-    if (source.metrics.some(m => written.includes(m))) {
+    if (metricKeys.some(m => written.includes(m))) {
       lastPulledAt = entry.pulledAt || entry.loggedAt || null;
       break;
     }
@@ -83,17 +152,19 @@ async function checkSourceFreshness(sourceKey, now, opts = {}) {
   return { sourceKey, name: source.name, status, lastPulledAt, ageHours };
 }
 
-/**
- * Checks freshness for all registered sources and returns an array of results.
- *
- * @param {Date|string} now
- * @param {{ baseDir?: string }} [opts]
- * @returns {Promise<Array>}
- */
 async function checkAllSourcesFreshness(now, opts = {}) {
   return Promise.all(Object.keys(SOURCES).map(key => checkSourceFreshness(key, now, opts)));
 }
 
 // ── Exports ───────────────────────────────────────────────────────────────────
 
-module.exports = { SOURCES, checkSourceFreshness, checkAllSourcesFreshness };
+module.exports = {
+  SOURCES,
+  METRIC_INDEX,
+  UnknownMetricError,
+  validateMetricRegistryEntry,
+  resolveMetricPolicy,
+  checkSourceFreshness,
+  checkAllSourcesFreshness,
+  _internal: { buildMetricIndex },
+};

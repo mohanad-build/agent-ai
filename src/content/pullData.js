@@ -84,15 +84,13 @@ function parseOvernightRate(observations) {
     throw new Error('Non-finite value in overnight rate observation');
   }
   return {
-    metric:             'boc_overnight_rate',
+    metric:    'boc_overnight_rate',
     value,
-    unit:               'percent',
-    asOf:               new Date(obs.d + 'T00:00:00.000Z').toISOString(),
-    source:             'Bank of Canada',
-    sourceUrl:          SOURCE_URL_RATES,
-    refreshCadence:     'event_driven',
-    staleThresholdDays: 90,
-    confidence:         'high',
+    unit:      'percent',
+    asOf:      new Date(obs.d + 'T00:00:00.000Z').toISOString(),
+    source:    'Bank of Canada',
+    sourceUrl: SOURCE_URL_RATES,
+    confidence: 'high',
   };
 }
 
@@ -130,15 +128,13 @@ function parseLatestDecisionDate(observations) {
     throw new Error(`Invalid date in overnight observations: ${decisionDateStr}`);
   }
   return {
-    metric:             'boc_last_decision_date',
-    value:              Math.floor(decisionDate.getTime() / 1000),
-    unit:               'unix_seconds',
-    asOf:               decisionDate.toISOString(),
-    source:             'Bank of Canada',
-    sourceUrl:          SOURCE_URL_RATES,
-    refreshCadence:     'event_driven',
-    staleThresholdDays: 90,
-    confidence:         'high',
+    metric:    'boc_last_decision_date',
+    value:     Math.floor(decisionDate.getTime() / 1000),
+    unit:      'unix_seconds',
+    asOf:      decisionDate.toISOString(),
+    source:    'Bank of Canada',
+    sourceUrl: SOURCE_URL_RATES,
+    confidence: 'high',
   };
 }
 
@@ -158,15 +154,13 @@ async function fetch5YrYield() {
   const value = parseFloat(obs[SERIES_5YR_YIELD]?.v);
   if (!Number.isFinite(value)) throw new Error('Non-finite value in 5yr yield response');
   return {
-    metric:             'goc_5yr_yield',
+    metric:    'goc_5yr_yield',
     value,
-    unit:               'percent',
-    asOf:               new Date(obs.d + 'T00:00:00.000Z').toISOString(),
-    source:             'Bank of Canada',
-    sourceUrl:          SOURCE_URL_BONDS,
-    refreshCadence:     'daily',
-    staleThresholdDays: 7,
-    confidence:         'high',
+    unit:      'percent',
+    asOf:      new Date(obs.d + 'T00:00:00.000Z').toISOString(),
+    source:    'Bank of Canada',
+    sourceUrl: SOURCE_URL_BONDS,
+    confidence: 'high',
   };
 }
 

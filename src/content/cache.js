@@ -1,27 +1,13 @@
-/**
- * src/content/cache.js
- *
- * Read/write helpers for data/market/ snapshot files, hand-rolled schema
- * validation against the canonical data point schema, staleness check,
- * fresh-point convenience reader, and structured pull-log appender.
- *
- * All I/O functions accept opts.baseDir so tests can redirect to a temp
- * directory without touching the real data/market/ tree.
- *
- * No external dependencies. No console output. Pure utility.
- */
-
 'use strict';
 
 const fs   = require('node:fs/promises');
 const path = require('node:path');
 
+const { resolveMetricPolicy } = require('./sources');
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ALLOWED_REGIONS = new Set(['canada', 'toronto']);
-
-const ALLOWED_CADENCES = new Set(['daily', 'weekly', 'monthly', 'quarterly', 'event_driven']);
-
+const ALLOWED_REGIONS    = new Set(['canada', 'toronto']);
 const ALLOWED_CONFIDENCES = new Set(['high', 'medium', 'low']);
 
 // Accepts YYYY-MM (monthly) or YYYY-WNN (ISO week, e.g. 2026-W20)
@@ -30,22 +16,22 @@ const PERIOD_RE = /^\d{4}-(\d{2}|W\d{2})$/;
 // ── Schema validation ─────────────────────────────────────────────────────────
 
 /**
- * Validates a single data point against the canonical schema.
+ * Validates the observation-level fields of a data point.
  *
- * @param {object} point - The data point to validate.
- * @returns {{ valid: true } | { valid: false, error: string }}
+ * staleThresholdDays and refreshCadence are NO longer required here -- they
+ * are policy fields owned by the metric registry (sources.js). If a legacy
+ * snapshot point still carries those fields they are silently accepted and
+ * stripped at write time by writeSnapshot.
  */
 function validateDataPoint(point) {
   if (point == null || typeof point !== 'object') {
     return { valid: false, error: 'data point must be a non-null object' };
   }
 
-  // metric
   if (typeof point.metric !== 'string' || point.metric.trim() === '') {
     return { valid: false, error: 'metric: required non-empty string' };
   }
 
-  // value
   if (typeof point.value !== 'number') {
     return { valid: false, error: 'value: required number' };
   }
@@ -53,12 +39,10 @@ function validateDataPoint(point) {
     return { valid: false, error: 'value: must be a finite number' };
   }
 
-  // unit
   if (typeof point.unit !== 'string' || point.unit.trim() === '') {
     return { valid: false, error: 'unit: required non-empty string' };
   }
 
-  // asOf
   if (typeof point.asOf !== 'string' || point.asOf.trim() === '') {
     return { valid: false, error: 'asOf: required non-empty string' };
   }
@@ -66,12 +50,10 @@ function validateDataPoint(point) {
     return { valid: false, error: 'asOf: must be a valid ISO 8601 timestamp' };
   }
 
-  // source
   if (typeof point.source !== 'string' || point.source.trim() === '') {
     return { valid: false, error: 'source: required non-empty string' };
   }
 
-  // sourceUrl
   if (typeof point.sourceUrl !== 'string' || point.sourceUrl.trim() === '') {
     return { valid: false, error: 'sourceUrl: required non-empty string' };
   }
@@ -79,25 +61,11 @@ function validateDataPoint(point) {
     return { valid: false, error: 'sourceUrl: must start with http' };
   }
 
-  // refreshCadence
-  if (!ALLOWED_CADENCES.has(point.refreshCadence)) {
-    return { valid: false, error: `refreshCadence: must be one of ${[...ALLOWED_CADENCES].join(', ')}` };
-  }
-
-  // staleThresholdDays
-  if (typeof point.staleThresholdDays !== 'number') {
-    return { valid: false, error: 'staleThresholdDays: required number' };
-  }
-  if (
-    !Number.isInteger(point.staleThresholdDays) ||
-    point.staleThresholdDays < 1
-  ) {
-    return { valid: false, error: 'staleThresholdDays: must be a positive integer' };
-  }
-
-  // confidence
   if (!ALLOWED_CONFIDENCES.has(point.confidence)) {
-    return { valid: false, error: `confidence: must be one of ${[...ALLOWED_CONFIDENCES].join(', ')}` };
+    return {
+      valid: false,
+      error: `confidence: must be one of ${[...ALLOWED_CONFIDENCES].join(', ')}`,
+    };
   }
 
   return { valid: true };
@@ -125,11 +93,6 @@ function snapshotPath(baseDir, region, period) {
 
 /**
  * Reads a snapshot file and returns the parsed array of data points.
- *
- * @param {string} region - 'canada' | 'toronto'
- * @param {string} period - 'YYYY-MM' or 'YYYY-WNN'
- * @param {{ baseDir?: string }} [opts]
- * @returns {Promise<object[]>} Parsed array, or [] if the file does not exist.
  */
 async function readSnapshot(region, period, opts = {}) {
   validateRegion(region);
@@ -149,11 +112,10 @@ async function readSnapshot(region, period, opts = {}) {
 /**
  * Validates and writes an array of data points to a snapshot file atomically.
  *
- * @param {string} region - 'canada' | 'toronto'
- * @param {string} period - 'YYYY-MM' or 'YYYY-WNN'
- * @param {object[]} dataPoints - Array of validated data points to write.
- * @param {{ baseDir?: string }} [opts]
- * @returns {Promise<void>}
+ * staleThresholdDays and refreshCadence are stripped from each point before
+ * serializing -- policy lives in the registry, not in snapshot files. Legacy
+ * points that carry those fields are accepted (validation does not require
+ * them) but the fields are dropped on the way out.
  */
 async function writeSnapshot(region, period, dataPoints, opts = {}) {
   validateRegion(region);
@@ -167,63 +129,64 @@ async function writeSnapshot(region, period, dataPoints, opts = {}) {
     }
   }
 
+  // Strip policy fields before serializing -- they belong in sources.js, not snapshots.
+  const cleaned = dataPoints.map(({ staleThresholdDays, refreshCadence, ...rest }) => rest);
+
   const filePath = snapshotPath(baseDir, region, period);
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
 
   const tmp = filePath + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(dataPoints, null, 2), 'utf8');
+  await fs.writeFile(tmp, JSON.stringify(cleaned, null, 2), 'utf8');
   await fs.rename(tmp, filePath);
 }
 
 /**
  * Returns true if a data point is stale relative to now.
- * Exactly at the threshold is NOT stale (strict greater-than comparison).
+ * Staleness threshold is resolved from the metric registry via sources.js.
+ * Propagates UnknownMetricError if the metric is not registered.
+ * Exactly at the threshold is NOT stale (strict greater-than).
  *
- * @param {object} dataPoint - Must have asOf (ISO string) and staleThresholdDays (number).
- * @param {Date|string} now - Reference time as a Date object or ISO string.
+ * @param {object} dataPoint - Must have metric (string) and asOf (ISO string).
+ * @param {{ now: Date|string }} opts
  * @returns {boolean}
  */
-function isStale(dataPoint, now) {
+function isStale(dataPoint, opts = {}) {
+  const now = opts.now;
   const nowMs = (now instanceof Date) ? now.getTime() : new Date(now).getTime();
   if (!Number.isFinite(nowMs)) {
     throw new Error('isStale: now must be a valid Date or ISO string');
   }
+  const { staleThresholdDays } = resolveMetricPolicy(dataPoint.metric);
   const asOfMs = new Date(dataPoint.asOf).getTime();
   const elapsedDays = (nowMs - asOfMs) / (1000 * 60 * 60 * 24);
-  return elapsedDays > dataPoint.staleThresholdDays;
+  return elapsedDays > staleThresholdDays;
 }
 
 /**
  * Reads a snapshot, finds the matching metric, and returns it if fresh.
  * Returns null if the file is missing, the metric is absent, or the point is stale.
- * Never throws on missing data — only on invalid input arguments.
+ * Propagates UnknownMetricError if the metric is not in the registry.
+ * Propagates JSON parse errors on corrupted files.
  *
+ * @param {string} metric
  * @param {string} region
  * @param {string} period
- * @param {string} metric
- * @param {Date|string} now
- * @param {{ baseDir?: string }} [opts]
+ * @param {{ now: Date|string, baseDir?: string }} opts
  * @returns {Promise<object|null>}
  */
-async function getFreshPoint(region, period, metric, now, opts = {}) {
+async function getFreshPoint(metric, region, period, opts = {}) {
   validateRegion(region);
   validatePeriod(period);
   const points = await readSnapshot(region, period, opts);
   const point = points.find(p => p.metric === metric);
   if (!point) return null;
-  if (isStale(point, now)) return null;
+  if (isStale(point, { now: opts.now })) return null;
   return point;
 }
 
 /**
  * Appends one structured log entry as a JSONL line to data/market/_pullLog.jsonl.
- * Adds a loggedAt field if not already present. Creates the file and parent
- * directory if they do not exist.
- *
- * @param {object} entry - Arbitrary log object.
- * @param {{ baseDir?: string }} [opts]
- * @returns {Promise<void>}
  */
 async function appendPullLog(entry, opts = {}) {
   const baseDir = opts.baseDir || process.cwd();
@@ -241,13 +204,6 @@ async function appendPullLog(entry, opts = {}) {
 
 /**
  * Returns the ISO 8601 week period string ('YYYY-WNN') for the week containing now.
- * Uses the ISO week-year, which may differ from the calendar year at year boundaries:
- *   - Jan 1-3 can fall in week 52/53 of the prior year
- *   - Dec 29-31 can fall in week 1 of the next year
- * Uses UTC date components for consistency with asOf timestamps.
- *
- * @param {Date|string} now
- * @returns {string} e.g. '2026-W20'
  */
 function currentWeek(now) {
   const date = (now instanceof Date) ? now : new Date(now);
@@ -255,17 +211,13 @@ function currentWeek(now) {
     throw new Error('currentWeek: now must be a valid Date or ISO string');
   }
 
-  // Work in UTC: extract the calendar date only
   const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 
-  // Shift to this week's Thursday (Mon=0…Sun=6 → +3 puts Mon on Thu, Sun on +3 from prior Mon)
-  const dayOfWeek = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  const dayOfWeek = (d.getUTCDay() + 6) % 7;
   d.setUTCDate(d.getUTCDate() - dayOfWeek + 3);
 
-  // The ISO week-year is the year of that Thursday
   const isoYear = d.getUTCFullYear();
 
-  // Week 1 is the week whose Thursday is closest to Jan 4 (i.e. contains Jan 4)
   const jan4 = new Date(Date.UTC(isoYear, 0, 4));
   const jan4Day = (jan4.getUTCDay() + 6) % 7;
   const week1Monday = new Date(Date.UTC(isoYear, 0, 4 - jan4Day));
@@ -276,10 +228,6 @@ function currentWeek(now) {
 
 /**
  * Returns the calendar month period string ('YYYY-MM') for the month containing now.
- * Uses UTC components to avoid timezone edge issues (e.g. May 31 23:00 EST = Jun 1 UTC → '06').
- *
- * @param {Date|string} now
- * @returns {string} e.g. '2026-05'
  */
 function currentMonth(now) {
   const date = (now instanceof Date) ? now : new Date(now);
