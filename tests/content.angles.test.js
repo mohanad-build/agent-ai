@@ -377,6 +377,107 @@ describe('gatherDataSlice', () => {
     const slice = await gatherDataSlice({ weekIso: '2026-W20', now: NOW, baseDir: tmpDir });
     expect(new Date(slice.windowEndIso).getTime()).toBe(NOW.getTime());
   });
+
+  test('event-driven metric includes pre-window observations within staleThresholdDays, sorted ascending', async () => {
+    await writeTmpSnapshot(tmpDir, 'canada', 'history.json', [
+      {
+        metric: 'boc_overnight_rate', value: 2.50, unit: 'percent',
+        asOf: '2025-10-30T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'boc_overnight_rate', value: 2.25, unit: 'percent',
+        asOf: '2026-05-14T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+    ]);
+    const slice = await gatherDataSlice({ weekIso: '2026-W20', now: NOW, baseDir: tmpDir });
+    const m = slice.metrics['boc_overnight_rate'];
+    expect(m).toBeDefined();
+    expect(m.observations).toHaveLength(2);
+    expect(m.observations[0].asOf).toBe('2025-10-30T00:00:00.000Z');
+    expect(m.observations[1].asOf).toBe('2026-05-14T00:00:00.000Z');
+    expect(m.currentValue).toBe(2.25);
+    expect(m.currentAsOf).toBe('2026-05-14T00:00:00.000Z');
+    expect(m.delta7d).toBeNull();
+    expect(m.delta14d).toBeNull();
+    expect(m.note).toMatch(/2026-05-14/);
+  });
+
+  test('event-driven metric with observation older than staleThresholdDays falls back to mostRecent', async () => {
+    await writeTmpSnapshot(tmpDir, 'canada', 'history.json', [{
+      metric: 'boc_overnight_rate', value: 3.00, unit: 'percent',
+      asOf: '2024-01-01T00:00:00.000Z', source: 'Bank of Canada',
+      sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+    }]);
+    const slice = await gatherDataSlice({ weekIso: '2026-W20', now: NOW, baseDir: tmpDir });
+    const m = slice.metrics['boc_overnight_rate'];
+    expect(m).toBeDefined();
+    expect(m.observations).toHaveLength(1);
+    expect(m.observations[0].asOf).toBe('2024-01-01T00:00:00.000Z');
+    expect(m.currentValue).toBe(3.00);
+    expect(m.currentAsOf).toBe('2024-01-01T00:00:00.000Z');
+    expect(m.note).toMatch(/days ago/);
+  });
+
+  test('event-driven metric with multiple pre-window observations within staleness includes all, sorted ascending', async () => {
+    await writeTmpSnapshot(tmpDir, 'canada', 'history.json', [
+      {
+        metric: 'boc_overnight_rate', value: 3.00, unit: 'percent',
+        asOf: '2025-09-04T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'boc_overnight_rate', value: 2.75, unit: 'percent',
+        asOf: '2025-10-30T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'boc_overnight_rate', value: 2.50, unit: 'percent',
+        asOf: '2025-12-11T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+    ]);
+    const slice = await gatherDataSlice({ weekIso: '2026-W20', now: NOW, baseDir: tmpDir });
+    const m = slice.metrics['boc_overnight_rate'];
+    expect(m).toBeDefined();
+    expect(m.observations).toHaveLength(3);
+    expect(m.observations[0].asOf).toBe('2025-09-04T00:00:00.000Z');
+    expect(m.observations[1].asOf).toBe('2025-10-30T00:00:00.000Z');
+    expect(m.observations[2].asOf).toBe('2025-12-11T00:00:00.000Z');
+    expect(m.currentValue).toBe(2.50);
+    expect(m.currentAsOf).toBe('2025-12-11T00:00:00.000Z');
+    expect(m.note).toMatch(/2025-12-11/);
+  });
+
+  test('daily metric excludes pre-window observations (regression: staleness window must not affect daily metrics)', async () => {
+    await writeTmpSnapshot(tmpDir, 'canada', 'history.json', [
+      {
+        metric: 'goc_5yr_yield', value: 3.10, unit: 'percent',
+        asOf: '2026-04-15T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'goc_5yr_yield', value: 3.22, unit: 'percent',
+        asOf: '2026-05-10T12:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'goc_5yr_yield', value: 3.35, unit: 'percent',
+        asOf: '2026-05-17T12:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+    ]);
+    const slice = await gatherDataSlice({ weekIso: '2026-W20', now: NOW, baseDir: tmpDir });
+    const m = slice.metrics['goc_5yr_yield'];
+    expect(m).toBeDefined();
+    expect(m.observations).toHaveLength(2);
+    expect(m.currentValue).toBe(3.35);
+    const obsAsOfs = m.observations.map(o => o.asOf);
+    expect(obsAsOfs).not.toContain('2026-04-15T00:00:00.000Z');
+    expect(obsAsOfs).toContain('2026-05-10T12:00:00.000Z');
+    expect(obsAsOfs).toContain('2026-05-17T12:00:00.000Z');
+  });
 });
 
 // ── generateWeeklyAngles ──────────────────────────────────────────────────────

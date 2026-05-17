@@ -283,10 +283,16 @@ async function gatherDataSlice({ weekIso, now, baseDir }) {
 
     if (!mostRecent) continue;
 
-    // Observations to include: in-window for daily; just mostRecent (possibly outside) for event-driven
-    const obsToInclude = policy.refreshCadence === 'event_driven'
-      ? (inWindow.length > 0 ? inWindow : [mostRecent])
-      : inWindow;
+    let obsToInclude;
+    if (policy.refreshCadence === 'event_driven') {
+      const stalenessWindowMs = policy.staleThresholdDays * 86400000;
+      const stalenessStartMs = nowMs - stalenessWindowMs;
+      const withinStaleness = allObs.filter(o => new Date(o.asOf).getTime() >= stalenessStartMs);
+      obsToInclude = withinStaleness.length > 0 ? withinStaleness : [mostRecent];
+    } else {
+      obsToInclude = inWindow;
+    }
+    obsToInclude = obsToInclude.slice().sort((a, b) => new Date(a.asOf).getTime() - new Date(b.asOf).getTime());
 
     const currentValue = mostRecent.value;
     const currentAsOf  = mostRecent.asOf;
