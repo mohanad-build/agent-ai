@@ -83,6 +83,41 @@ function validateState(state) {
         errors.push(`batches.${weekIso}.sentAt: must be null or ISO 8601 string`);
       }
 
+      if (!Array.isArray(batch.availableAngles)) {
+        errors.push(`batches.${weekIso}.availableAngles: must be an array`);
+      } else {
+        batch.availableAngles.forEach((angle, i) => {
+          const loc = `batches.${weekIso}.availableAngles[${i}]`;
+          if (typeof angle.id !== 'string' || angle.id.trim() === '') {
+            errors.push(`${loc}.id: required non-empty string`);
+          }
+          if (typeof angle.headline !== 'string' || angle.headline.trim() === '') {
+            errors.push(`${loc}.headline: required non-empty string`);
+          }
+          if (typeof angle.themeTag !== 'string' || angle.themeTag.trim() === '') {
+            errors.push(`${loc}.themeTag: required non-empty string`);
+          }
+          if (typeof angle.longFormSuitable !== 'boolean') {
+            errors.push(`${loc}.longFormSuitable: required boolean`);
+          }
+          if (typeof angle.forbidsRateAdvice !== 'boolean') {
+            errors.push(`${loc}.forbidsRateAdvice: required boolean`);
+          }
+          if (!Array.isArray(angle.bestSuitedFor)) {
+            errors.push(`${loc}.bestSuitedFor: required array of strings`);
+          } else {
+            angle.bestSuitedFor.forEach((v, j) => {
+              if (typeof v !== 'string') {
+                errors.push(`${loc}.bestSuitedFor[${j}]: must be a string`);
+              }
+            });
+          }
+          if (typeof angle.surpriseScore !== 'number') {
+            errors.push(`${loc}.surpriseScore: required number`);
+          }
+        });
+      }
+
       if (batch.pieces === null || typeof batch.pieces !== 'object' || Array.isArray(batch.pieces)) {
         errors.push(`batches.${weekIso}.pieces: must be an object`);
       } else {
@@ -204,7 +239,7 @@ function updateContentState(agentId, patch, opts = {}) {
   return writeContentState(agentId, merged, opts);
 }
 
-function initBatch(agentId, weekIso, pieces, opts = {}) {
+function initBatch(agentId, weekIso, { pieces, availableAngles }, opts = {}) {
   const state = readContentState(agentId, opts);
   if (state.batches[weekIso]) {
     throw new Error(`Batch already exists for weekIso: ${weekIso}`);
@@ -226,7 +261,7 @@ function initBatch(agentId, weekIso, pieces, opts = {}) {
       approvedVersionId: null,
     };
   }
-  state.batches[weekIso] = { sentAt: null, pieces: piecesMap };
+  state.batches[weekIso] = { sentAt: null, availableAngles: availableAngles ?? [], pieces: piecesMap };
   return writeContentState(agentId, state, opts);
 }
 

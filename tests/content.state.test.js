@@ -201,7 +201,7 @@ describe('validateState', () => {
 
   test('invalid weekIso key fails', () => {
     const err = caught(() => validateState(makeState({
-      batches: { 'bad-week': { sentAt: null, pieces: {} } },
+      batches: { 'bad-week': { sentAt: null, availableAngles: [], pieces: {} } },
     })));
     expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
     expect(err.errors.join('|')).toMatch(/weekIso/);
@@ -212,6 +212,7 @@ describe('validateState', () => {
       batches: {
         [WEEK_ISO]: {
           sentAt: null,
+          availableAngles: [],
           pieces: { 'bad-id': makePiece() },
         },
       },
@@ -222,7 +223,7 @@ describe('validateState', () => {
 
   test('piece missing angleId fails', () => {
     const err = caught(() => validateState(makeState({
-      batches: { [WEEK_ISO]: { sentAt: null, pieces: { 'reel-001': makePiece({ angleId: '' }) } } },
+      batches: { [WEEK_ISO]: { sentAt: null, availableAngles: [], pieces: { 'reel-001': makePiece({ angleId: '' }) } } },
     })));
     expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
     expect(err.errors.join('|')).toMatch(/angleId/);
@@ -230,7 +231,7 @@ describe('validateState', () => {
 
   test('piece missing themeTag fails', () => {
     const err = caught(() => validateState(makeState({
-      batches: { [WEEK_ISO]: { sentAt: null, pieces: { 'reel-001': makePiece({ themeTag: '' }) } } },
+      batches: { [WEEK_ISO]: { sentAt: null, availableAngles: [], pieces: { 'reel-001': makePiece({ themeTag: '' }) } } },
     })));
     expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
     expect(err.errors.join('|')).toMatch(/themeTag/);
@@ -238,7 +239,7 @@ describe('validateState', () => {
 
   test('piece missing forbidsRateAdvice fails', () => {
     const err = caught(() => validateState(makeState({
-      batches: { [WEEK_ISO]: { sentAt: null, pieces: { 'reel-001': makePiece({ forbidsRateAdvice: 'yes' }) } } },
+      batches: { [WEEK_ISO]: { sentAt: null, availableAngles: [], pieces: { 'reel-001': makePiece({ forbidsRateAdvice: 'yes' }) } } },
     })));
     expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
     expect(err.errors.join('|')).toMatch(/forbidsRateAdvice/);
@@ -246,7 +247,7 @@ describe('validateState', () => {
 
   test('piece with negative regenCount fails', () => {
     const err = caught(() => validateState(makeState({
-      batches: { [WEEK_ISO]: { sentAt: null, pieces: { 'reel-001': makePiece({ regenCount: -1 }) } } },
+      batches: { [WEEK_ISO]: { sentAt: null, availableAngles: [], pieces: { 'reel-001': makePiece({ regenCount: -1 }) } } },
     })));
     expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
     expect(err.errors.join('|')).toMatch(/regenCount/);
@@ -254,7 +255,7 @@ describe('validateState', () => {
 
   test('piece with negative swapCount fails', () => {
     const err = caught(() => validateState(makeState({
-      batches: { [WEEK_ISO]: { sentAt: null, pieces: { 'reel-001': makePiece({ swapCount: -1 }) } } },
+      batches: { [WEEK_ISO]: { sentAt: null, availableAngles: [], pieces: { 'reel-001': makePiece({ swapCount: -1 }) } } },
     })));
     expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
     expect(err.errors.join('|')).toMatch(/swapCount/);
@@ -265,6 +266,7 @@ describe('validateState', () => {
       batches: {
         [WEEK_ISO]: {
           sentAt: null,
+          availableAngles: [],
           pieces: { 'reel-001': makePiece({ versions: [makeVersion({ versionId: 'bad-id' })] }) },
         },
       },
@@ -278,6 +280,7 @@ describe('validateState', () => {
       batches: {
         [WEEK_ISO]: {
           sentAt: null,
+          availableAngles: [],
           pieces: {
             'reel-001': makePiece({ approvedVersionId: 'v-9999-01-01T00:00:00.000Z' }),
           },
@@ -293,6 +296,7 @@ describe('validateState', () => {
       batches: {
         [WEEK_ISO]: {
           sentAt: null,
+          availableAngles: [],
           pieces: { 'reel-001': makePiece({ approvedVersionId: null }) },
         },
       },
@@ -305,6 +309,7 @@ describe('validateState', () => {
       batches: {
         [WEEK_ISO]: {
           sentAt: null,
+          availableAngles: [],
           pieces: {
             'reel-001': makePiece({ versions: [ver], approvedVersionId: ver.versionId }),
           },
@@ -433,7 +438,7 @@ describe('updateContentState', () => {
 
   test('shallow merge only: patching batches replaces the whole batches object', () => {
     writeContentState(AGENT_ID, makeState(), { baseDir });
-    const newBatches = { [WEEK_ISO]: { sentAt: null, pieces: {} } };
+    const newBatches = { [WEEK_ISO]: { sentAt: null, availableAngles: [], pieces: {} } };
     const result = updateContentState(AGENT_ID, { batches: newBatches }, { baseDir });
     expect(result.batches).toEqual(newBatches);
     expect(Object.keys(result.batches)).toHaveLength(1);
@@ -453,20 +458,20 @@ describe('initBatch', () => {
       makePieceInput('reel-002', { themeTag: 'interest-rates' }),
       makePieceInput('blog-001', { themeTag: 'first-time-buyers' }),
     ];
-    const state = initBatch(AGENT_ID, WEEK_ISO, pieces, { baseDir });
+    const state = initBatch(AGENT_ID, WEEK_ISO, { pieces, availableAngles: [] }, { baseDir });
     expect(Object.keys(state.batches[WEEK_ISO].pieces)).toHaveLength(3);
     expect(state.batches[WEEK_ISO].sentAt).toBeNull();
   });
 
   test('throws if batch already exists for that weekIso', () => {
-    initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-001')], { baseDir });
-    const err = caught(() => initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-002')], { baseDir }));
+    initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001')], availableAngles: [] }, { baseDir });
+    const err = caught(() => initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-002')], availableAngles: [] }, { baseDir }));
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toMatch(/already exists/);
   });
 
   test('all pieces get regenCount=0, swapCount=0, approvedVersionId=null', () => {
-    const state = initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-001')], { baseDir });
+    const state = initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001')], availableAngles: [] }, { baseDir });
     const piece = state.batches[WEEK_ISO].pieces['reel-001'];
     expect(piece.regenCount).toBe(0);
     expect(piece.swapCount).toBe(0);
@@ -475,25 +480,121 @@ describe('initBatch', () => {
 
   test('versions[0].versionId is "v-" + initialVersion.generatedAt', () => {
     const genAt = '2026-05-18T10:00:00.000Z';
-    const state = initBatch(AGENT_ID, WEEK_ISO, [
-      makePieceInput('reel-001', { initialVersion: { text: 'text', generatedAt: genAt, claudeCallId: null } }),
-    ], { baseDir });
+    const state = initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [makePieceInput('reel-001', { initialVersion: { text: 'text', generatedAt: genAt, claudeCallId: null } })],
+      availableAngles: [],
+    }, { baseDir });
     const piece = state.batches[WEEK_ISO].pieces['reel-001'];
     expect(piece.versions[0].versionId).toBe(`v-${genAt}`);
   });
 
   test('pieces with claudeCallId omitted get null', () => {
-    const state = initBatch(AGENT_ID, WEEK_ISO, [
-      makePieceInput('reel-001', { initialVersion: { text: 'text', generatedAt: GEN_AT_1 } }),
-    ], { baseDir });
+    const state = initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [makePieceInput('reel-001', { initialVersion: { text: 'text', generatedAt: GEN_AT_1 } })],
+      availableAngles: [],
+    }, { baseDir });
     const piece = state.batches[WEEK_ISO].pieces['reel-001'];
     expect(piece.versions[0].claudeCallId).toBeNull();
   });
 
   test('empty pieces array creates batch with pieces: {}', () => {
-    const state = initBatch(AGENT_ID, WEEK_ISO, [], { baseDir });
+    const state = initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [] }, { baseDir });
     expect(state.batches[WEEK_ISO]).toBeDefined();
     expect(state.batches[WEEK_ISO].pieces).toEqual({});
+  });
+});
+
+// ── 7b. initBatch -- availableAngles ─────────────────────────────────────────
+
+function makeAngle(overrides = {}) {
+  return {
+    id: 'angle-2026-W21-001',
+    headline: 'Test headline',
+    themeTag: 'rates',
+    longFormSuitable: true,
+    forbidsRateAdvice: false,
+    bestSuitedFor: ['reel'],
+    surpriseScore: 5,
+    ...overrides,
+  };
+}
+
+describe('initBatch -- availableAngles', () => {
+  let baseDir;
+  beforeEach(() => { baseDir = makeTmpDir(); });
+  afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
+
+  test('5 availableAngles: batch.availableAngles has 5 entries', () => {
+    const angles = Array.from({ length: 5 }, (_, i) =>
+      makeAngle({ id: `angle-2026-W21-00${i + 1}` })
+    );
+    const state = initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001')], availableAngles: angles }, { baseDir });
+    expect(state.batches[WEEK_ISO].availableAngles).toHaveLength(5);
+  });
+
+  test('empty availableAngles: batch.availableAngles is []', () => {
+    const state = initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [] }, { baseDir });
+    expect(state.batches[WEEK_ISO].availableAngles).toEqual([]);
+  });
+
+  test('non-array availableAngles throws schema error', () => {
+    const err = caught(() =>
+      initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: 'not-an-array' }, { baseDir })
+    );
+    expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
+    expect(err.errors.join('|')).toMatch(/availableAngles/);
+  });
+
+  test('availableAngles entry missing headline throws', () => {
+    const badAngle = makeAngle({ headline: '' });
+    const err = caught(() =>
+      initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [badAngle] }, { baseDir })
+    );
+    expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
+    expect(err.errors.join('|')).toMatch(/headline/);
+  });
+
+  test('availableAngles entry missing id throws', () => {
+    const badAngle = makeAngle({ id: '' });
+    const err = caught(() =>
+      initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [badAngle] }, { baseDir })
+    );
+    expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
+    expect(err.errors.join('|')).toMatch(/\.id:/);
+  });
+
+  test('availableAngles entry with non-boolean longFormSuitable throws', () => {
+    const badAngle = makeAngle({ longFormSuitable: 'yes' });
+    const err = caught(() =>
+      initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [badAngle] }, { baseDir })
+    );
+    expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
+    expect(err.errors.join('|')).toMatch(/longFormSuitable/);
+  });
+
+  test('availableAngles entry with non-number surpriseScore throws', () => {
+    const badAngle = makeAngle({ surpriseScore: 'high' });
+    const err = caught(() =>
+      initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [badAngle] }, { baseDir })
+    );
+    expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
+    expect(err.errors.join('|')).toMatch(/surpriseScore/);
+  });
+
+  test('availableAngles entry with non-array bestSuitedFor throws', () => {
+    const badAngle = makeAngle({ bestSuitedFor: 'reel' });
+    const err = caught(() =>
+      initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [badAngle] }, { baseDir })
+    );
+    expect(err).toBeInstanceOf(ContentStateSchemaValidationError);
+    expect(err.errors.join('|')).toMatch(/bestSuitedFor/);
+  });
+
+  test('optional fields (audienceFocus, thesis) are passed through without error', () => {
+    const angle = makeAngle({ audienceFocus: 'buyers', thesis: 'Rates are rising' });
+    expect(() =>
+      initBatch(AGENT_ID, WEEK_ISO, { pieces: [], availableAngles: [angle] }, { baseDir })
+    ).not.toThrow();
   });
 });
 
@@ -503,7 +604,7 @@ describe('recordRegen', () => {
   let baseDir;
   beforeEach(() => {
     baseDir = makeTmpDir();
-    initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-001')], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001')], availableAngles: [] }, { baseDir });
   });
   afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
@@ -554,7 +655,7 @@ describe('recordSwap', () => {
   let baseDir;
   beforeEach(() => {
     baseDir = makeTmpDir();
-    initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-001'), makePieceInput('reel-002')], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001'), makePieceInput('reel-002')], availableAngles: [] }, { baseDir });
   });
   afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
@@ -606,7 +707,7 @@ describe('approveVersion', () => {
   let baseDir;
   beforeEach(() => {
     baseDir = makeTmpDir();
-    initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-001')], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001')], availableAngles: [] }, { baseDir });
   });
   afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
@@ -649,7 +750,7 @@ describe('recordBatchSent', () => {
   const SENT_AT = '2026-05-19T07:00:00.000Z';
   beforeEach(() => {
     baseDir = makeTmpDir();
-    initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-001')], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001')], availableAngles: [] }, { baseDir });
   });
   afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
@@ -685,16 +786,19 @@ describe('buildAgentHistory', () => {
   });
 
   test('state with 1 batch, all pieces unapproved: recentThemeTags is []', () => {
-    initBatch(AGENT_ID, WEEK_ISO, [makePieceInput('reel-001', { themeTag: 'market' })], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, { pieces: [makePieceInput('reel-001', { themeTag: 'market' })], availableAngles: [] }, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
     expect(result.recentThemeTags).toEqual([]);
   });
 
   test('state with 1 batch, 2 pieces approved: returns both themeTags deduplicated', () => {
-    initBatch(AGENT_ID, WEEK_ISO, [
-      makePieceInput('reel-001', { themeTag: 'market' }),
-      makePieceInput('blog-001', { themeTag: 'market' }),
-    ], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [
+        makePieceInput('reel-001', { themeTag: 'market' }),
+        makePieceInput('blog-001', { themeTag: 'market' }),
+      ],
+      availableAngles: [],
+    }, { baseDir });
     approveVersion(AGENT_ID, WEEK_ISO, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
     approveVersion(AGENT_ID, WEEK_ISO, 'blog-001', `v-${GEN_AT_1}`, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
@@ -705,11 +809,11 @@ describe('buildAgentHistory', () => {
     const W20 = '2026-W20';
     const W21 = '2026-W21';
     const W22 = '2026-W22';
-    initBatch(AGENT_ID, W20, [makePieceInput('reel-001', { themeTag: 'old-tag' })], { baseDir });
+    initBatch(AGENT_ID, W20, { pieces: [makePieceInput('reel-001', { themeTag: 'old-tag' })], availableAngles: [] }, { baseDir });
     approveVersion(AGENT_ID, W20, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
-    initBatch(AGENT_ID, W21, [makePieceInput('reel-001', { themeTag: 'mid-tag' })], { baseDir });
+    initBatch(AGENT_ID, W21, { pieces: [makePieceInput('reel-001', { themeTag: 'mid-tag' })], availableAngles: [] }, { baseDir });
     approveVersion(AGENT_ID, W21, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
-    initBatch(AGENT_ID, W22, [makePieceInput('reel-001', { themeTag: 'new-tag' })], { baseDir });
+    initBatch(AGENT_ID, W22, { pieces: [makePieceInput('reel-001', { themeTag: 'new-tag' })], availableAngles: [] }, { baseDir });
     approveVersion(AGENT_ID, W22, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
     expect(result.recentThemeTags).toContain('new-tag');
@@ -718,26 +822,29 @@ describe('buildAgentHistory', () => {
   });
 
   test('rejectedRateContent: true when forbidsRateAdvice && regenCount > 0', () => {
-    initBatch(AGENT_ID, WEEK_ISO, [
-      makePieceInput('reel-001', { forbidsRateAdvice: true }),
-    ], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [makePieceInput('reel-001', { forbidsRateAdvice: true })],
+      availableAngles: [],
+    }, { baseDir });
     recordRegen(AGENT_ID, WEEK_ISO, 'reel-001', { text: 'v2', generatedAt: GEN_AT_2 }, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
     expect(result.rejectedRateContent).toBe(true);
   });
 
   test('rejectedRateContent: false when forbidsRateAdvice && regenCount === 0', () => {
-    initBatch(AGENT_ID, WEEK_ISO, [
-      makePieceInput('reel-001', { forbidsRateAdvice: true }),
-    ], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [makePieceInput('reel-001', { forbidsRateAdvice: true })],
+      availableAngles: [],
+    }, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
     expect(result.rejectedRateContent).toBe(false);
   });
 
   test('rejectedRateContent: false when !forbidsRateAdvice && regenCount > 0', () => {
-    initBatch(AGENT_ID, WEEK_ISO, [
-      makePieceInput('reel-001', { forbidsRateAdvice: false }),
-    ], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [makePieceInput('reel-001', { forbidsRateAdvice: false })],
+      availableAngles: [],
+    }, { baseDir });
     recordRegen(AGENT_ID, WEEK_ISO, 'reel-001', { text: 'v2', generatedAt: GEN_AT_2 }, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
     expect(result.rejectedRateContent).toBe(false);
@@ -747,11 +854,11 @@ describe('buildAgentHistory', () => {
     const W51_2025 = '2025-W51';
     const W52_2025 = '2025-W52';
     const W01_2026 = '2026-W01';
-    initBatch(AGENT_ID, W51_2025, [makePieceInput('reel-001', { themeTag: 'oldest' })], { baseDir });
+    initBatch(AGENT_ID, W51_2025, { pieces: [makePieceInput('reel-001', { themeTag: 'oldest' })], availableAngles: [] }, { baseDir });
     approveVersion(AGENT_ID, W51_2025, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
-    initBatch(AGENT_ID, W52_2025, [makePieceInput('reel-001', { themeTag: 'middle' })], { baseDir });
+    initBatch(AGENT_ID, W52_2025, { pieces: [makePieceInput('reel-001', { themeTag: 'middle' })], availableAngles: [] }, { baseDir });
     approveVersion(AGENT_ID, W52_2025, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
-    initBatch(AGENT_ID, W01_2026, [makePieceInput('reel-001', { themeTag: 'newest' })], { baseDir });
+    initBatch(AGENT_ID, W01_2026, { pieces: [makePieceInput('reel-001', { themeTag: 'newest' })], availableAngles: [] }, { baseDir });
     approveVersion(AGENT_ID, W01_2026, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
     expect(result.recentThemeTags).toContain('newest');
@@ -760,10 +867,13 @@ describe('buildAgentHistory', () => {
   });
 
   test('approvedVersionId match: themeTag included only if version approved', () => {
-    initBatch(AGENT_ID, WEEK_ISO, [
-      makePieceInput('reel-001', { themeTag: 'approved-tag' }),
-      makePieceInput('blog-001', { themeTag: 'unapproved-tag' }),
-    ], { baseDir });
+    initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [
+        makePieceInput('reel-001', { themeTag: 'approved-tag' }),
+        makePieceInput('blog-001', { themeTag: 'unapproved-tag' }),
+      ],
+      availableAngles: [],
+    }, { baseDir });
     approveVersion(AGENT_ID, WEEK_ISO, 'reel-001', `v-${GEN_AT_1}`, { baseDir });
     const result = buildAgentHistory(AGENT_ID, { baseDir });
     expect(result.recentThemeTags).toContain('approved-tag');
@@ -791,11 +901,14 @@ describe('Integration: full lifecycle', () => {
     const GEN_REEL001 = '2026-05-18T10:00:00.000Z';
     const GEN_REEL002 = '2026-05-18T10:00:01.000Z';
     const GEN_BLOG001 = '2026-05-18T10:00:02.000Z';
-    initBatch(AGENT_ID, WEEK_ISO, [
-      { id: 'reel-001', angleId: 'angle-a', themeTag: 'buyers-market', forbidsRateAdvice: false, initialVersion: { text: 'reel v1', generatedAt: GEN_REEL001, claudeCallId: null } },
-      { id: 'reel-002', angleId: 'angle-b', themeTag: 'interest-rates', forbidsRateAdvice: true,  initialVersion: { text: 'reel2 v1', generatedAt: GEN_REEL002, claudeCallId: null } },
-      { id: 'blog-001', angleId: 'angle-c', themeTag: 'first-time-buyers', forbidsRateAdvice: false, initialVersion: { text: 'blog v1', generatedAt: GEN_BLOG001, claudeCallId: null } },
-    ], opts);
+    initBatch(AGENT_ID, WEEK_ISO, {
+      pieces: [
+        { id: 'reel-001', angleId: 'angle-a', themeTag: 'buyers-market', forbidsRateAdvice: false, initialVersion: { text: 'reel v1', generatedAt: GEN_REEL001, claudeCallId: null } },
+        { id: 'reel-002', angleId: 'angle-b', themeTag: 'interest-rates', forbidsRateAdvice: true,  initialVersion: { text: 'reel2 v1', generatedAt: GEN_REEL002, claudeCallId: null } },
+        { id: 'blog-001', angleId: 'angle-c', themeTag: 'first-time-buyers', forbidsRateAdvice: false, initialVersion: { text: 'blog v1', generatedAt: GEN_BLOG001, claudeCallId: null } },
+      ],
+      availableAngles: [],
+    }, opts);
 
     // Step 3: recordRegen on reel-001 twice
     const GEN_REEL001_V2 = '2026-05-18T10:01:00.000Z';
