@@ -6,8 +6,7 @@ const { MODELS } = claude;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const RATE_DISCLAIMER_BLOCK =
-  '*Not financial or rate advice. Consult a licensed mortgage professional for personal guidance.*';
+const { RATE_DISCLAIMER_BLOCK } = require('./_shared');
 
 // ── Error class ───────────────────────────────────────────────────────────────
 
