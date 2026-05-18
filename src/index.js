@@ -20,6 +20,9 @@ const { getNow, getNowIso, getNowDate } = require('./time');
 const followUp = require('./followUp');
 const agentState = require('./agentState');
 const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator } = require('./digest');
+const { runContentEngineForAgent, shouldRunContentEngine } = require('./content/engine');
+const { readContentProfile } = require('./content/profile');
+const { readContentState, recordBatchSent: recordContentBatchSent } = require('./content/state');
 const operatorState = require('./operatorState');
 const { loadOperator, discoverOperatorIds } = require('./operatorConfig');
 const email = require('./email');
@@ -518,6 +521,32 @@ async function maybeRunDailyDigest(agent) {
 }
 
 // --------------------------------------------------------------------------
+// Content engine
+// --------------------------------------------------------------------------
+
+async function maybeRunContentEngine(agent) {
+  try {
+    const contentProfile = readContentProfile(agent.agentId);
+    if (contentProfile === null) return;
+
+    const contentState = readContentState(agent.agentId);
+    const now = getNowDate();
+
+    if (!shouldRunContentEngine(agent, contentProfile, now, contentState)) {
+      return;
+    }
+
+    const result = await runContentEngineForAgent(agent);
+
+    if (result.sent === true) {
+      recordContentBatchSent(agent.agentId, result.batchWeekIso, getNowIso());
+    }
+  } catch (err) {
+    console.error(`[${agent.agentId}] content engine error:`, err.message);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Weekly digest (operator-scoped, runs once per cycle after all agents)
 // --------------------------------------------------------------------------
 
@@ -567,6 +596,7 @@ async function main() {
         console.error(`[${id}] follow-up run failed: ${fuErr.message}`);
       }
       await maybeRunDailyDigest(agent);
+      await maybeRunContentEngine(agent);
     } catch (err) {
       // One agent's failure must not stop others.
       console.error(`[${id}] uncaught error: ${err.message}`);
@@ -586,4 +616,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions };
+module.exports = { processAgent, checkStaleQuestions, maybeRunContentEngine };
