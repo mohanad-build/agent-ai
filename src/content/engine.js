@@ -283,7 +283,7 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
         angleId: assignment.angle.id,
       });
       const what = assignment.type === 'reel' ? 'Reel' : 'Blog post';
-      const num  = assignment.pieceId.split('-')[1];
+      const num  = parseInt(assignment.pieceId.split('-')[1], 10);
       headsUp.push(`Couldn't generate ${what} #${num} this week.`);
       _appendErrorLog(agentConfig.agentId, `render-${assignment.pieceId}`, err);
     }

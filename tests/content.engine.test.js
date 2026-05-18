@@ -434,7 +434,7 @@ describe('runContentEngineForAgent -- failure paths', () => {
     expect(result.pieceResults.find(r => r.pieceId === 'reel-001').status).toBe('ok');
     expect(result.pieceResults.find(r => r.pieceId === 'reel-002').status).toBe('failed');
     const [batch] = composeReviewEmail.mock.calls[0];
-    expect(batch.headsUp).toContain("Couldn't generate Reel #002 this week.");
+    expect(batch.headsUp).toContain("Couldn't generate Reel #2 this week.");
   });
 
   test('blog fails, both reels succeed: headsUp has blog message, email sent', async () => {
