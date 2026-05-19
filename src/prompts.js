@@ -12,7 +12,7 @@
 const BASELINE_AI_CANNOT_INVENT = [
   'interest rates or mortgage rates of any kind',
   'current or average market prices',
-  'predictions about market direction (rising, falling, cooling, heating)',
+  'predictions about market direction (rising, falling, cooling, heating), seasonal patterns ("spring is usually busier"), cyclical trends, or any other unverified claim about how the market behaves across time',
   'inventory or competition data (e.g. "there are 3 other offers")',
   'specific property details the agent has not provided (bedrooms, square footage, price, features, condition, year built)',
   'real-time market conditions (e.g. "the market is hot right now")',
@@ -354,7 +354,7 @@ DRAFTING RULES:
 
 ${rule3}
 
-4. Include ONE piece of insider perspective: a mechanism, a leverage point, a common mistake, or a timing insight. This is what differentiates a real agent's reply from a generic answer.
+4. Include ONE piece of insider perspective: a mechanism, a leverage point, a common mistake, or a timing insight. This is what differentiates a real agent's reply from a generic answer. SKIP THIS RULE if the lead's reply is curt, non-committal, or signals low engagement (e.g., 'thanks', 'will think about it', 'okay'). In low-engagement cases, mirror the lead's brevity. A 2-3 sentence acknowledgment is the whole response.
 
 5. Close with a concrete, personalized next step. Every reply MUST end with a clear call-to-action that gives the lead something specific to do next. Examples of strong closes:
    - "Want me to set up a 15-minute call this week to map out your timeline?"
@@ -369,9 +369,11 @@ ${rule3}
 
 BANNED PHRASES (do not use any of these, in any form):
 ${bannedPhrasesList}
+- "—" (em-dash character; banned anywhere in output)
+- "–" (en-dash character; banned anywhere in output)
 
 CHARACTERS BANNED:
-- Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+- Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. They are a strong AI-tell that real agents rarely use. Use commas, parentheses, colons, or restructure the sentence. This rule has zero exceptions.
 
 DO NOT INVENT PRIOR ACTIONS:
 - If the conversation history shows the agent OFFERED to send something, do not say "I sent it." If the agent proposed a time, do not invent details about who will be present or logistical arrangements not in the history. Stick to what actually happened in the visible conversation.
@@ -397,7 +399,7 @@ Skip the follow up if any of these apply:
 When you do ask, phrase it conversationally, not like a form. 'Are you pre-approved yet, or still figuring that out?' reads better than 'What is your pre-approval status?'. Maximum ONE question. Never two.
 
 OUTPUT RULE:
-Return ONLY the email body text. Do NOT include a subject line, do NOT wrap in quotes, do NOT add commentary before or after. Start with "Hi ${leadFirstName}," and end with the sign-off.`;
+Return ONLY the email body text. Do NOT include a subject line, do NOT wrap in quotes, do NOT add commentary before or after. Start with "Hi ${leadFirstName}," and end with the sign-off. Final check before returning: scan your output for em-dash (—) and en-dash (–) characters and replace any you find.`;
 
   const originalInquiryLine = leadContext.originalInquiry
     ? `Their original inquiry that brought them to ${agentConfig.firstName} was: "${leadContext.originalInquiry}"`
