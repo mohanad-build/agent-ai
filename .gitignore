@@ -34,3 +34,6 @@ data/market/**/*.jsonl
 
 # HARD GATE 7 calibration baselines (local working evidence, recreated via scripts/calibration-7-11-8.js)
 calibration-archive/
+
+# HARD GATE follow-up/path1a prompt iteration baselines (local working evidence, recreated via scripts/iterate-prompts.js)
+prompt-iteration-archive/
