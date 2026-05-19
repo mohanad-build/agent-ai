@@ -4,19 +4,22 @@
       "name": "Sarah Patel",
       "leadEmail": "sarah.patel@example.com",
       "originalMessage": "Hi, saw your listing for the semi-detached on Greenwood Ave. We're a young family looking to move out of our Junction rental this summer. Two questions: is the basement legally finished, and are pets allowed? Hoping to book a showing next weekend if possible.",
-      "description": "Specific property + specific timeline + specific questions"
+      "description": "Specific property + specific timeline + specific questions",
+      "initialAgentReply": "[2026-05-08T10:14:00.000Z outbound (Mo)] Hi Sarah, happy to set up a Saturday viewing for the Greenwood Ave place. Basement is legally finished with separate entrance permit on file, and the seller has allowed pets in writing. Want to lock in Saturday afternoon? I have 2pm or 4pm open."
     },
     "B": {
       "name": "Alex Tran",
       "leadEmail": "alex.tran@example.com",
       "originalMessage": "Hey, just exploring the market. I've been looking at a few different neighborhoods, mostly east end stuff but open to other areas. Not in a huge rush, but starting to get more serious. What's the best way to figure out where to focus?",
-      "description": "Multi-property browser, no clear timeline, general"
+      "description": "Multi-property browser, no clear timeline, general",
+      "initialAgentReply": "[2026-05-10T09:32:00.000Z outbound (Mo)] Hi Alex, glad you're getting more serious. Best way to focus is usually to anchor on three things: your max budget, your commute non-negotiables, and whether you want a freehold vs condo. From the east-end angle, three neighbourhoods come up most: Leslieville, Riverdale, and Danforth Village. Want me to send a few specific listings in each to compare?"
     },
     "C": {
       "name": "Priya Shah",
       "leadEmail": "priya.shah@example.com",
       "originalMessage": "Hi, found you through a friend. Looking at the 3-bed on Carlaw Ave but probably not buying until early 2027 when my partner's contract ends. Mainly curious what places in that range have been going for in actual closing prices vs list. Don't want to waste your time if it's too early.",
-      "description": "Single property + distant timeline + price-anchored"
+      "description": "Single property + distant timeline + price-anchored",
+      "initialAgentReply": "[2026-05-12T14:22:00.000Z outbound (Mo)] Hi Priya, totally not too early. The Carlaw Ave area has been moving at a measured pace this year. Closing prices vs list have been within a few percent on most 3-beds in that range. Happy to put together a more detailed historical view if useful. What's drawing you to Carlaw specifically?"
     }
   },
   "path1a": {

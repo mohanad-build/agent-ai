@@ -62,7 +62,7 @@ async function runFollowup(fixtureId, day, agentConfig) {
   }
 
   const row = { name: fixture.name, originalMessage: fixture.originalMessage };
-  const conversationHistory = '';
+  const conversationHistory = fixture.initialAgentReply || '';
   const hasGmailSignature = false;
 
   let prompt;
