@@ -615,7 +615,7 @@ BANNED PHRASES (do not use any of these, in any form):
 ${bannedPhrasesList}
 
 CHARACTERS BANNED:
-- Em-dashes (--) and en-dashes are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+- Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
 
 DO NOT INVENT:
 ${cannotInventList}
@@ -671,7 +671,7 @@ BANNED PHRASES (do not use any of these, in any form):
 ${bannedPhrasesList}
 
 CHARACTERS BANNED:
-- Em-dashes (--) and en-dashes are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+- Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
 
 DO NOT INVENT:
 ${cannotInventList}
@@ -738,7 +738,7 @@ BANNED PHRASES (do not use any of these, in any form):
 ${bannedPhrasesListDay14}
 
 CHARACTERS BANNED:
-- Em-dashes (--) and en-dashes are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+- Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
 
 DO NOT INVENT:
 ${cannotInventList}

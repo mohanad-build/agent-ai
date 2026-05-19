@@ -1,0 +1,45 @@
+{
+  "followup": {
+    "A": {
+      "name": "Sarah Patel",
+      "leadEmail": "sarah.patel@example.com",
+      "originalMessage": "Hi, saw your listing for the semi-detached on Greenwood Ave. We're a young family looking to move out of our Junction rental this summer. Two questions: is the basement legally finished, and are pets allowed? Hoping to book a showing next weekend if possible.",
+      "description": "Specific property + specific timeline + specific questions"
+    },
+    "B": {
+      "name": "Alex Tran",
+      "leadEmail": "alex.tran@example.com",
+      "originalMessage": "Hey, just exploring the market. I've been looking at a few different neighborhoods, mostly east end stuff but open to other areas. Not in a huge rush, but starting to get more serious. What's the best way to figure out where to focus?",
+      "description": "Multi-property browser, no clear timeline, general"
+    },
+    "C": {
+      "name": "Priya Shah",
+      "leadEmail": "priya.shah@example.com",
+      "originalMessage": "Hi, found you through a friend. Looking at the 3-bed on Carlaw Ave but probably not buying until early 2027 when my partner's contract ends. Mainly curious what places in that range have been going for in actual closing prices vs list. Don't want to waste your time if it's too early.",
+      "description": "Single property + distant timeline + price-anchored"
+    }
+  },
+  "path1a": {
+    "1": {
+      "leadName": "Sarah Patel",
+      "originalInquiry": "Hi, saw your listing for the semi-detached on Greenwood Ave. We're a young family looking to move out of our Junction rental this summer. Two questions: is the basement legally finished, and are pets allowed? Hoping to book a showing next weekend if possible.",
+      "replyMessage": "Saturday at 2pm works for us. Do we need to bring anything specific or is it pretty informal?",
+      "conversationHistory": "[2026-05-08 10:14 outbound (Mo)] Hi Sarah, happy to set up a Saturday viewing for the Greenwood Ave place. Basement is legally finished with separate entrance permit on file, and the seller has allowed pets in writing. Want to lock in Saturday afternoon? I have 2pm or 4pm open.",
+      "description": "Direct question + tests third-person voice + name parsing"
+    },
+    "2": {
+      "leadName": "Alex Tran",
+      "originalInquiry": "Hey, just exploring the market. I've been looking at a few different neighborhoods, mostly east end stuff but open to other areas. Not in a huge rush, but starting to get more serious. What's the best way to figure out where to focus?",
+      "replyMessage": "Can we see the basement of that Leslieville one? Also wondering about property taxes on it and whether the seller is open to closing in 60 days. And one more thing, what's your take on the neighbourhood for a first-time buyer?",
+      "conversationHistory": "[2026-05-10 09:32 outbound (Mo)] Hi Alex, glad you're getting more serious. Best way to focus is usually to anchor on three things: your max budget, your commute non-negotiables, and whether you want a freehold vs condo. From the east-end angle, three neighbourhoods come up most: Leslieville, Riverdale, and Danforth Village. Want me to send a few specific listings in each to compare?",
+      "description": "Multi-part question + tests structural handling"
+    },
+    "3": {
+      "leadName": "Priya Shah",
+      "originalInquiry": "Hi, found you through a friend. Looking at the 3-bed on Carlaw Ave but probably not buying until early 2027 when my partner's contract ends. Mainly curious what places in that range have been going for in actual closing prices vs list. Don't want to waste your time if it's too early.",
+      "replyMessage": "Not interested anymore, thanks.",
+      "conversationHistory": "[2026-05-12 14:22 outbound (Mo)] Hi Priya, totally not too early. The Carlaw Ave area has been moving at a measured pace this year. Closing prices vs list have been within a few percent on most 3-beds in that range. Happy to put together a more detailed historical view if useful. What's drawing you to Carlaw specifically?",
+      "description": "Curt low-engagement reply + tests over-warming"
+    }
+  }
+}
