@@ -520,7 +520,7 @@ describe('extractVoiceForAgent', () => {
     // Manually plant a stale descriptor with version 999 (valid positive integer
     // but intentionally not equal to DESCRIPTOR_SCHEMA_VERSION = 1).
     realProfile.updateContentProfile('agent-test', {
-      voiceDescriptor:        { version: 999, tier: 'extracted', extractedAt: '2026-01-01T00:00:00Z', modelUsed: 'old', samplesUsedCount: 0, tone: 'x', sentenceRhythm: 'x', signaturePhrases: [], vocabularyNotes: 'x', ctaPattern: 'x', hookPattern: 'x', extractedRefusals: [], rawSummary: 'x' },
+      voiceDescriptor:        'stale descriptor from a previous schema version',
       voiceDescriptorVersion: 999,
       voiceDescriptorTier:    'extracted',
       voiceExtractedAt:       '2026-01-01T00:00:00Z',
@@ -565,7 +565,7 @@ describe('extractVoiceForAgent', () => {
 
     const saved = realProfile.readContentProfile('agent-test', { baseDir: tmpDir });
     expect(saved.voiceDescriptor).not.toBeNull();
-    expect(saved.voiceDescriptor.tier).toBe('default');
+    expect(saved.voiceDescriptorTier).toBe('default');
 
     // Second call -- already present
     claude.callRaw.mockClear();

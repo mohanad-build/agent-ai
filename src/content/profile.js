@@ -153,8 +153,8 @@ function validateProfile(profile) {
   }
 
   if (profile.voiceDescriptor !== undefined && profile.voiceDescriptor !== null) {
-    if (typeof profile.voiceDescriptor !== 'object' || Array.isArray(profile.voiceDescriptor)) {
-      errors.push('voiceDescriptor: must be an object or null');
+    if (typeof profile.voiceDescriptor !== 'string') {
+      errors.push('voiceDescriptor: must be a string or null');
     }
   }
 

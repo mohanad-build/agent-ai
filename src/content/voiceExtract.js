@@ -275,7 +275,7 @@ async function extractVoiceForAgent(agentId, opts = {}) {
   const descriptor = await extractVoice(p.voiceSamples || [], p.selfDescription || '', opts);
 
   updateContentProfile(agentId, {
-    voiceDescriptor:        descriptor,
+    voiceDescriptor:        descriptor.rawSummary,
     voiceDescriptorVersion: DESCRIPTOR_SCHEMA_VERSION,
     voiceDescriptorTier:    descriptor.tier,
     voiceExtractedAt:       new Date().toISOString(),
