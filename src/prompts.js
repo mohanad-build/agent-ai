@@ -373,6 +373,11 @@ ${bannedPhrasesList}
 CHARACTERS BANNED:
 - Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
 
+DO NOT INVENT PRIOR ACTIONS:
+- If the conversation history shows the agent OFFERED to send something, do not say "I sent it." If the agent proposed a time, do not invent details about who will be present or logistical arrangements not in the history. Stick to what actually happened in the visible conversation.
+- If the agent's prior turn ended on a question, do not pretend the lead answered it. Acknowledge it as still open.
+- Do not reference files, records, or context ("what I have on file", "as we discussed") not visible in the conversation history.
+
 DO NOT INVENT (any reference to these topics MUST be avoided, even in passing):
 ${cannotInventList}
 
@@ -617,6 +622,11 @@ ${bannedPhrasesList}
 CHARACTERS BANNED:
 - Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
 
+DO NOT INVENT PRIOR ACTIONS:
+- If the conversation history shows the agent OFFERED to send something, do not say "I sent it." If the agent proposed a time, do not invent details about who will be present or logistical arrangements not in the history. Stick to what actually happened in the visible conversation.
+- If the agent's prior turn ended on a question, do not pretend the lead answered it. Acknowledge it as still open.
+- Do not reference files, records, or context ("what I have on file", "as we discussed") not visible in the conversation history.
+
 DO NOT INVENT:
 ${cannotInventList}
 
@@ -651,7 +661,7 @@ function buildFollowUpDay7Prompt(agentConfig, row, conversationHistory, hasGmail
 
   const system = `${agentContextBlock}
 
-You are drafting the second follow-up email to a real estate lead who has not replied. A week has passed since your last message. Acknowledge that they may be busy, but stay concise and helpful.
+You are drafting the second follow-up email to a real estate lead who has not replied. A week has passed since your initial outreach. Day 3 (the first follow-up) already proposed a concrete next action: a showing, a call, a listing send, or similar. Day 7's job is to shift the angle, not repeat the same proposal. Either pivot the offer (if Day 3 offered a showing, Day 7 might offer information; if Day 3 offered information, Day 7 might offer a phone call), broaden the conversation (open up to a question about their situation, motivations, or constraints), or surface something new (a different angle on their original inquiry). Do NOT re-propose the same thing Day 3 already proposed.
 
 DRAFTING RULES:
 
@@ -659,7 +669,7 @@ DRAFTING RULES:
 
 2. Salutation: Start with "Hi ${leadFirstName},"
 
-3. Briefly acknowledge that you are following up again, without sounding impatient or pushy.
+3. Empathy is optional. Use it only if anchored to specific words or topics from the lead's original inquiry (e.g., 'I know you mentioned exploring a few neighborhoods' if the lead said exactly that). Do NOT invent emotional states the lead did not signal.
 
 4. Add a small amount of value: a relevant observation, a question about how their search is going, or an offer to help with something specific. No invented market data.
 
@@ -672,6 +682,11 @@ ${bannedPhrasesList}
 
 CHARACTERS BANNED:
 - Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+
+DO NOT INVENT PRIOR ACTIONS:
+- If the conversation history shows the agent OFFERED to send something, do not say "I sent it." If the agent proposed a time, do not invent details about who will be present or logistical arrangements not in the history. Stick to what actually happened in the visible conversation.
+- If the agent's prior turn ended on a question, do not pretend the lead answered it. Acknowledge it as still open.
+- Do not reference files, records, or context ("what I have on file", "as we discussed") not visible in the conversation history.
 
 DO NOT INVENT:
 ${cannotInventList}
@@ -718,17 +733,17 @@ function buildFollowUpDay14Prompt(agentConfig, row, conversationHistory, hasGmai
 
   const system = `${agentContextBlock}
 
-You are drafting a follow-up email to a real estate lead. Two weeks have passed since their initial inquiry. The tone should be gracious, zero-pressure, and leave the door open.
+You are drafting the third and final follow-up email to a real estate lead. Two weeks have passed since their initial inquiry. This is the closing touch in the sequence — Day 3 and Day 7 already proposed concrete next actions. Day 14's job is different: leave a door open without re-pitching. Do not propose new showings, calls, or listing sends. The lead should feel welcome to come back later without being asked to take any specific action now. The tone is genuine 'no pressure if not now,' not apologetic, not urgent.
 
 DRAFTING RULES:
 
-1. Length: 40 to 80 words. One short paragraph.
+1. Length: 60 to 100 words. One short paragraph.
 
 2. Salutation: Start with "Hi ${leadFirstName},"
 
-3. Acknowledge that you understand timing matters and you do not want to keep crowding their inbox. Do not signal that you are stopping outreach. Do not say goodbye. The lead should read this as a warm, low-stakes note, nothing more.
+3. The lead has not replied for two weeks. Acknowledge that without apology and without urgency. The tone is genuine 'no pressure if not now,' not 'sorry for bothering you.' Reference the specific property, neighborhood, price range, or inquiry topic from the lead's original message — use whatever concrete noun is in their first inquiry. Day 14 must not drift into generic 'your inquiry' language. Do not signal that you are stopping outreach. Do not say goodbye.
 
-4. Leave the door open simply and genuinely. One sentence. No hard sell, no urgency.
+4. Leave the door open simply and genuinely. One sentence. No hard sell, no urgency, no re-proposal of actions Day 3 or Day 7 already offered.
 
 5. Close with a single soft offer: if their timing changes or they have questions, you are available. No strong call-to-action.
 
@@ -739,6 +754,11 @@ ${bannedPhrasesListDay14}
 
 CHARACTERS BANNED:
 - Em-dashes (—) and en-dashes (–) are forbidden anywhere in the reply. Use commas, parentheses, colons, or restructure the sentence.
+
+DO NOT INVENT PRIOR ACTIONS:
+- If the conversation history shows the agent OFFERED to send something, do not say "I sent it." If the agent proposed a time, do not invent details about who will be present or logistical arrangements not in the history. Stick to what actually happened in the visible conversation.
+- If the agent's prior turn ended on a question, do not pretend the lead answered it. Acknowledge it as still open.
+- Do not reference files, records, or context ("what I have on file", "as we discussed") not visible in the conversation history.
 
 DO NOT INVENT:
 ${cannotInventList}
