@@ -196,17 +196,17 @@ describe('buildSubject', () => {
 
   test('3-piece subject format', () => {
     const subject = buildSubject({ pieceCount: 3, now: NOW });
-    expect(subject).toBe('Your content batch -- Mon, May 18 -- 3 pieces ready');
+    expect(subject).toBe('Your content batch — Mon, May 18 — 3 pieces ready');
   });
 
   test('2-piece subject format', () => {
     const subject = buildSubject({ pieceCount: 2, now: NOW });
-    expect(subject).toBe('Your content batch -- Mon, May 18 -- 2 pieces ready');
+    expect(subject).toBe('Your content batch — Mon, May 18 — 2 pieces ready');
   });
 
   test('1-piece subject includes (light news week)', () => {
     const subject = buildSubject({ pieceCount: 1, now: NOW });
-    expect(subject).toBe('Your content batch -- Mon, May 18 -- 1 piece ready (light news week)');
+    expect(subject).toBe('Your content batch — Mon, May 18 — 1 piece ready (light news week)');
   });
 
   test('weekday/month/day derived correctly from UTC date', () => {
@@ -216,11 +216,10 @@ describe('buildSubject', () => {
     expect(subject).toContain('May 22');
   });
 
-  test('subject uses -- not em-dash', () => {
+  test('subject uses em-dash', () => {
     const subject = buildSubject({ pieceCount: 2, now: NOW });
-    expect(subject).not.toContain('—');
-    expect(subject).not.toContain('–');
-    expect(subject).toContain('--');
+    expect(subject).toContain('—');
+    expect(subject).not.toContain('--');
   });
 });
 
@@ -228,21 +227,20 @@ describe('buildSubject', () => {
 
 describe('buildOpener', () => {
   test('3 pieces: solid news week', () => {
-    expect(buildOpener(3)).toBe('Solid news week -- 3 pieces ready.');
+    expect(buildOpener(3)).toBe('Solid news week — 3 pieces ready.');
   });
 
   test('2 pieces: decent week', () => {
-    expect(buildOpener(2)).toBe('Decent week -- 2 pieces ready.');
+    expect(buildOpener(2)).toBe('Decent week — 2 pieces ready.');
   });
 
   test('1 piece: light news week', () => {
     expect(buildOpener(1)).toBe("Light news week. Here's one strong angle.");
   });
 
-  test('never contains em-dash in prose', () => {
-    expect(buildOpener(1)).not.toContain('—');
-    expect(buildOpener(2)).not.toContain('—');
-    expect(buildOpener(3)).not.toContain('—');
+  test('multi-piece openers use em-dash', () => {
+    expect(buildOpener(2)).toContain('—');
+    expect(buildOpener(3)).toContain('—');
   });
 });
 
@@ -348,9 +346,9 @@ describe('renderText', () => {
     });
     const text = renderText(batch, NOW);
 
-    expect(text).toContain("-- This week's batch --");
-    expect(text).toContain('-- Other angles available this week --');
-    expect(text).toContain('-- Heads up --');
+    expect(text).toContain("— This week's batch —");
+    expect(text).toContain('— Other angles available this week —');
+    expect(text).toContain('— Heads up —');
     expect(text).toContain('First note');
     expect(text).toContain('Second note');
     expect(text).toContain('Alt angle');
@@ -358,7 +356,7 @@ describe('renderText', () => {
 
   test('1-piece batch with empty otherAngles omits the Other angles block', () => {
     const text = renderText(makeBatch(), NOW);
-    expect(text).not.toContain('-- Other angles available this week --');
+    expect(text).not.toContain('— Other angles available this week —');
   });
 
   test('empty headsUp omits the Heads up block', () => {

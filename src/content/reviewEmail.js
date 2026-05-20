@@ -70,14 +70,14 @@ function buildSubject({ pieceCount, now }) {
   const day     = now.getUTCDate();
   const s       = pieceCount === 1 ? '' : 's';
   const suffix  = pieceCount === 1 ? ' (light news week)' : '';
-  return `Your content batch -- ${weekday}, ${month} ${day} -- ${pieceCount} piece${s} ready${suffix}`;
+  return `Your content batch — ${weekday}, ${month} ${day} — ${pieceCount} piece${s} ready${suffix}`;
 }
 
 // ── buildOpener ───────────────────────────────────────────────────────────────
 
 function buildOpener(pieceCount) {
-  if (pieceCount === 3) return 'Solid news week -- 3 pieces ready.';
-  if (pieceCount === 2) return 'Decent week -- 2 pieces ready.';
+  if (pieceCount === 3) return 'Solid news week — 3 pieces ready.';
+  if (pieceCount === 2) return 'Decent week — 2 pieces ready.';
   return "Light news week. Here's one strong angle.";
 }
 
@@ -208,7 +208,7 @@ function renderText(batch, now) {
   const agentEmail = batch.agentProfile && batch.agentProfile.email;
   const opener     = buildOpener(batch.pieces.length);
 
-  const parts = [opener, '', "-- This week's batch --", ''];
+  const parts = [opener, '', "— This week's batch —", ''];
 
   batch.pieces.forEach((piece, index) => {
     const header     = pieceHeader(piece, index);
@@ -243,7 +243,7 @@ function renderText(batch, now) {
   });
 
   if (batch.otherAngles.length > 0) {
-    parts.push('-- Other angles available this week --');
+    parts.push('— Other angles available this week —');
     parts.push('(use Swap angle on any piece to switch to one of these)');
     for (const angle of batch.otherAngles) {
       parts.push(`- ${angle.headline} (id: ${angle.id}, theme: ${angle.themeTag})`);
@@ -252,7 +252,7 @@ function renderText(batch, now) {
   }
 
   if (batch.headsUp.length > 0) {
-    parts.push('-- Heads up --');
+    parts.push('— Heads up —');
     for (const note of batch.headsUp) {
       parts.push(`- ${note}`);
     }
