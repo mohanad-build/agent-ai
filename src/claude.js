@@ -45,7 +45,7 @@ const API_RETRY_BACKOFF_MS = 3000;
  * and removing them produces sentence fragments. Comma preserves grammar.
  */
 function stripDashes(text) {
-  return text.replace(/[—–]/g, ', ');
+  return text.replace(/\s*[—–]\s*/g, ', ');
 }
 
 /**
