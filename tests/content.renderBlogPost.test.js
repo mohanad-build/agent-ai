@@ -371,6 +371,18 @@ describe('validateBlogPost', () => {
     expect(result.errors.some(e => e.includes('en-dash'))).toBe(true);
   });
 
+  test('rejects when double-hyphen is present in body prose', () => {
+    const sections = { ...VALID_SECTIONS, hook: VALID_SECTIONS.hook + ' Rates -- important signal.' };
+    const result = validateBlogPost(sections, { angle, contentProfile });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.includes('double-hyphen'))).toBe(true);
+  });
+
+  test('double-hyphen in sources block does NOT trigger the validator', () => {
+    const result = validateBlogPost(VALID_SECTIONS, { angle, contentProfile });
+    expect(result.valid).toBe(true);
+  });
+
   test('rejects when a forbidden term appears in text (case-insensitive)', () => {
     const sections = { ...VALID_SECTIONS, hook: 'GUARANTEED returns on your real estate investment. ' + VALID_SECTIONS.hook };
     const result = validateBlogPost(sections, { angle, contentProfile });

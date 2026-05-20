@@ -80,7 +80,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '',
     '<2-3 paragraphs>',
     '',
-    '## <H2 heading 3 -- what this means for you>',
+    '## <H2 heading 3: what this means for you>',
     '',
     '<takeaways for buyers/sellers, ends with CTA>',
     '',
@@ -102,7 +102,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     'WRITTEN FOR THE READER (not the ear, unlike the Reel):',
     '- Full sentences, comfortable cadence.',
     '- No semicolons.',
-    '- No em-dashes or en-dashes anywhere. Use commas, periods, or `--`.',
+    '- No em-dashes or en-dashes anywhere. No double-hyphen `--` substitute either (renders as en-dash on Substack, Beehiiv, Ghost, WordPress). Use commas or periods only.',
     '- At least one Markdown link in the body to a primary source for a major stat (inline citation, e.g., `the [Bank of Canada\'s overnight rate](https://www.bankofcanada.ca/...)`).',
     '- No tri-colon listicles ("X, Y, Z all matter").',
     '- Banned phrases: "in conclusion", "it\'s important to note that", "it\'s worth noting", "navigating the market", "navigating the [anything] market" (pattern), "in today\'s market", "ever-changing", "ever-evolving".',
@@ -299,6 +299,9 @@ function validateBlogPost(sections, { angle, contentProfile }) {
 
   // 3. No en-dash (U+2013)
   if (/–/.test(assembled)) errors.push('post contains en-dash');
+
+  // 4. No double-hyphen (renders as en-dash on Substack, Beehiiv, Ghost, WordPress)
+  if (/--/.test(assembled)) errors.push('post contains double-hyphen (renders as en-dash on common platforms)');
 
   const lowerAssembled = assembled.toLowerCase();
 
