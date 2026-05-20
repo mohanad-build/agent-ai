@@ -351,10 +351,9 @@ describe('renderReelScript', () => {
   });
 
   test('validation failure on first call, valid on retry: returns successfully', async () => {
-    // First response has an em-dash in the hook, second is clean.
     const invalidResponse = VALID_CLAUDE_RESPONSE.replace(
       'The bond market just moved, and your mortgage could follow.',
-      'The bond market moved' + '—' + 'and your mortgage could follow.'
+      'Now is the best time to buy before rates move.'
     );
     const callRaw = jest.fn()
       .mockResolvedValueOnce(invalidResponse)
@@ -368,7 +367,7 @@ describe('renderReelScript', () => {
   test('validation failure on both calls: throws ReelScriptGenerationError with validationErrors populated', async () => {
     const invalidResponse = VALID_CLAUDE_RESPONSE.replace(
       'The bond market just moved, and your mortgage could follow.',
-      'The bond market moved' + '—' + 'your mortgage could follow.'
+      'Now is the best time to buy before rates move.'
     );
     const callRaw = jest.fn().mockResolvedValue(invalidResponse);
     let err;
@@ -408,5 +407,16 @@ describe('renderReelScript', () => {
 
     expect(result.sections.hook).toBe(VALID_SECTIONS.hook);
     expect(callRaw).toHaveBeenCalledTimes(2);
+  });
+
+  test('strips em-dashes from raw model output before validation', async () => {
+    const rawWithDash = VALID_CLAUDE_RESPONSE.replace(
+      'The bond market just moved, and your mortgage could follow.',
+      'The bond market moved—and your mortgage could follow.'
+    );
+    const callRaw = jest.fn().mockResolvedValue(rawWithDash);
+    await expect(
+      renderReelScript({ angle: makeAngle(), contentProfile: makeContentProfile(), opts: { callRaw } })
+    ).resolves.not.toThrow();
   });
 });

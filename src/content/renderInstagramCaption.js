@@ -2,7 +2,7 @@
 
 const claude = require('../claude');
 
-const { MODELS } = claude;
+const { MODELS, stripDashes } = claude;
 
 // ── Error class ───────────────────────────────────────────────────────────────
 
@@ -332,7 +332,8 @@ async function renderInstagramCaption({ angle, contentProfile, reelScript, opts 
 
   async function attempt() {
     const raw = await callRawFn({ system, user, model: MODELS.SONNET, maxTokens });
-    const sections = parseSections(raw);
+    const cleaned = stripDashes(raw);
+    const sections = parseSections(cleaned);
     if (!sections) {
       return { sections: null, parseError: true, validationErrors: null };
     }

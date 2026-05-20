@@ -562,4 +562,15 @@ describe('renderInstagramCaption', () => {
     expect(result.sections.hook).toBe(VALID_SECTIONS.hook);
     expect(callRaw).toHaveBeenCalledTimes(2);
   });
+
+  test('strips em-dashes from raw model output before validation', async () => {
+    const rawWithDash = VALID_CLAUDE_RESPONSE.replace(
+      'Five-year yields dropped while the Bank of Canada held steady. Fixed rates could follow soon.',
+      'Five-year yields dropped—while the Bank of Canada held steady. Fixed rates could follow soon.'
+    );
+    const callRaw = jest.fn().mockResolvedValue(rawWithDash);
+    await expect(
+      renderInstagramCaption({ angle: makeAngle(), contentProfile: makeContentProfile(), reelScript: makeReelScript(), opts: { callRaw } })
+    ).resolves.not.toThrow();
+  });
 });

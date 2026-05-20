@@ -636,7 +636,7 @@ describe('renderBlogPost', () => {
   test('validation failure on first call, valid on retry: returns successfully', async () => {
     const invalidResponse = VALID_CLAUDE_RESPONSE.replace(
       'When bond yields fall and the central bank does not move',
-      'When bond yields fall and the central bank does not move' + '—' + 'and rates shift'
+      'In conclusion, when bond yields fall and the central bank does not move'
     );
     const callRaw = jest.fn()
       .mockResolvedValueOnce(invalidResponse)
@@ -650,7 +650,7 @@ describe('renderBlogPost', () => {
   test('validation failure on both calls: throws BlogPostGenerationError with validationErrors populated', async () => {
     const invalidResponse = VALID_CLAUDE_RESPONSE.replace(
       'When bond yields fall and the central bank does not move',
-      'When bond yields fall and the central bank does not move' + '—' + 'and rates shift'
+      'In conclusion, when bond yields fall and the central bank does not move'
     );
     const callRaw = jest.fn().mockResolvedValue(invalidResponse);
     let err;
@@ -689,5 +689,16 @@ describe('renderBlogPost', () => {
 
     expect(result.sections.hook).toBe(VALID_SECTIONS.hook);
     expect(callRaw).toHaveBeenCalledTimes(2);
+  });
+
+  test('strips em-dashes from raw model output before validation', async () => {
+    const rawWithDash = VALID_CLAUDE_RESPONSE.replace(
+      'When bond yields fall and the central bank does not move',
+      'When bond yields fall—and the central bank does not move'
+    );
+    const callRaw = jest.fn().mockResolvedValue(rawWithDash);
+    await expect(
+      renderBlogPost({ angle: makeAngle(), contentProfile: makeContentProfile(), opts: { callRaw } })
+    ).resolves.not.toThrow();
   });
 });
