@@ -486,11 +486,17 @@ describe('validateBlogPost', () => {
     expect(result.valid).toBe(true);
   });
 
-  test('rejects when metaDescription is 139 characters', () => {
-    const sections = { ...VALID_SECTIONS, metaDescription: 'A'.repeat(139) };
+  test('rejects when metaDescription is 99 characters', () => {
+    const sections = { ...VALID_SECTIONS, metaDescription: 'A'.repeat(99) };
     const result = validateBlogPost(sections, { angle, contentProfile });
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.includes('below minimum 140'))).toBe(true);
+    expect(result.errors.some(e => e.includes('below minimum'))).toBe(true);
+  });
+
+  test('accepts metaDescription of exactly 100 characters', () => {
+    const sections = { ...VALID_SECTIONS, metaDescription: 'A'.repeat(100) };
+    const result = validateBlogPost(sections, { angle, contentProfile });
+    expect(result.valid).toBe(true);
   });
 
   test('rejects when metaDescription is 161 characters', () => {

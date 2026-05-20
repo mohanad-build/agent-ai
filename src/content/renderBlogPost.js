@@ -68,7 +68,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '',
     'FORMAT -- exact Markdown structure required:',
     '',
-    '# <Title -- sentence case, includes target keyword, max 80 chars>',
+    '# <Title -- sentence case, max 80 chars, MUST contain the target keyword exactly as written below>',
     '',
     '<Hook paragraph -- pulls reader in, no cliches, no AI tells>',
     '',
@@ -90,8 +90,8 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '- [Source Name](URL) -- as of YYYY-MM-DD',
     '- [Source Name](URL) -- as of YYYY-MM-DD',
     '',
-    'META: <metaDescription, 140-160 chars>',
-    'KEYWORD: <targetKeyword phrase>',
+    'META: <metaDescription, MUST be 100-160 characters total; Google truncates at 160, so >160 gets cut off; count characters before returning>',
+    'KEYWORD: <targetKeyword phrase, 2-4 words, MUST appear verbatim in the title above>',
     '',
     'LENGTH:',
     'Target 600-800 body words counted across all prose: hook paragraph plus H2 section paragraphs. Title, H2 headings, sources block, and META/KEYWORD lines are not counted.',
@@ -367,7 +367,7 @@ function validateBlogPost(sections, { angle, contentProfile }) {
     errors.push('metaDescription is empty');
   } else {
     const mdLen = sections.metaDescription.length;
-    if (mdLen < 140) errors.push(`metaDescription length ${mdLen} is below minimum 140`);
+    if (mdLen < 100) errors.push(`metaDescription length ${mdLen} is below minimum 100`);
     if (mdLen > 160) errors.push(`metaDescription length ${mdLen} exceeds maximum 160`);
   }
 

@@ -56,7 +56,10 @@ async function _sendWithRetry(sendFn, label) {
 function _appendErrorLog(agentId, label, error) {
   const filepath = path.join('agents', `${agentId}.content-engine-errors.log`);
   try {
-    const line = `[${getNowIso()}] ${label} exhausted: ${error.message}\n`;
+    const validationSuffix = (Array.isArray(error.validationErrors) && error.validationErrors.length > 0)
+      ? ` | validationErrors: ${JSON.stringify(error.validationErrors)}`
+      : '';
+    const line = `[${getNowIso()}] ${label} exhausted: ${error.message}${validationSuffix}\n`;
     fs.appendFileSync(filepath, line, 'utf8');
   } catch (err) {
     console.log(`[content-engine] failed to append to ${filepath}: ${err.message}`);
