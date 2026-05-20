@@ -473,19 +473,6 @@ describe('validateBlogPost', () => {
     expect(result.errors.some(e => e.includes('exceeds 80 characters'))).toBe(true);
   });
 
-  test('rejects when title does not contain targetKeyword', () => {
-    const sections = { ...VALID_SECTIONS, title: 'Completely unrelated title about nothing specific' };
-    const result = validateBlogPost(sections, { angle, contentProfile });
-    expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.includes('does not contain targetKeyword'))).toBe(true);
-  });
-
-  test('case-insensitive targetKeyword match: "BOND YIELDS" in title passes', () => {
-    const sections = { ...VALID_SECTIONS, title: 'BOND YIELDS and the Canadian mortgage market' };
-    const result = validateBlogPost(sections, { angle, contentProfile });
-    expect(result.valid).toBe(true);
-  });
-
   test('rejects when metaDescription is 99 characters', () => {
     const sections = { ...VALID_SECTIONS, metaDescription: 'A'.repeat(99) };
     const result = validateBlogPost(sections, { angle, contentProfile });

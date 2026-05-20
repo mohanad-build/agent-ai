@@ -68,7 +68,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '',
     'FORMAT -- exact Markdown structure required:',
     '',
-    '# <Title -- sentence case, max 80 chars, MUST contain the target keyword exactly as written below>',
+    '# <Title -- sentence case, max 80 chars; write the most natural, content-driven headline for the post>',
     '',
     '<Hook paragraph -- pulls reader in, no cliches, no AI tells>',
     '',
@@ -91,7 +91,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '- [Source Name](URL) -- as of YYYY-MM-DD',
     '',
     'META: <metaDescription, MUST be 100-160 characters total; Google truncates at 160, so >160 gets cut off; count characters before returning>',
-    'KEYWORD: <targetKeyword phrase, 2-4 words, MUST appear verbatim in the title above>',
+    'KEYWORD: <targetKeyword phrase, 2-4 words; the SEO topic this post targets; does NOT need to appear in the title>',
     '',
     'LENGTH:',
     'Target 600-800 body words counted across all prose: hook paragraph plus H2 section paragraphs. Title, H2 headings, sources block, and META/KEYWORD lines are not counted.',
@@ -350,15 +350,12 @@ function validateBlogPost(sections, { angle, contentProfile }) {
     }
   }
 
-  // 10. Title: non-empty, <=80 chars (Unicode-safe), contains targetKeyword
+  // 10. Title: non-empty, <=80 chars (Unicode-safe)
   if (!sections.title || sections.title.trim() === '') {
     errors.push('title is empty');
   } else {
     if ([...sections.title].length > 80) {
       errors.push(`title length ${[...sections.title].length} exceeds 80 characters`);
-    }
-    if (sections.targetKeyword && !sections.title.toLowerCase().includes(sections.targetKeyword.toLowerCase())) {
-      errors.push('title does not contain targetKeyword');
     }
   }
 
