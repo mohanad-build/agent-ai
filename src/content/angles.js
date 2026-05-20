@@ -400,7 +400,7 @@ CONSTRAINTS:
 - Every thesis claim must be auditable against a specific dataPoint. If you cannot point to the observation that supports a sentence, delete the sentence.
 - Do not attribute quotes to real people (bank economists, journalists, analysts).
 - forbidsRateAdvice: true on any angle that touches mortgage rates, BoC rates, or borrowing decisions.
-- Build sourceFooter as a clean citation block of the form "Sources: <Source Name> (<Month Day Year of asOf>), ...". One entry per unique source in dataPoints.
+- Build sourceFooter as a clean citation list of the form "<Source Name> (<Month Day Year of asOf>), ...". One entry per unique source in dataPoints. Do NOT prefix with "Sources:" — the label is added by downstream renderers and the review email.
 
 OUTPUT FORMAT:
 Return ONLY valid JSON in this exact shape:
@@ -419,7 +419,7 @@ Return ONLY valid JSON in this exact shape:
       "surpriseScore": 0.0 to 1.0,
       "longFormSuitable": true|false,
       "forbidsRateAdvice": true|false,
-      "sourceFooter": "Sources: ..."
+      "sourceFooter": "..."
     }
   ]
 }

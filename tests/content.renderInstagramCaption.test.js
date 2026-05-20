@@ -20,7 +20,7 @@ function makeAngle(overrides = {}) {
     themeTag:         'rates',
     audienceFocus:    'both',
     forbidsRateAdvice: false,
-    sourceFooter:     'Sources: Bank of Canada (May 14 2026)',
+    sourceFooter:     'Bank of Canada (May 14 2026)',
     ...overrides,
   };
 }
@@ -49,7 +49,7 @@ function makeReelScript() {
     '- Five-year yield chart showing two-week decline',
     '',
     'SOURCES:',
-    'Sources: Bank of Canada (May 14 2026)',
+    'Bank of Canada (May 14 2026)',
   ].join('\n');
 }
 

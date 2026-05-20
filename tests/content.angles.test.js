@@ -58,7 +58,7 @@ function validAngle(overrides = {}) {
     surpriseScore:    0.72,
     longFormSuitable: true,
     forbidsRateAdvice: true,
-    sourceFooter:     'Sources: Bank of Canada (May 14 2026)',
+    sourceFooter:     'Bank of Canada (May 14 2026)',
     ...overrides,
   };
 }

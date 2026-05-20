@@ -23,7 +23,7 @@ function makeAngle(overrides = {}) {
     surpriseScore:    0.72,
     longFormSuitable: true,
     forbidsRateAdvice: false,
-    sourceFooter:     'Sources: Bank of Canada (May 14 2026)',
+    sourceFooter:     'Bank of Canada (May 14 2026)',
     ...overrides,
   };
 }
@@ -56,7 +56,7 @@ const VALID_CLAUDE_RESPONSE = [
   '- Agent reviewing rate comparison spreadsheet',
   '',
   'SOURCES:',
-  'Sources: Bank of Canada (May 14 2026)',
+  'Bank of Canada (May 14 2026)',
 ].join('\n');
 
 // Expected parsed sections for VALID_CLAUDE_RESPONSE.
@@ -65,7 +65,7 @@ const VALID_SECTIONS = {
   body:    'Five-year government yields dropped twelve basis points in two weeks. The Bank of Canada held its overnight rate the whole time. That gap is significant. Fixed mortgage rates track bond yields more than the overnight rate. When yields fall, fixed rates tend to follow, and that can happen before the central bank makes any official announcement. We have not seen fixed rates move yet, but the signal is there. What does this mean for you? If you are watching the market and waiting for a rate change before you act, you may be watching the wrong number. The overnight rate gets the press coverage. Bond yields are where the actual movement shows up first. Pay attention to yields this month. If they hold or drop further, fixed rates could shift before the next Bank of Canada announcement.',
   cta:     'Follow me for weekly market updates. I track the numbers so you do not have to.',
   bRoll:   ['Five-year yield chart showing two-week decline', 'Agent reviewing rate comparison spreadsheet'],
-  sources: 'Sources: Bank of Canada (May 14 2026)',
+  sources: 'Bank of Canada (May 14 2026)',
 };
 
 // ── Input validation ──────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ describe('parseSections', () => {
   test('returns null when SOURCES section is missing', () => {
     const noSources = VALID_CLAUDE_RESPONSE
       .replace('\nSOURCES:', '')
-      .replace('\nSources: Bank of Canada (May 14 2026)', '');
+      .replace('\nBank of Canada (May 14 2026)', '');
     expect(parseSections(noSources)).toBeNull();
   });
 
@@ -248,7 +248,7 @@ describe('validateReelScript', () => {
   });
 
   test('rejects when SOURCES does not contain the angle sourceFooter verbatim', () => {
-    const sections = { ...VALID_SECTIONS, sources: 'Sources: Some Other Source (May 2026)' };
+    const sections = { ...VALID_SECTIONS, sources: 'Some Other Source (May 2026)' };
     const result = validateReelScript(sections, { angle, contentProfile });
     expect(result.valid).toBe(false);
     expect(result.errors.some(e => e.includes('sourceFooter'))).toBe(true);

@@ -97,7 +97,7 @@ function makeAngle(id, overrides = {}) {
     surpriseScore:     0.5,
     longFormSuitable:  false,
     forbidsRateAdvice: false,
-    sourceFooter:      'Sources: CREA (May 2026)',
+    sourceFooter:      'CREA (May 2026)',
     ...overrides,
   };
 }

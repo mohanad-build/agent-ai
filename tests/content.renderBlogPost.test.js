@@ -21,7 +21,7 @@ function makeAngle(overrides = {}) {
     audienceFocus:     'both',
     bestSuitedFor:     ['blog'],
     forbidsRateAdvice: false,
-    sourceFooter:      'Sources: Bank of Canada (May 14 2026)',
+    sourceFooter:      'Bank of Canada (May 14 2026)',
     ...overrides,
   };
 }
