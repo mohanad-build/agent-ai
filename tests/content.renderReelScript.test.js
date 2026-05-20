@@ -38,7 +38,7 @@ function makeContentProfile(overrides = {}) {
 }
 
 // Valid Claude response fixture -- used across many tests with small modifications.
-// Body is ~140 words, within the 100-280 validation window.
+// Body is ~140 words, within the 90-240 validation window.
 // SOURCES contains the sourceFooter verbatim.
 // No em-dashes, no forbidden terms, no forbidden topics.
 const VALID_CLAUDE_RESPONSE = [
@@ -199,21 +199,21 @@ describe('validateReelScript', () => {
     expect(result.valid).toBe(true);
   });
 
-  test('rejects when BODY word count is below 100', () => {
+  test('rejects when BODY word count is below 90', () => {
     const sections = { ...VALID_SECTIONS, body: 'This is far too short to qualify as a valid body.' };
     const result = validateReelScript(sections, { angle, contentProfile });
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.includes('below minimum 100'))).toBe(true);
+    expect(result.errors.some(e => e.includes('below minimum 90'))).toBe(true);
   });
 
-  test('rejects when BODY word count is above 280', () => {
-    // 285 word body
+  test('rejects when BODY word count is above 240', () => {
+    // 245 word body
     const longWord = 'word';
-    const longBody = Array.from({ length: 285 }, () => longWord).join(' ');
+    const longBody = Array.from({ length: 245 }, () => longWord).join(' ');
     const sections = { ...VALID_SECTIONS, body: longBody };
     const result = validateReelScript(sections, { angle, contentProfile });
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.includes('exceeds maximum 280'))).toBe(true);
+    expect(result.errors.some(e => e.includes('exceeds maximum 240'))).toBe(true);
   });
 
   test('rejects when an em-dash is present in assembled text', () => {

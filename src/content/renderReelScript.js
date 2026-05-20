@@ -76,8 +76,9 @@ function buildReelScriptPrompt({ angle, contentProfile }) {
     '<one short line, written for the ear, must work without context>',
     '',
     'BODY (5s-60s):',
-    '<three beats: what happened, why it matters, what to do about it>',
-    '<conversational, second person, short sentences>',
+    '<BODY is the evidence layer for the HOOK. Sentence one must introduce new information that proves the hook — a specific number, a contrast, a fact the viewer did not know. Do NOT restate the hook. Do NOT open with preamble like "here is something you may not realize" or "what most people don\'t see."',
+    'After sentence one, develop in three beats: what happened, why it matters for the viewer, what to do about it.',
+    'Conversational, second person, short sentences.>',
     '',
     'CTA (60-75s):',
     '<one or two short lines, the agent\'s signature next-step ask>',
@@ -90,7 +91,7 @@ function buildReelScriptPrompt({ angle, contentProfile }) {
     '<source footer verbatim from the input angle>',
     '',
     'LENGTH:',
-    'Target the BODY section at 130-220 words for natural delivery at conversational pace. Hook is one line. CTA is one or two short lines. B-roll is 2-3 bullet suggestions. Do not pad to fill space -- short and tight beats long and meandering.',
+    'Target the BODY section at 110-200 words for natural delivery at conversational pace. Hook is one line. CTA is one or two short lines. B-roll is 2-3 bullet suggestions. Tight beats long. If you find yourself padding to hit the word floor, the angle is thinner than 110 words and the script should land closer to the floor.',
     '',
     'WRITTEN FOR THE EAR:',
     '- No semicolons. Use periods.',
@@ -213,8 +214,8 @@ function validateReelScript(sections, { angle, contentProfile }) {
 
   if (sections.body && sections.body.trim() !== '') {
     const wc = countWords(sections.body);
-    if (wc < 100) errors.push(`body word count ${wc} is below minimum 100`);
-    if (wc > 280) errors.push(`body word count ${wc} exceeds maximum 280`);
+    if (wc < 90)  errors.push(`body word count ${wc} is below minimum 90`);
+    if (wc > 240) errors.push(`body word count ${wc} exceeds maximum 240`);
   }
 
   const assembled = [
