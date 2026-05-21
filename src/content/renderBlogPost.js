@@ -87,8 +87,8 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '---',
     '',
     '**Sources:**',
-    '- [Source Name](URL) -- as of YYYY-MM-DD',
-    '- [Source Name](URL) -- as of YYYY-MM-DD',
+    '- [Source Name](URL) — as of YYYY-MM-DD',
+    '- [Source Name](URL) — as of YYYY-MM-DD',
     '',
     'META: <metaDescription, MUST be 100-160 characters total; Google truncates at 160, so >160 gets cut off; count characters before returning>',
     'KEYWORD: <targetKeyword phrase, 2-4 words; the SEO topic this post targets; does NOT need to appear in the title>',
@@ -109,7 +109,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '',
     'CITATIONS:',
     '- Inline: prose attribution for flow, plus at least one Markdown link per major stat.',
-    '- Sources block (bottom): full attribution. Format each entry as: `- [Source Name](URL) -- as of YYYY-MM-DD`.',
+    '- Sources block (bottom): full attribution. Format each entry as: `- [Source Name](URL) — as of YYYY-MM-DD`.',
     '- At least 1 sources entry required.',
     '',
     'CONSTRAINTS:',
@@ -236,7 +236,7 @@ function parseSections(rawText) {
     const line = afterSep[j].trim();
     if (!line) continue;
     if (/^(meta|keyword)\s*:/i.test(line)) break;
-    const m = line.match(/^-\s*\[([^\]]+)\]\(([^)]+)\)\s*--\s*as\s+of\s+(.+)$/i);
+    const m = line.match(/^-\s*\[([^\]]+)\]\(([^)]+)\)\s*(?:--|—|–)\s*as\s+of\s+(.+)$/i);
     if (m) {
       sources.push({ name: m[1].trim(), url: m[2].trim(), asOfDate: m[3].trim() });
     }
@@ -413,7 +413,7 @@ function assembleSections(sections, { forbidsRateAdvice }) {
   parts.push('');
   parts.push('**Sources:**');
   for (const src of sections.sources) {
-    parts.push(`- [${src.name}](${src.url}) -- as of ${src.asOfDate}`);
+    parts.push(`- [${src.name}](${src.url}) — as of ${src.asOfDate}`);
   }
 
   return parts.join('\n');

@@ -283,6 +283,26 @@ describe('parseSections', () => {
     expect(result.body[1].heading).toBe('What a two-week yield drop actually signals');
   });
 
+  test('parseSections accepts em-dash separator for forward compatibility', () => {
+    const emDash = VALID_CLAUDE_RESPONSE.replace(
+      '-- as of 2026-05-14',
+      '— as of 2026-05-14'
+    );
+    const result = parseSections(emDash);
+    expect(result).not.toBeNull();
+    expect(result.sources).toEqual(VALID_SECTIONS.sources);
+  });
+
+  test('parseSections accepts en-dash separator for resilience', () => {
+    const enDash = VALID_CLAUDE_RESPONSE.replace(
+      '-- as of 2026-05-14',
+      '– as of 2026-05-14'
+    );
+    const result = parseSections(enDash);
+    expect(result).not.toBeNull();
+    expect(result.sources).toEqual(VALID_SECTIONS.sources);
+  });
+
   test('parses exactly 4 H2 sections correctly', () => {
     const fourSection = [
       '# Bond yields in Canada: what the latest data means for fixed-rate borrowers',
@@ -574,9 +594,9 @@ describe('assembleSections', () => {
     expect(text).toContain('Extra paragraph.');
   });
 
-  test('sources rendered as - [name](url) -- as of date lines', () => {
+  test('sources rendered as - [name](url) — as of date lines', () => {
     const text = assembleSections(VALID_SECTIONS, { forbidsRateAdvice: false });
-    expect(text).toContain('- [Bank of Canada key policy rate](https://www.bankofcanada.ca/core-functions/monetary-policy/) -- as of 2026-05-14');
+    expect(text).toContain('- [Bank of Canada key policy rate](https://www.bankofcanada.ca/core-functions/monetary-policy/) — as of 2026-05-14');
   });
 
   test('does NOT include META or KEYWORD lines in output', () => {
