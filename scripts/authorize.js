@@ -103,13 +103,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Write refresh token into agent config
+    // Write refresh token into agent config and restore isActive flag
     const agentConfig = JSON.parse(fs.readFileSync(agentConfigPath, 'utf-8'));
     agentConfig.googleRefreshToken = tokens.refresh_token;
+    const wasInactive = agentConfig.isActive === false;
+    agentConfig.isActive = true;
     fs.writeFileSync(
       agentConfigPath,
       JSON.stringify(agentConfig, null, 2) + '\n'
     );
+    if (wasInactive) {
+      console.log('   Restored isActive: true (was false from previous refresh failure).');
+    }
 
     res.end(`
       <html>
