@@ -50,13 +50,19 @@ const { runContentEngineForAgent } = require('../src/content/engine');
 const MOCK_NOW_ISO = '2026-05-18T11:00:00.000Z';
 const WEEK_ISO     = '2026-W21';
 
+const operatorConfig = {
+  operatorId:    'test-operator',
+  operatorEmail: 'op@example.com',
+  operatorPhone: '+15555550100',
+};
+
 // ── Fixture builders ──────────────────────────────────────────────────────────
 
 function makeAgent(overrides = {}) {
   return {
     agentId:         'test-agent',
     firstName:       'Test',
-    email:           'agent@example.com',
+    gmailAddress:    'agent@example.com',
     escalationEmail: 'op@example.com',
     operatorEmail:   'op@example.com',
     timezone:        'America/Toronto',
@@ -178,8 +184,8 @@ afterEach(() => {
 describe('runContentEngineForAgent integration', () => {
 
   test('1. happy path shadow: email to agent+cc, body has all 3 pieces', async () => {
-    const agent = makeAgent({ email: 'agent@example.com', escalationEmail: 'op@example.com' });
-    const result = await runContentEngineForAgent(agent);
+    const agent = makeAgent({ gmailAddress: 'agent@example.com', escalationEmail: 'op@example.com' });
+    const result = await runContentEngineForAgent(agent, { operatorConfig });
 
     expect(result.ok).toBe(true);
     expect(result.sent).toBe(true);
@@ -195,12 +201,13 @@ describe('runContentEngineForAgent integration', () => {
     expect(opts.body).toContain('#1 REEL');
     expect(opts.body).toContain('#2 REEL');
     expect(opts.body).toContain('#3 BLOG');
-    expect(recordBatchSent).not.toHaveBeenCalled();
+    expect(recordBatchSent).toHaveBeenCalledTimes(1);
+    expect(recordBatchSent).toHaveBeenCalledWith('test-agent', WEEK_ISO, expect.any(String));
   });
 
   test('2. happy path live: email to agent only, no cc', async () => {
     readContentProfile.mockReturnValue(makeContentProfile({ contentEngineMode: 'live' }));
-    const result = await runContentEngineForAgent(makeAgent());
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
 
     expect(result.sent).toBe(true);
     expect(sendNewEmail).toHaveBeenCalledTimes(1);
@@ -211,12 +218,13 @@ describe('runContentEngineForAgent integration', () => {
 
   test('3. partial failure: blog throws, email still sends with headsUp', async () => {
     renderBlogPost.mockRejectedValue(new Error('blog generation failed'));
-    const result = await runContentEngineForAgent(makeAgent());
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
 
     expect(result.sent).toBe(true);
     expect(result.pieceResults.find(r => r.pieceId === 'blog-001').status).toBe('failed');
     expect(result.pieceResults.filter(r => r.status === 'ok')).toHaveLength(2);
-    expect(recordBatchSent).not.toHaveBeenCalled();
+    expect(recordBatchSent).toHaveBeenCalledTimes(1);
+    expect(recordBatchSent).toHaveBeenCalledWith('test-agent', WEEK_ISO, expect.any(String));
 
     expect(sendNewEmail).toHaveBeenCalledTimes(1);
     const [, opts] = sendNewEmail.mock.calls[0];
@@ -226,7 +234,7 @@ describe('runContentEngineForAgent integration', () => {
   test('4. all failed: no email, result.skipped === all-failed', async () => {
     renderReelScript.mockRejectedValue(new Error('render failed'));
     renderBlogPost.mockRejectedValue(new Error('render failed'));
-    const result = await runContentEngineForAgent(makeAgent());
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
 
     expect(result.skipped).toBe('all-failed');
     expect(result.sent).toBe(false);
@@ -239,7 +247,7 @@ describe('runContentEngineForAgent integration', () => {
     realFs.unlinkSync(
       path.join(mockTmpBaseDir, 'data', 'market', '_angles', `${WEEK_ISO}.json`)
     );
-    const result = await runContentEngineForAgent(makeAgent());
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
 
     expect(result.skipped).toBe('no-angles');
     expect(result.batchWeekIso).toBe(WEEK_ISO);
@@ -248,8 +256,8 @@ describe('runContentEngineForAgent integration', () => {
   });
 
   test('6. dryRun: email to operator only, no cc, recordBatchSent not called', async () => {
-    const agent = makeAgent({ operatorEmail: 'op@example.com', email: 'agent@example.com' });
-    const result = await runContentEngineForAgent(agent, { dryRun: true });
+    const agent = makeAgent({ gmailAddress: 'agent@example.com' });
+    const result = await runContentEngineForAgent(agent, { dryRun: true, operatorConfig });
 
     expect(result.sent).toBe(true);
     expect(sendNewEmail).toHaveBeenCalledTimes(1);
@@ -264,12 +272,21 @@ describe('runContentEngineForAgent integration', () => {
       .mockRejectedValueOnce(new Error('script failed'))
       .mockResolvedValue(makeReelScriptResult());
 
-    const result = await runContentEngineForAgent(makeAgent());
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
 
     expect(renderInstagramCaption).toHaveBeenCalledTimes(1);
     expect(result.sent).toBe(true);
     expect(result.pieceResults.find(r => r.pieceId === 'reel-001').status).toBe('failed');
     expect(result.pieceResults.find(r => r.pieceId === 'reel-002').status).toBe('ok');
+  });
+
+  test('8. recordBatchSent called with agentId, weekIso, and options.now as sentAt', async () => {
+    const now = new Date(MOCK_NOW_ISO);
+    const result = await runContentEngineForAgent(makeAgent(), { now, operatorConfig });
+
+    expect(result.ok).toBe(true);
+    expect(recordBatchSent).toHaveBeenCalledTimes(1);
+    expect(recordBatchSent).toHaveBeenCalledWith('test-agent', WEEK_ISO, now.toISOString());
   });
 
 });

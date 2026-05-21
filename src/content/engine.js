@@ -7,7 +7,7 @@ const { getNowDate, getNowIso }             = require('../time');
 const { currentWeek }                       = require('./cache');
 const { readWeeklyAngles }                  = require('./angles');
 const { readContentProfile }                = require('./profile');
-const { readContentState, initBatch, buildAgentHistory } = require('./state');
+const { readContentState, initBatch, buildAgentHistory, recordBatchSent } = require('./state');
 const { selectDefaults }                    = require('./selectDefaults');
 const { renderReelScript }                  = require('./renderReelScript');
 const { renderInstagramCaption }            = require('./renderInstagramCaption');
@@ -219,6 +219,11 @@ function shouldRunContentEngine(agentConfig, contentProfile, now, contentState) 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function runContentEngineForAgent(agentConfig, options = {}) {
+  const now = options.now ?? new Date();
+  const operatorConfig = options.operatorConfig;
+  if (!operatorConfig || typeof operatorConfig !== 'object') {
+    throw new TypeError('runContentEngineForAgent requires options.operatorConfig');
+  }
   if (agentConfig.isActive === false) {
     console.log(`[${agentConfig.agentId}] content engine: skipped (inactive)`);
     return { skipped: 'inactive' };
@@ -336,13 +341,13 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
 
   let to, cc;
   if (dryRun) {
-    to = [agentConfig.operatorEmail || agentConfig.escalationEmail];
+    to = [operatorConfig.operatorEmail || agentConfig.escalationEmail];
     cc = undefined;
   } else if (contentEngineMode === 'shadow') {
-    to = [agentConfig.email];
-    cc = [agentConfig.operatorEmail || agentConfig.escalationEmail];
+    to = [agentConfig.gmailAddress];
+    cc = [operatorConfig.operatorEmail || agentConfig.escalationEmail];
   } else {
-    to = [agentConfig.email];
+    to = [agentConfig.gmailAddress];
     cc = undefined;
   }
 
@@ -359,6 +364,10 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
   const sendResult = await _sendWithRetry(sendFn, 'content-batch');
 
   if (sendResult.ok) {
+    if (!dryRun) {
+      const sentAt = now.toISOString();
+      await recordBatchSent(agentConfig.agentId, weekIso, sentAt);
+    }
     console.log(`[${agentConfig.agentId}] content engine: batch sent for ${weekIso}`);
     return {
       ok: true,
