@@ -42,7 +42,8 @@ jest.mock('../src/content/engine', () => ({
 }));
 
 jest.mock('../src/content/profile', () => ({
-  readContentProfile: jest.fn(),
+  readContentProfile:       jest.fn(),
+  isContentEngineEnabled:   jest.fn(),
 }));
 
 jest.mock('../src/content/state', () => ({
@@ -61,14 +62,15 @@ jest.mock('../src/time', () => ({
 const { maybeRunContentEngine } = require('../src/index');
 
 const { runContentEngineForAgent, shouldRunContentEngine } = require('../src/content/engine');
-const { readContentProfile }                               = require('../src/content/profile');
+const { readContentProfile, isContentEngineEnabled }       = require('../src/content/profile');
 const { readContentState, recordBatchSent }                = require('../src/content/state');
 const { getNowDate, getNowIso }                            = require('../src/time');
+const { loadOperator }                                     = require('../src/operatorConfig');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 function makeAgent(overrides = {}) {
-  return { agentId: 'mo-test', timezone: 'America/Toronto', isActive: true, ...overrides };
+  return { agentId: 'mo-test', operatorId: 'mo', timezone: 'America/Toronto', isActive: true, ...overrides };
 }
 
 function makeContentProfile(overrides = {}) {
@@ -97,21 +99,28 @@ beforeEach(() => {
   jest.clearAllMocks();
   getNowDate.mockReturnValue(new Date('2026-05-18T07:00:00.000Z'));
   getNowIso.mockReturnValue('2026-05-18T07:00:00.000Z');
+  isContentEngineEnabled.mockReturnValue(true);
+  loadOperator.mockReturnValue({ operatorId: 'mo' });
 });
 
 describe('maybeRunContentEngine', () => {
-  it('1: shouldRunContentEngine returns false → engine not called, state not updated', async () => {
+  it('1: shouldRunContentEngine returns false → engine not called, state not updated, skip logged', async () => {
     readContentProfile.mockReturnValue(makeContentProfile());
     readContentState.mockReturnValue(makeContentState());
     shouldRunContentEngine.mockReturnValue(false);
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await maybeRunContentEngine(makeAgent());
 
     expect(runContentEngineForAgent).not.toHaveBeenCalled();
     expect(recordBatchSent).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('skipped (time gate)'),
+    );
+    consoleSpy.mockRestore();
   });
 
-  it('2: engine returns sent:true → recordBatchSent called with agentId and batchWeekIso', async () => {
+  it('2: engine returns sent:true → engine was called, wrapper does not persist state', async () => {
     readContentProfile.mockReturnValue(makeContentProfile());
     readContentState.mockReturnValue(makeContentState());
     shouldRunContentEngine.mockReturnValue(true);
@@ -121,8 +130,8 @@ describe('maybeRunContentEngine', () => {
 
     await maybeRunContentEngine(makeAgent());
 
-    expect(recordBatchSent).toHaveBeenCalledTimes(1);
-    expect(recordBatchSent).toHaveBeenCalledWith('mo-test', '2026-W21', '2026-05-18T07:00:00.000Z');
+    expect(runContentEngineForAgent).toHaveBeenCalledTimes(1);
+    expect(recordBatchSent).not.toHaveBeenCalled();
   });
 
   it('3: engine returns sent:false skipped:all-failed → recordBatchSent NOT called', async () => {
@@ -151,16 +160,21 @@ describe('maybeRunContentEngine', () => {
     expect(recordBatchSent).not.toHaveBeenCalled();
   });
 
-  it('5: readContentProfile returns null → returns silently, engine not called', async () => {
+  it('5: readContentProfile returns null → engine not called, no-profile logged', async () => {
     readContentProfile.mockReturnValue(null);
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy   = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await maybeRunContentEngine(makeAgent());
 
     expect(runContentEngineForAgent).not.toHaveBeenCalled();
     expect(recordBatchSent).not.toHaveBeenCalled();
-    expect(consoleSpy).not.toHaveBeenCalled();
-    consoleSpy.mockRestore();
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('no profile, skipping'),
+    );
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
   });
 
   it('6: readContentProfile throws a generic Error → outer catch logs and returns without rethrowing', async () => {
@@ -194,5 +208,54 @@ describe('maybeRunContentEngine', () => {
     );
     expect(recordBatchSent).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
+  });
+
+  it('8: isContentEngineEnabled returns false → engine not called, skip logged', async () => {
+    isContentEngineEnabled.mockReturnValue(false);
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await maybeRunContentEngine(makeAgent());
+
+    expect(runContentEngineForAgent).not.toHaveBeenCalled();
+    expect(recordBatchSent).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('skipped (disabled)'),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it('8b: agent missing operatorId → engine skipped, error logged, loadOperator not called', async () => {
+    readContentProfile.mockReturnValue(makeContentProfile());
+    readContentState.mockReturnValue(makeContentState());
+    shouldRunContentEngine.mockReturnValue(true);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await maybeRunContentEngine(makeAgent({ operatorId: undefined }));
+
+    expect(runContentEngineForAgent).not.toHaveBeenCalled();
+    expect(loadOperator).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('missing operatorId'),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('9: wrapper loads operatorConfig and passes it to runContentEngineForAgent', async () => {
+    const fakeOperatorConfig = { operatorId: 'mo', operatorName: 'Test Operator' };
+    loadOperator.mockReturnValue(fakeOperatorConfig);
+    readContentProfile.mockReturnValue(makeContentProfile());
+    readContentState.mockReturnValue(makeContentState());
+    shouldRunContentEngine.mockReturnValue(true);
+    runContentEngineForAgent.mockResolvedValue({
+      ok: true, sent: false, batchWeekIso: '2026-W21', pieceResults: [], errors: [],
+    });
+
+    await maybeRunContentEngine(makeAgent());
+
+    expect(loadOperator).toHaveBeenCalledWith('mo');
+    expect(runContentEngineForAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'mo-test' }),
+      { operatorConfig: fakeOperatorConfig },
+    );
   });
 });

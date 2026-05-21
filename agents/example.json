@@ -1,0 +1,44 @@
+{
+  "_comment": "Template agent config. Copy to agents/<agent-id>.json and fill in real values. Secrets (googleRefreshToken, real phone numbers) are gitignored in production configs.",
+
+  "agentId": "example",
+  "operatorId": "example",
+  "agentName": "Example Agent",
+  "firstName": "Example",
+  "brokerage": "Example Brokerage",
+  "brokerageLocation": "Toronto, Ontario",
+  "gmailAddress": "agent@example.com",
+  "agentPhone": "+15555550100",
+  "agentSignature": "Example Agent | Example Brokerage",
+  "tone": "warm, professional, and concise",
+  "emailLength": "short",
+  "usesEmojis": false,
+  "avoidPhrases": [
+    "Just checking in",
+    "thanks for reaching out",
+    "great question",
+    "I hope this helps"
+  ],
+  "targetMarket": "homebuyers in the Greater Toronto Area",
+  "specialties": [
+    "residential resale"
+  ],
+  "yearsExperience": 5,
+  "aiCannotInvent": [
+    "mortgage approval odds",
+    "legal advice",
+    "specific interest rates",
+    "market predictions"
+  ],
+  "escalationEmail": "agent@example.com",
+  "ccEmails": [],
+  "bccEmails": [],
+  "googleRefreshToken": "REPLACE_ME",
+  "digestTime": "07:00",
+  "timezone": "America/Toronto",
+  "isActive": false,
+  "mode": "shadow",
+  "googleSheetId": "REPLACE_ME",
+  "provider": "gmail",
+  "operatorPhone": "+15555550100"
+}

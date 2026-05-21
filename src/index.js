@@ -23,7 +23,7 @@ const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, run
 const { runContentEngineForAgent, shouldRunContentEngine } = require('./content/engine');
 const { readContentProfile, isContentEngineEnabled } = require('./content/profile');
 const { generateWeeklyAngles } = require('./content/angles');
-const { readContentState, recordBatchSent: recordContentBatchSent } = require('./content/state');
+const { readContentState } = require('./content/state');
 const operatorState = require('./operatorState');
 const { loadOperator, discoverOperatorIds } = require('./operatorConfig');
 const email = require('./email');
@@ -528,10 +528,16 @@ async function maybeRunDailyDigest(agent) {
 async function maybeRunAngleGeneration(agent, now = new Date()) {
   try {
     const enabled = await isContentEngineEnabled(agent.agentId);
-    if (!enabled) return;
+    if (!enabled) {
+      console.log(`[${agent.agentId}] angle generation: skipped (disabled)`);
+      return;
+    }
     const tz = agent.timezone || 'America/Toronto';
     const day = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now);
-    if (day !== 'Sunday') return;
+    if (day !== 'Sunday') {
+      console.log(`[${agent.agentId}] angle generation: skipped (not Sunday in ${tz})`);
+      return;
+    }
     const result = await generateWeeklyAngles({ now });
     console.log(`[${agent.agentId}] angles ${result.regenerated ? 'generated' : 'unchanged'} for ${result.weekIso}`);
   } catch (err) {
@@ -557,21 +563,25 @@ async function maybeRunContentEngine(agent) {
 
   try {
     const contentProfile = readContentProfile(agent.agentId);
-    if (contentProfile === null) return;
+    if (contentProfile === null) {
+      console.log(`[${agent.agentId}] content engine: no profile, skipping`);
+      return;
+    }
 
     const contentState = readContentState(agent.agentId);
     const now = getNowDate();
 
     if (!shouldRunContentEngine(agent, contentProfile, now, contentState)) {
+      console.log(`[${agent.agentId}] content engine: skipped (time gate)`);
       return;
     }
 
-    const operatorConfig = loadOperator(agent.operatorId || 'mo');
-    const result = await runContentEngineForAgent(agent, { operatorConfig });
-
-    if (result.sent === true) {
-      recordContentBatchSent(agent.agentId, result.batchWeekIso, getNowIso());
+    if (!agent.operatorId) {
+      console.error(`[${agent.agentId}] content engine: agent missing operatorId, skipping`);
+      return;
     }
+    const operatorConfig = loadOperator(agent.operatorId);
+    await runContentEngineForAgent(agent, { operatorConfig });
   } catch (err) {
     console.error(`[${agent.agentId}] content engine error:`, err.message);
   }
