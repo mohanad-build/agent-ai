@@ -86,18 +86,29 @@ beforeEach(() => {
 });
 
 describe('maybeRunAngleGeneration', () => {
-  it('1: isContentEngineEnabled returns false → generateWeeklyAngles not called', async () => {
+  it('1: isContentEngineEnabled returns false → generateWeeklyAngles not called, disabled logged', async () => {
     isContentEngineEnabled.mockResolvedValue(false);
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await maybeRunAngleGeneration(makeAgent(), SUNDAY_UTC);
 
     expect(generateWeeklyAngles).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('skipped (disabled)'),
+    );
+    consoleSpy.mockRestore();
   });
 
-  it('2: day is Monday → generateWeeklyAngles not called', async () => {
+  it('2: day is Monday → generateWeeklyAngles not called, not-Sunday logged', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
     await maybeRunAngleGeneration(makeAgent(), MONDAY_UTC);
 
     expect(generateWeeklyAngles).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('not Sunday in America/Toronto'),
+    );
+    consoleSpy.mockRestore();
   });
 
   it('3: Sunday + enabled → generateWeeklyAngles called with { now }', async () => {
