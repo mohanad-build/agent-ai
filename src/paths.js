@@ -678,6 +678,9 @@ async function pathAskAgent(agent, row, msg, cat) {
       status: 'awaiting_agent',
       pendingQuestion: serialized,
       lastActionTimestamp: getNowIso(),
+      // Clear Q and S so a re-fired Path 1B does not get its reminder suppressed by stale timestamps from a prior cycle.
+      reminderSent: '',
+      operatorEscalated: '',
     });
   } catch (err) {
     console.log(`${prefix} STEP sheet failed: ${err.message}`);
@@ -687,6 +690,33 @@ async function pathAskAgent(agent, row, msg, cat) {
   const actions = { sheet: 'updated', tokenIssued: token };
   const skipped = [];
   const errors = [];
+
+  // Step a': Property extraction (best-effort, non-fatal)
+  // Identifies which property the lead is currently asking about so the
+  // agent's SMS has the context they need to answer without checking the inbox.
+  let propertyReference = null;
+  try {
+    const propPrompt = prompts.buildPropertyExtractionPrompt({
+      originalMessage: row.originalMessage,
+      conversationHistory: row.conversationHistory,
+      currentQuestion: msg.snippet,
+    });
+    const raw = await claude.callRaw({
+      system: propPrompt.system,
+      user: propPrompt.user,
+      model: 'claude-haiku-4-5-20251001',
+      maxTokens: 100,
+    });
+    const trimmed = (raw || '').trim().slice(0, 60);
+    if (trimmed && trimmed.toLowerCase() !== 'unclear') {
+      propertyReference = trimmed;
+    }
+    actions.propertyExtraction = propertyReference ? 'extracted' : 'unclear';
+    console.log(`${prefix} property extraction: ${propertyReference || 'unclear'}`);
+  } catch (err) {
+    console.log(`${prefix} property extraction failed: ${err.message}`);
+    actions.propertyExtraction = 'failed';
+  }
 
   // Step b: Append to column L (non-fatal)
   const historyEntry = `Property question received, queued as ${token}: ${(msg.snippet || '').slice(0, 200)}`;
@@ -732,11 +762,13 @@ async function pathAskAgent(agent, row, msg, cat) {
   }
 
   // Step d: SMS to agent (always, no confidence gate, non-fatal)
+  const isFirstTouch = row.status === 'new';
   const smsBody = twilio.TEMPLATES.leadPropertyQuestion(
     row.name || 'A lead',
     row.leadId,
     msg.snippet || '',
-    token
+    token,
+    { isFirstTouch, propertyReference }
   );
   try {
     await twilio.sendSMS(agent, smsBody);

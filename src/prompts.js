@@ -781,6 +781,39 @@ Draft the follow-up email now, following all rules above.`;
 }
 
 // ---------------------------------------------------------------------------
+// buildPropertyExtractionPrompt
+// ---------------------------------------------------------------------------
+
+function buildPropertyExtractionPrompt({ originalMessage, conversationHistory, currentQuestion }) {
+  const system = `You are extracting which property a real estate lead is currently asking about, based on their conversation context.
+
+Priority order:
+1. Current question (anchor) -- trust this first
+2. Conversation history -- use to disambiguate when the current question alone is ambiguous
+3. Original inquiry -- fallback when the above provide no clear signal
+
+Real conversations shift between properties. Trust the most recent signal.
+
+Output: return a single property identifier (address, neighborhood and unit type, MLS number, or whatever label the lead is using) OR the literal string unclear. No prose. No preamble. No quotation marks.
+
+Length cap: under 60 characters. Short identifier preferred over a full address.
+
+When in doubt, return unclear. False precision is worse than honest ambiguity.`;
+
+  const oMsg = (originalMessage && String(originalMessage).trim()) ? originalMessage : '(not on file)';
+  const convHist = (conversationHistory && String(conversationHistory).trim()) ? conversationHistory : '(not on file)';
+  const curQ = (currentQuestion && String(currentQuestion).trim()) ? currentQuestion : '(not on file)';
+
+  const user = `Current question: ${curQ}
+
+Conversation history: ${convHist}
+
+Original inquiry: ${oMsg}`;
+
+  return { system, user };
+}
+
+// ---------------------------------------------------------------------------
 // Module exports
 // ---------------------------------------------------------------------------
 
@@ -794,6 +827,7 @@ module.exports = {
   buildFollowUpDay7Prompt,
   buildFollowUpDay14Prompt,
   buildSignoffInstructions,
+  buildPropertyExtractionPrompt,
 
   // Exported for testing visibility:
   BASELINE_AI_CANNOT_INVENT,

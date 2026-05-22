@@ -50,8 +50,12 @@ const TEMPLATES = {
 
   // Path 1B initiation: notify the agent that a lead asked a property-specific question.
   // Positional args so call sites read naturally without destructuring.
-  leadPropertyQuestion(leadName, leadEmail, question, token) {
-    return `[${token}] ${leadName} (${leadEmail}): "${question}"\n\nReply: ${token} <your answer>`;
+  leadPropertyQuestion(leadName, leadEmail, question, token, opts = {}) {
+    const parts = [];
+    if (opts.isFirstTouch === true) parts.push('new');
+    parts.push(leadEmail);
+    if (opts.propertyReference) parts.push(`about ${opts.propertyReference}`);
+    return `[${token}] ${leadName} (${parts.join(', ')}): "${question}"\n\nReply: ${token} <your answer>`;
   },
 };
 
