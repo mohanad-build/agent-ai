@@ -502,10 +502,10 @@ async function checkStaleQuestions(agent) {
 // Daily digest
 // --------------------------------------------------------------------------
 
-async function maybeRunDailyDigest(agent) {
+async function maybeRunDailyDigest(agent, opts = {}) {
   try {
     const state = agentState.getState(agent.agentId);
-    if (!shouldRunDailyDigest(agent, getNowDate(), state)) {
+    if (!opts.force && !shouldRunDailyDigest(agent, getNowDate(), state)) {
       console.log(`[${agent.agentId}] daily digest: not due`);
       return;
     }
@@ -624,10 +624,12 @@ async function main() {
   }
   console.log(`Found ${agentIds.length} agent(s): ${agentIds.join(', ')}`);
 
+  const allAgentConfigs = [];
   for (const id of agentIds) {
     try {
       await processAgent(id);
       const agent = loadAgent(id);
+      allAgentConfigs.push(agent);
       const staleResult = await checkStaleQuestions(agent);
       console.log(`[${id}] stale check: reminders=${staleResult.remindersSent} escalations=${staleResult.escalationsSent} errors=${staleResult.errors.length}`);
       try {
@@ -646,6 +648,13 @@ async function main() {
     }
   }
 
+  try {
+    const { runActionHandler } = require('./content/actionHandler');
+    await runActionHandler(allAgentConfigs);
+  } catch (err) {
+    console.error(`[actionHandler] unhandled error: ${err.message}`);
+  }
+
   await maybeRunWeeklyDigest();
 
   console.log('\nOrchestrator cycle complete.');
@@ -658,4 +667,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine };
+module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest };
