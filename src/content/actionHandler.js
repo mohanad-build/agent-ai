@@ -16,7 +16,7 @@ const email                       = require('../email');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
 const ASSISTANT_EMAIL      = 'assistant@getklosed.ca';
-const TOKEN_PATH           = path.join(__dirname, '..', '..', 'config', 'assistant.token.json');
+const TOKEN_PATH           = path.join(__dirname, '..', '..', 'agents', 'assistant.json');
 const AGENTS_DIR           = path.join(__dirname, '..', '..', 'agents');
 const REGEN_CAP            = 5;
 const CONFIDENCE_THRESHOLD = 0.7;
@@ -24,11 +24,11 @@ const CONFIDENCE_THRESHOLD = 0.7;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function loadAssistantConfig() {
-  const tokenData = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+  const agentData = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
   return {
     agentId:            ASSISTANT_AGENT_ID,
     gmailAddress:       ASSISTANT_EMAIL,
-    googleRefreshToken: tokenData.refresh_token,
+    googleRefreshToken: agentData.googleRefreshToken,
     ccEmails:           [],
     bccEmails:          [],
     provider:           'gmail',
