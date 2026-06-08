@@ -4,7 +4,7 @@
   "description": "AI automation system for real estate agents — categorizes inbound email replies and routes actions accordingly",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/server.js",
     "test": "jest"
   },
   "engines": {
