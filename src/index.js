@@ -667,4 +667,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest };
+module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, runCycle: main };
