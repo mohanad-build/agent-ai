@@ -453,7 +453,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
       console.log(`[${agentConfig.agentId}] daily digest dry-run: no escalationEmail, skipping email`);
     }
   } else {
-    emailTo = agentConfig.agentEmail || null;
+    emailTo = agentConfig.agentEmail || agentConfig.gmailAddress || null;
   }
 
   if (!emailTo) {
