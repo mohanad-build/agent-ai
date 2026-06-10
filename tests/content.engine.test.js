@@ -41,7 +41,9 @@ const { assignPieceIds, renderPiece, assembleBatchObject, _sendWithRetry } = _in
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const WEEK_ISO = '2026-W21';
+const TEST_NOW = new Date('2026-01-05T08:00:00.000Z'); // a fixed Monday in W02
+const { currentWeek } = require('../src/content/cache');
+const WEEK_ISO = currentWeek(TEST_NOW);
 
 const operatorConfig = {
   operatorId:    'test-operator',
@@ -159,20 +161,20 @@ describe('Early skip paths', () => {
 
   test('contentEngineEnabled: false returns { skipped: "disabled" }', async () => {
     readContentProfile.mockReturnValue(makeContentProfile({ contentEngineEnabled: false }));
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result).toEqual({ skipped: 'disabled' });
     expect(readWeeklyAngles).not.toHaveBeenCalled();
   });
 
   test('readContentProfile throwing propagates the error', async () => {
     readContentProfile.mockImplementation(() => { throw new Error('profile corrupt'); });
-    await expect(runContentEngineForAgent(makeAgent(), { operatorConfig })).rejects.toThrow('profile corrupt');
+    await expect(runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW })).rejects.toThrow('profile corrupt');
   });
 
   test('missing angle file returns { skipped: "no-angles", batchWeekIso }', async () => {
     readContentProfile.mockReturnValue(makeContentProfile());
     readWeeklyAngles.mockResolvedValue(null);
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.skipped).toBe('no-angles');
     expect(typeof result.batchWeekIso).toBe('string');
     expect(fs.appendFileSync).toHaveBeenCalled();
@@ -181,7 +183,7 @@ describe('Early skip paths', () => {
   test('readWeeklyAngles throwing returns { skipped: "no-angles", batchWeekIso }', async () => {
     readContentProfile.mockReturnValue(makeContentProfile());
     readWeeklyAngles.mockRejectedValue(new Error('disk error'));
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.skipped).toBe('no-angles');
     expect(fs.appendFileSync).toHaveBeenCalled();
   });
@@ -194,7 +196,7 @@ describe('Early skip paths', () => {
       batches: { [WEEK_ISO]: { sentAt, availableAngles: [], pieces: {} } },
     }));
     buildAgentHistory.mockReturnValue({ recentThemeTags: [], rejectedRateContent: false });
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.skipped).toBe('already-sent');
     expect(typeof result.batchWeekIso).toBe('string');
     expect(sendNewEmail).not.toHaveBeenCalled();
@@ -204,7 +206,7 @@ describe('Early skip paths', () => {
     setupHappyPath();
     renderReelScript.mockRejectedValue(new Error('claude timeout'));
     renderBlogPost.mockRejectedValue(new Error('claude timeout'));
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.skipped).toBe('all-failed');
     expect(result.sent).toBe(false);
     expect(sendNewEmail).not.toHaveBeenCalled();
@@ -380,7 +382,7 @@ describe('runContentEngineForAgent -- happy path', () => {
   });
 
   test('2 reels + 1 blog succeed: returns { ok: true, sent: true, 3 pieceResults }', async () => {
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.ok).toBe(true);
     expect(result.sent).toBe(true);
     expect(result.pieceResults).toHaveLength(3);
@@ -389,7 +391,7 @@ describe('runContentEngineForAgent -- happy path', () => {
   });
 
   test('initBatch called with correct shape (piecesForState and availableAngles)', async () => {
-    await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(initBatch).toHaveBeenCalledTimes(1);
     const [, , payload] = initBatch.mock.calls[0];
     expect(Array.isArray(payload.pieces)).toBe(true);
@@ -407,7 +409,7 @@ describe('runContentEngineForAgent -- happy path', () => {
   });
 
   test('composeReviewEmail called with correct batch shape', async () => {
-    await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(composeReviewEmail).toHaveBeenCalledTimes(1);
     const [batch] = composeReviewEmail.mock.calls[0];
     expect(Array.isArray(batch.pieces)).toBe(true);
@@ -419,7 +421,7 @@ describe('runContentEngineForAgent -- happy path', () => {
   });
 
   test('errors array is empty on happy path', async () => {
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.errors).toEqual([]);
   });
 });
@@ -435,7 +437,7 @@ describe('runContentEngineForAgent -- failure paths', () => {
       .mockRejectedValueOnce(new Error('timeout')); // reel-002 fails
     renderInstagramCaption.mockResolvedValue(makeCaption());
 
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.sent).toBe(true);
     expect(result.pieceResults.find(r => r.pieceId === 'reel-001').status).toBe('ok');
     expect(result.pieceResults.find(r => r.pieceId === 'reel-002').status).toBe('failed');
@@ -446,7 +448,7 @@ describe('runContentEngineForAgent -- failure paths', () => {
   test('blog fails, both reels succeed: headsUp has blog message, email sent', async () => {
     renderBlogPost.mockRejectedValue(new Error('blog failed'));
 
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.sent).toBe(true);
     const [batch] = composeReviewEmail.mock.calls[0];
     expect(batch.headsUp.some(h => h.includes('Blog post'))).toBe(true);
@@ -456,7 +458,7 @@ describe('runContentEngineForAgent -- failure paths', () => {
     renderReelScript.mockRejectedValue(new Error('fail'));
     renderBlogPost.mockRejectedValue(new Error('fail'));
 
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.skipped).toBe('all-failed');
     expect(sendNewEmail).not.toHaveBeenCalled();
   });
@@ -465,7 +467,7 @@ describe('runContentEngineForAgent -- failure paths', () => {
     jest.useFakeTimers();
     sendNewEmail.mockRejectedValue(new Error('SMTP error'));
 
-    const promise = runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const promise = runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     await jest.runAllTimersAsync();
     const result = await promise;
 
@@ -479,7 +481,7 @@ describe('runContentEngineForAgent -- failure paths', () => {
     jest.useFakeTimers();
     sendNewEmail.mockRejectedValue(new Error('SMTP error'));
 
-    const promise = runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const promise = runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     await jest.runAllTimersAsync();
     await promise;
 
@@ -587,20 +589,20 @@ describe('State updates', () => {
   test('send failure: recordBatchSent NOT called', async () => {
     jest.useFakeTimers();
     sendNewEmail.mockRejectedValue(new Error('SMTP error'));
-    const promise = runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const promise = runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     await jest.runAllTimersAsync();
     await promise;
     expect(recordBatchSent).not.toHaveBeenCalled();
   });
 
   test('initBatch IS called on happy path', async () => {
-    await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(initBatch).toHaveBeenCalledTimes(1);
   });
 
   test('initBatch failure is logged but does NOT block send', async () => {
     initBatch.mockImplementation(() => { throw new Error('already exists'); });
-    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.sent).toBe(true);
     expect(fs.appendFileSync).toHaveBeenCalled();
   });

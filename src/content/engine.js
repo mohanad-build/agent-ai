@@ -129,13 +129,13 @@ function assembleBatchObject({ agentConfig, weekIso, renderedPieces, picks, head
   };
 }
 
-async function gatherInputs(agentConfig) {
+async function gatherInputs(agentConfig, now) {
   const contentProfile = readContentProfile(agentConfig.agentId);
   if (!contentProfile.contentEngineEnabled) {
     throw new SkipError('disabled');
   }
 
-  const weekIso = currentWeek(getNowDate());
+  const weekIso = currentWeek(now ?? getNowDate());
 
   let weeklyAngles;
   try {
@@ -219,7 +219,7 @@ function shouldRunContentEngine(agentConfig, contentProfile, now, contentState) 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function runContentEngineForAgent(agentConfig, options = {}) {
-  const now = options.now ?? new Date();
+  const now = options.now ?? getNowDate();
   const operatorConfig = options.operatorConfig;
   if (!operatorConfig || typeof operatorConfig !== 'object') {
     throw new TypeError('runContentEngineForAgent requires options.operatorConfig');
@@ -231,7 +231,7 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
 
   let inputs;
   try {
-    inputs = await gatherInputs(agentConfig);
+    inputs = await gatherInputs(agentConfig, now);
   } catch (err) {
     if (err instanceof SkipError) {
       if (err.reason === 'disabled') {
