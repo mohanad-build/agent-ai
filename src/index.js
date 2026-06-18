@@ -627,6 +627,14 @@ async function main() {
   const allAgentConfigs = [];
   for (const id of agentIds) {
     try {
+      // Guard: skip agents with no Google authorization before any processing
+      let guardCfg;
+      try { guardCfg = loadAgent(id); } catch (_) { /* loadAgent errors handled inside processAgent */ }
+      if (guardCfg && !guardCfg.googleRefreshToken) {
+        console.log(`[${id}] skipped: no Google authorization (refreshToken empty)`);
+        continue;
+      }
+
       await processAgent(id);
       const agent = loadAgent(id);
       allAgentConfigs.push(agent);
