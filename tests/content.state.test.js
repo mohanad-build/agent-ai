@@ -349,7 +349,7 @@ describe('readContentState', () => {
   });
 
   test('corrupt JSON throws ContentStateCorruptionError', () => {
-    const dir = path.join(baseDir, 'agents');
+    const dir = baseDir;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `${AGENT_ID}.contentState.json`), 'not-json', 'utf8');
     const err = caught(() => readContentState(AGENT_ID, { baseDir }));
@@ -358,7 +358,7 @@ describe('readContentState', () => {
   });
 
   test('JSON that fails validation throws ContentStateSchemaValidationError', () => {
-    const dir = path.join(baseDir, 'agents');
+    const dir = baseDir;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, `${AGENT_ID}.contentState.json`),

@@ -70,7 +70,7 @@ describe('readContentProfile', () => {
 
   test('throws ProfileCorruptionError when file contains invalid JSON', () => {
     const baseDir = makeTmpDir();
-    const dir = path.join(baseDir, 'agents');
+    const dir = baseDir;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'agent-bad.contentProfile.json'), 'not-json', 'utf8');
     const err = caught(() => readContentProfile('agent-bad', { baseDir }));
@@ -81,7 +81,7 @@ describe('readContentProfile', () => {
 
   test('throws non-ENOENT fs errors (e.g. permission denied)', () => {
     const baseDir = makeTmpDir();
-    const dir = path.join(baseDir, 'agents');
+    const dir = baseDir;
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, 'agent-noperm.contentProfile.json');
     fs.writeFileSync(filePath, '{}', 'utf8');
@@ -100,14 +100,14 @@ describe('writeContentProfile', () => {
   test('writes file at expected path', () => {
     const baseDir = makeTmpDir();
     writeContentProfile('agent-test', makeProfile(), { baseDir });
-    const expected = path.join(baseDir, 'agents', 'agent-test.contentProfile.json');
+    const expected = path.join(baseDir, 'agent-test.contentProfile.json');
     expect(fs.existsSync(expected)).toBe(true);
   });
 
   test('no .tmp file remains after successful write', () => {
     const baseDir = makeTmpDir();
     writeContentProfile('agent-test', makeProfile(), { baseDir });
-    const tmp = path.join(baseDir, 'agents', 'agent-test.contentProfile.json.tmp');
+    const tmp = path.join(baseDir, 'agent-test.contentProfile.json.tmp');
     expect(fs.existsSync(tmp)).toBe(false);
   });
 
@@ -370,7 +370,7 @@ describe('isContentEngineEnabled', () => {
 
   test('throws ProfileCorruptionError on invalid JSON (corruption is loud on hot path)', () => {
     const baseDir = makeTmpDir();
-    const dir = path.join(baseDir, 'agents');
+    const dir = baseDir;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'agent-corrupt.contentProfile.json'), '{broken', 'utf8');
     const err = caught(() => isContentEngineEnabled('agent-corrupt', { baseDir }));

@@ -44,7 +44,7 @@ const DELIVERY_TIME_RE   = /^([01]\d|2[0-3]):[0-5]\d$/;
 // ── Path helper ───────────────────────────────────────────────────────────────
 
 function profilePath(baseDir, agentId) {
-  return path.join(baseDir, 'agents', `${agentId}.contentProfile.json`);
+  return path.join(baseDir, `${agentId}.contentProfile.json`);
 }
 
 // ── Normalization (applied silently before validation) ────────────────────────

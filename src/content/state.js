@@ -39,7 +39,7 @@ const PIECE_ID_RE = /^(reel|blog)-\d{3}$/;
 // ── Path helper ───────────────────────────────────────────────────────────────
 
 function statePath(baseDir, agentId) {
-  return path.join(baseDir, 'agents', `${agentId}.contentState.json`);
+  return path.join(baseDir, `${agentId}.contentState.json`);
 }
 
 // ── Normalization ─────────────────────────────────────────────────────────────
