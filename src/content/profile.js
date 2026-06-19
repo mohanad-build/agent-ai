@@ -3,6 +3,8 @@
 const fs   = require('node:fs');
 const path = require('node:path');
 
+const { getStorageRoot } = require('../storagePaths');
+
 // ── Error classes ─────────────────────────────────────────────────────────────
 
 class ProfileNotFoundError extends Error {
@@ -199,7 +201,7 @@ function validateProfile(profile) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 function readContentProfile(agentId, opts = {}) {
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   const filePath = profilePath(baseDir, agentId);
   let raw;
   try {
@@ -216,7 +218,7 @@ function readContentProfile(agentId, opts = {}) {
 }
 
 function writeContentProfile(agentId, profile, opts = {}) {
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   const normalized = normalizeProfile(profile);
   const errors = validateProfile(normalized);
   if (errors.length > 0) throw new SchemaValidationError(errors);

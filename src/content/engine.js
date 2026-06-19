@@ -4,6 +4,7 @@ const fs   = require('node:fs');
 const path = require('node:path');
 
 const { getNowDate, getNowIso }             = require('../time');
+const { getStorageRoot }                    = require('../storagePaths');
 const { currentWeek }                       = require('./cache');
 const { readWeeklyAngles }                  = require('./angles');
 const { readContentProfile }                = require('./profile');
@@ -54,7 +55,10 @@ async function _sendWithRetry(sendFn, label) {
 }
 
 function _appendErrorLog(agentId, label, error) {
-  const filepath = path.join('agents', `${agentId}.content-engine-errors.log`);
+  const filepath = path.join(
+    getStorageRoot(),
+    `${agentId}.content-engine-errors.log`
+  );
   try {
     const validationSuffix = (Array.isArray(error.validationErrors) && error.validationErrors.length > 0)
       ? ` | validationErrors: ${JSON.stringify(error.validationErrors)}`

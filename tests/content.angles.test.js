@@ -83,7 +83,7 @@ function makeCallRaw(responses) {
 }
 
 async function writeTmpSnapshot(tmpDir, region, filename, points) {
-  const dir = path.join(tmpDir, 'data', 'market', region);
+  const dir = path.join(tmpDir, '_market', region);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, filename), JSON.stringify(points, null, 2));
 }
@@ -358,7 +358,7 @@ describe('gatherDataSlice', () => {
   });
 
   test('corrupted snapshot propagates JSON parse error', async () => {
-    const dir = path.join(tmpDir, 'data', 'market', 'canada');
+    const dir = path.join(tmpDir, '_market', 'canada');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '2026-W20.json'), '{corrupt json{{');
     await expect(
@@ -512,7 +512,7 @@ describe('generateWeeklyAngles', () => {
     expect(result.angles.length).toBe(2);
     expect(typeof result.dataSliceFingerprint).toBe('string');
     // File on disk
-    const onDisk = JSON.parse(fs.readFileSync(path.join(tmpDir, 'data', 'market', '_angles', '2026-W20.json'), 'utf8'));
+    const onDisk = JSON.parse(fs.readFileSync(path.join(tmpDir, '_market', '_angles', '2026-W20.json'), 'utf8'));
     expect(onDisk.angles.length).toBe(2);
     expect(onDisk.modelUsed).toBe('claude-sonnet-4-6');
   });
@@ -590,7 +590,7 @@ describe('generateWeeklyAngles', () => {
   test('file persisted atomically: .tmp file does not remain after write', async () => {
     const callRaw = makeCallRaw([anglesResponse(TWO_VALID_ANGLES)]);
     await generateWeeklyAngles({ weekIso: '2026-W20', now: NOW, baseDir: tmpDir, callRaw });
-    const anglesDir = path.join(tmpDir, 'data', 'market', '_angles');
+    const anglesDir = path.join(tmpDir, '_market', '_angles');
     const files = fs.readdirSync(anglesDir);
     expect(files.some(f => f.endsWith('.tmp'))).toBe(false);
     expect(files).toContain('2026-W20.json');
@@ -624,7 +624,7 @@ describe('readWeeklyAngles', () => {
   });
 
   test('returns parsed object when file exists', async () => {
-    const dir = path.join(tmpDir, 'data', 'market', '_angles');
+    const dir = path.join(tmpDir, '_market', '_angles');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '2026-W20.json'), validMenuJson(), 'utf8');
     const result = await readWeeklyAngles('2026-W20', { baseDir: tmpDir });
@@ -633,7 +633,7 @@ describe('readWeeklyAngles', () => {
   });
 
   test('throws on JSON parse failure (corruption-loud)', async () => {
-    const dir = path.join(tmpDir, 'data', 'market', '_angles');
+    const dir = path.join(tmpDir, '_market', '_angles');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '2026-W20.json'), '{corrupt{{', 'utf8');
     await expect(readWeeklyAngles('2026-W20', { baseDir: tmpDir })).rejects.toThrow();

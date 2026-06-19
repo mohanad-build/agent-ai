@@ -194,7 +194,7 @@ describe('readSnapshot', () => {
   });
 
   test('throws on malformed JSON', async () => {
-    const dir = path.join(baseDir, 'data', 'market', 'canada');
+    const dir = path.join(baseDir, '_market', 'canada');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, '2026-05.json'), '{broken json', 'utf8');
     await expect(readSnapshot('canada', '2026-05', { baseDir })).rejects.toThrow();
@@ -253,7 +253,7 @@ describe('writeSnapshot', () => {
 
   test('creates region subdirectory if missing', async () => {
     await writeSnapshot('toronto', '2026-05', [makePoint()], { baseDir });
-    const stat = await fs.stat(path.join(baseDir, 'data', 'market', 'toronto'));
+    const stat = await fs.stat(path.join(baseDir, '_market', 'toronto'));
     expect(stat.isDirectory()).toBe(true);
   });
 
@@ -398,7 +398,7 @@ describe('getFreshPoint', () => {
   });
 
   test('throws on corrupted snapshot file', async () => {
-    const dir = path.join(baseDir, 'data', 'market', 'canada');
+    const dir = path.join(baseDir, '_market', 'canada');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, '2026-05.json'), 'not json at all', 'utf8');
     await expect(getFreshPoint('avg_home_price', 'canada', '2026-05', { now: NOW, baseDir }))
@@ -434,14 +434,14 @@ describe('appendPullLog', () => {
 
   test('creates the file and parent directory if missing', async () => {
     await appendPullLog({ source: 'test' }, { baseDir });
-    const stat = await fs.stat(path.join(baseDir, 'data', 'market', '_pullLog.jsonl'));
+    const stat = await fs.stat(path.join(baseDir, '_market', '_pullLog.jsonl'));
     expect(stat.isFile()).toBe(true);
   });
 
   test('appends a second entry without overwriting the first', async () => {
     await appendPullLog({ source: 'first' },  { baseDir });
     await appendPullLog({ source: 'second' }, { baseDir });
-    const raw = await fs.readFile(path.join(baseDir, 'data', 'market', '_pullLog.jsonl'), 'utf8');
+    const raw = await fs.readFile(path.join(baseDir, '_market', '_pullLog.jsonl'), 'utf8');
     const lines = raw.trim().split('\n');
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]).source).toBe('first');
@@ -450,7 +450,7 @@ describe('appendPullLog', () => {
 
   test('adds loggedAt field if not present in entry', async () => {
     await appendPullLog({ source: 'test' }, { baseDir });
-    const raw = await fs.readFile(path.join(baseDir, 'data', 'market', '_pullLog.jsonl'), 'utf8');
+    const raw = await fs.readFile(path.join(baseDir, '_market', '_pullLog.jsonl'), 'utf8');
     const entry = JSON.parse(raw.trim());
     expect(typeof entry.loggedAt).toBe('string');
     expect(new Date(entry.loggedAt).getTime()).not.toBeNaN();
@@ -459,7 +459,7 @@ describe('appendPullLog', () => {
   test('preserves loggedAt field if already present in entry', async () => {
     const fixed = '2026-01-01T00:00:00.000Z';
     await appendPullLog({ source: 'test', loggedAt: fixed }, { baseDir });
-    const raw = await fs.readFile(path.join(baseDir, 'data', 'market', '_pullLog.jsonl'), 'utf8');
+    const raw = await fs.readFile(path.join(baseDir, '_market', '_pullLog.jsonl'), 'utf8');
     const entry = JSON.parse(raw.trim());
     expect(entry.loggedAt).toBe(fixed);
   });
@@ -468,7 +468,7 @@ describe('appendPullLog', () => {
     await appendPullLog({ a: 1 }, { baseDir });
     await appendPullLog({ b: 2 }, { baseDir });
     await appendPullLog({ c: 3 }, { baseDir });
-    const raw = await fs.readFile(path.join(baseDir, 'data', 'market', '_pullLog.jsonl'), 'utf8');
+    const raw = await fs.readFile(path.join(baseDir, '_market', '_pullLog.jsonl'), 'utf8');
     const lines = raw.trim().split('\n');
     expect(lines).toHaveLength(3);
     for (const line of lines) {

@@ -4,6 +4,7 @@ const fs   = require('node:fs/promises');
 const path = require('node:path');
 
 const { resolveMetricPolicy } = require('./sources');
+const { getStorageRoot }     = require('../storagePaths');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ function validatePeriod(period) {
 }
 
 function snapshotPath(baseDir, region, period) {
-  return path.join(baseDir, 'data', 'market', region, `${period}.json`);
+  return path.join(baseDir, '_market', region, `${period}.json`);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -97,7 +98,7 @@ function snapshotPath(baseDir, region, period) {
 async function readSnapshot(region, period, opts = {}) {
   validateRegion(region);
   validatePeriod(period);
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   const filePath = snapshotPath(baseDir, region, period);
   let raw;
   try {
@@ -120,7 +121,7 @@ async function readSnapshot(region, period, opts = {}) {
 async function writeSnapshot(region, period, dataPoints, opts = {}) {
   validateRegion(region);
   validatePeriod(period);
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
 
   for (let i = 0; i < dataPoints.length; i++) {
     const result = validateDataPoint(dataPoints[i]);
@@ -186,11 +187,11 @@ async function getFreshPoint(metric, region, period, opts = {}) {
 }
 
 /**
- * Appends one structured log entry as a JSONL line to data/market/_pullLog.jsonl.
+ * Appends one structured log entry as a JSONL line to _market/_pullLog.jsonl.
  */
 async function appendPullLog(entry, opts = {}) {
-  const baseDir = opts.baseDir || process.cwd();
-  const dir = path.join(baseDir, 'data', 'market');
+  const baseDir = opts.baseDir || getStorageRoot();
+  const dir = path.join(baseDir, '_market');
   await fs.mkdir(dir, { recursive: true });
 
   const record = { ...entry };

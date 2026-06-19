@@ -7,6 +7,7 @@ const path   = require('node:path');
 const claude  = require('../claude');
 const { resolveMetricPolicy, UnknownMetricError } = require('./sources');
 const { currentWeek } = require('./cache');
+const { getStorageRoot } = require('../storagePaths');
 
 const { MODELS } = claude;
 
@@ -196,7 +197,7 @@ async function gatherDataSlice({ weekIso, now, baseDir }) {
 
   // Walk snapshot files for each region
   for (const region of regions) {
-    const regionDir = path.join(baseDir, 'data', 'market', region);
+    const regionDir = path.join(baseDir, '_market', region);
     let entries;
     try {
       entries = await fs.readdir(regionDir);
@@ -471,14 +472,14 @@ function buildAngleGenerationPrompt(slice) {
 // ── Angles file path ──────────────────────────────────────────────────────────
 
 function anglesFilePath(baseDir, weekIso) {
-  return path.join(baseDir, 'data', 'market', '_angles', `${weekIso}.json`);
+  return path.join(baseDir, '_market', '_angles', `${weekIso}.json`);
 }
 
 // ── readWeeklyAngles ──────────────────────────────────────────────────────────
 
 async function readWeeklyAngles(weekIso, opts = {}) {
   validateWeekIso(weekIso);
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   const filePath = anglesFilePath(baseDir, weekIso);
   let raw;
   try {
@@ -495,7 +496,7 @@ async function readWeeklyAngles(weekIso, opts = {}) {
 
 async function generateWeeklyAngles(opts = {}) {
   const now     = opts.now     ? (opts.now instanceof Date ? opts.now : new Date(opts.now)) : new Date();
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   const callRaw = opts.callRaw || claude.callRaw;
 
   // Resolve and validate weekIso

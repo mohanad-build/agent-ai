@@ -3,6 +3,8 @@
 const fs   = require('node:fs/promises');
 const path = require('node:path');
 
+const { getStorageRoot } = require('../storagePaths');
+
 // ── Error class ───────────────────────────────────────────────────────────────
 
 class UnknownMetricError extends Error {
@@ -103,8 +105,8 @@ async function checkSourceFreshness(sourceKey, now, opts = {}) {
     throw new Error('checkSourceFreshness: now must be a valid Date or ISO string');
   }
 
-  const baseDir = opts.baseDir || process.cwd();
-  const logPath = path.join(baseDir, 'data', 'market', '_pullLog.jsonl');
+  const baseDir = opts.baseDir || getStorageRoot();
+  const logPath = path.join(baseDir, '_market', '_pullLog.jsonl');
 
   const neverPulled = {
     sourceKey,

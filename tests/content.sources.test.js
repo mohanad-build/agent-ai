@@ -29,7 +29,7 @@ afterEach(async () => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function writeLog(lines) {
-  const dir = path.join(baseDir, 'data', 'market');
+  const dir = path.join(baseDir, '_market');
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(
     path.join(dir, '_pullLog.jsonl'),
@@ -55,7 +55,7 @@ describe('checkSourceFreshness', () => {
   });
 
   test('returns never_pulled when log file is empty', async () => {
-    const dir = path.join(baseDir, 'data', 'market');
+    const dir = path.join(baseDir, '_market');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, '_pullLog.jsonl'), '', 'utf8');
 
@@ -141,7 +141,7 @@ describe('checkSourceFreshness', () => {
   });
 
   test('skips corrupt lines without crashing', async () => {
-    const dir = path.join(baseDir, 'data', 'market');
+    const dir = path.join(baseDir, '_market');
     await fs.mkdir(dir, { recursive: true });
     const valid = JSON.stringify({ pulledAt: new Date(NOW_MS - 5 * 60 * 60 * 1000).toISOString(), metricsWritten: ['goc_5yr_yield'], success: true });
     await fs.writeFile(

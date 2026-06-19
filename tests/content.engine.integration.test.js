@@ -141,7 +141,7 @@ function makeBlogPostResult() {
 // ── File helpers ──────────────────────────────────────────────────────────────
 
 function writeAngleFile(weekIso, content) {
-  const dir    = path.join(mockTmpBaseDir, 'data', 'market', '_angles');
+  const dir    = path.join(mockTmpBaseDir, '_market', '_angles');
   const realFs = jest.requireActual('node:fs');
   realFs.mkdirSync(dir, { recursive: true });
   realFs.writeFileSync(path.join(dir, `${weekIso}.json`), JSON.stringify(content), 'utf8');
@@ -245,7 +245,7 @@ describe('runContentEngineForAgent integration', () => {
   test('5. no angles: result.skipped === no-angles, no email', async () => {
     const realFs = jest.requireActual('node:fs');
     realFs.unlinkSync(
-      path.join(mockTmpBaseDir, 'data', 'market', '_angles', `${WEEK_ISO}.json`)
+      path.join(mockTmpBaseDir, '_market', '_angles', `${WEEK_ISO}.json`)
     );
     const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
 

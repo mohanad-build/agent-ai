@@ -20,6 +20,7 @@ const {
   appendPullLog,
   currentWeek,
 } = require('./cache');
+const { getStorageRoot } = require('../storagePaths');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -169,7 +170,7 @@ async function fetch5YrYield() {
 /**
  * Fetches three Bank of Canada metrics, normalises them to the canonical
  * data-point schema, and writes them to the current-week snapshot in
- * data/market/canada/. Merges with any existing metrics in the snapshot so
+ * _market/canada/. Merges with any existing metrics in the snapshot so
  * that metrics from other sources are preserved.
  *
  * Makes exactly two HTTP requests per call:
@@ -181,11 +182,11 @@ async function fetch5YrYield() {
  * written and success:true if at least one metric was fetched. All three
  * failing returns success:false and leaves any existing snapshot untouched.
  *
- * Appends one structured entry to data/market/_pullLog.jsonl regardless of
+ * Appends one structured entry to _market/_pullLog.jsonl regardless of
  * outcome.
  *
  * @param {{ baseDir?: string, now?: Date|string }} [opts]
- *   baseDir - override for testing (default: process.cwd())
+ *   baseDir - override for testing (default: getStorageRoot())
  *   now     - override the current time for period determination (default: new Date())
  * @returns {Promise<{
  *   success: boolean,
@@ -197,7 +198,7 @@ async function fetch5YrYield() {
  */
 async function pullBankOfCanada(opts = {}) {
   const now     = opts.now ? new Date(opts.now) : new Date();
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   const pulledAt = new Date().toISOString();
 
   const period = currentWeek(now);

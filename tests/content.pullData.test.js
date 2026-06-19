@@ -208,7 +208,7 @@ describe('pullBankOfCanada — successful pull', () => {
   });
 
   test('pull log gets one entry appended', async () => {
-    const raw = await fs.readFile(path.join(baseDir, 'data', 'market', '_pullLog.jsonl'), 'utf8');
+    const raw = await fs.readFile(path.join(baseDir, '_market', '_pullLog.jsonl'), 'utf8');
     const lines = raw.trim().split('\n');
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0]).success).toBe(true);
@@ -314,7 +314,7 @@ describe('pullBankOfCanada — total failure', () => {
 
     await pullBankOfCanada({ baseDir, now: NOW });
 
-    const raw = await fs.readFile(path.join(baseDir, 'data', 'market', '_pullLog.jsonl'), 'utf8');
+    const raw = await fs.readFile(path.join(baseDir, '_market', '_pullLog.jsonl'), 'utf8');
     const entry = JSON.parse(raw.trim());
     expect(entry.success).toBe(false);
     expect(entry.errors).toHaveLength(3);

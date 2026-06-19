@@ -3,6 +3,8 @@
 const fs   = require('node:fs');
 const path = require('node:path');
 
+const { getStorageRoot } = require('../storagePaths');
+
 // ── Error classes ─────────────────────────────────────────────────────────────
 
 class ContentStateNotFoundError extends Error {
@@ -196,7 +198,7 @@ function writeStateFile(filePath, state) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 function readContentState(agentId, opts = {}) {
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   const filePath = statePath(baseDir, agentId);
   let raw;
   try {
@@ -226,7 +228,7 @@ function readContentState(agentId, opts = {}) {
 }
 
 function writeContentState(agentId, state, opts = {}) {
-  const baseDir = opts.baseDir || process.cwd();
+  const baseDir = opts.baseDir || getStorageRoot();
   validateState(state);
   const filePath = statePath(baseDir, agentId);
   writeStateFile(filePath, state);
