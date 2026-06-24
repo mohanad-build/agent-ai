@@ -4,7 +4,7 @@ const fs   = require('node:fs/promises');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { pullBankOfCanada, _internal } = require('../src/content/pullData');
+const { pullBankOfCanada, shouldRunDataPull, _internal } = require('../src/content/pullData');
 const { parseOvernightRate, parseLatestDecisionDate, fetch5YrYield } = _internal;
 const { readSnapshot, writeSnapshot, currentWeek } = require('../src/content/cache');
 
@@ -382,5 +382,59 @@ describe('pullBankOfCanada — opts.now for period determination', () => {
     await pullBankOfCanada({ baseDir, now: '2026-12-30T12:00:00Z' });
     const snapshot = await readSnapshot('canada', '2026-W53', { baseDir });
     expect(snapshot.length).toBeGreaterThan(0);
+  });
+});
+
+// ── shouldRunDataPull — time gate and idempotency ─────────────────────────────
+//
+// 2026-06-24 is a Wednesday in summer (EDT = UTC-4).
+// Target hours in Toronto: 00, 06, 12, 18 with a 5-minute grace window (minute < 6).
+// Idempotency: returns false if lastDataPullAt is less than 5 hours ago.
+
+describe('shouldRunDataPull — time gate', () => {
+  const STATE_NULL = { lastDataPullAt: null };
+
+  test('returns true at 00:00 Toronto when lastDataPullAt is null', () => {
+    // 00:00 EDT = 04:00 UTC
+    expect(shouldRunDataPull(new Date('2026-06-24T04:00:00Z'), STATE_NULL)).toBe(true);
+  });
+
+  test('returns true at 06:00 Toronto when lastDataPullAt is null', () => {
+    expect(shouldRunDataPull(new Date('2026-06-24T10:00:00Z'), STATE_NULL)).toBe(true);
+  });
+
+  test('returns true at 12:00 Toronto when lastDataPullAt is null', () => {
+    expect(shouldRunDataPull(new Date('2026-06-24T16:00:00Z'), STATE_NULL)).toBe(true);
+  });
+
+  test('returns true at 18:00 Toronto when lastDataPullAt is null', () => {
+    expect(shouldRunDataPull(new Date('2026-06-24T22:00:00Z'), STATE_NULL)).toBe(true);
+  });
+
+  test('returns true at 00:03 Toronto (inside 5-minute grace window)', () => {
+    // 00:03 EDT = 04:03 UTC
+    expect(shouldRunDataPull(new Date('2026-06-24T04:03:00Z'), STATE_NULL)).toBe(true);
+  });
+
+  test('returns false at 00:06 Toronto (outside 5-minute grace window)', () => {
+    // 00:06 EDT = 04:06 UTC
+    expect(shouldRunDataPull(new Date('2026-06-24T04:06:00Z'), STATE_NULL)).toBe(false);
+  });
+
+  test('returns false at 03:00 Toronto (wrong hour)', () => {
+    // 03:00 EDT = 07:00 UTC
+    expect(shouldRunDataPull(new Date('2026-06-24T07:00:00Z'), STATE_NULL)).toBe(false);
+  });
+
+  test('returns false at 06:00 Toronto when lastDataPullAt is 2 hours ago (idempotency)', () => {
+    // now = 06:00 EDT (10:00 UTC); lastPull = 04:00 UTC (2h ago < 5h threshold)
+    const state = { lastDataPullAt: '2026-06-24T08:00:00Z' };
+    expect(shouldRunDataPull(new Date('2026-06-24T10:00:00Z'), state)).toBe(false);
+  });
+
+  test('returns true at 06:00 Toronto when lastDataPullAt is 6 hours ago (idempotency cleared)', () => {
+    // now = 06:00 EDT (10:00 UTC); lastPull = 00:00 UTC (10h ago > 5h threshold)
+    const state = { lastDataPullAt: '2026-06-24T00:00:00Z' };
+    expect(shouldRunDataPull(new Date('2026-06-24T10:00:00Z'), state)).toBe(true);
   });
 });

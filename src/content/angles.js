@@ -646,11 +646,40 @@ async function generateWeeklyAngles(opts = {}) {
   );
 }
 
+// ── shouldRunAngleGeneration ──────────────────────────────────────────────────
+
+/**
+ * Returns true iff now is Sunday 04:00-04:05 America/Toronto (5-minute grace
+ * window for the 5-minute polling loop). Idempotency is filesystem-based via
+ * the angle file existence check in the caller.
+ *
+ * @param {Date} now
+ * @returns {boolean}
+ */
+function shouldRunAngleGeneration(now) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Toronto',
+    weekday:  'long',
+    hour:     '2-digit',
+    minute:   '2-digit',
+    hour12:   false,
+  }).formatToParts(now);
+  const day    = parts.find(p => p.type === 'weekday').value;
+  const hour   = parseInt(parts.find(p => p.type === 'hour').value,   10) % 24;
+  const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+
+  if (day !== 'Sunday') return false;
+  if (hour !== 4 || minute >= 6) return false;
+
+  return true;
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
   generateWeeklyAngles,
   readWeeklyAngles,
+  shouldRunAngleGeneration,
   AngleGenerationError,
   _internal: {
     gatherDataSlice,

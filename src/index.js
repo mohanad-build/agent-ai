@@ -22,7 +22,9 @@ const agentState = require('./agentState');
 const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator } = require('./digest');
 const { runContentEngineForAgent, shouldRunContentEngine } = require('./content/engine');
 const { readContentProfile, isContentEngineEnabled } = require('./content/profile');
-const { generateWeeklyAngles } = require('./content/angles');
+const { generateWeeklyAngles, shouldRunAngleGeneration } = require('./content/angles');
+const { pullBankOfCanada, shouldRunDataPull } = require('./content/pullData');
+const { currentWeek } = require('./content/cache');
 const { readContentState } = require('./content/state');
 const operatorState = require('./operatorState');
 const { loadOperator, discoverOperatorIds, validateAgentOperatorMappings } = require('./operatorConfig');
@@ -599,6 +601,56 @@ async function maybeRunContentEngine(agent) {
 }
 
 // --------------------------------------------------------------------------
+// Scheduled data pull (operator-scoped, every 6h in America/Toronto)
+// --------------------------------------------------------------------------
+
+async function maybeRunDataPull() {
+  try {
+    const opState = operatorState.getState('mo');
+    const now = getNowDate();
+    if (!shouldRunDataPull(now, opState)) return;
+    console.log('[scheduler] data-pull: starting');
+    const result = await pullBankOfCanada();
+    if (result.success) {
+      console.log(`[scheduler] data-pull: success metricsWritten=${result.metricsWritten.length}`);
+      operatorState.setState('mo', { ...opState, lastDataPullAt: getNowIso() });
+    } else {
+      const errMsg = result.errors.length > 0
+        ? result.errors.map(e => e.error).join('; ')
+        : 'all metrics failed';
+      console.error(`[scheduler] data-pull: failed err=${errMsg}`);
+    }
+  } catch (err) {
+    console.error(`[scheduler] data-pull: failed err=${err.message}`);
+  }
+}
+
+// --------------------------------------------------------------------------
+// Scheduled angle generation (operator-scoped, Sunday 04:00 America/Toronto)
+// --------------------------------------------------------------------------
+
+async function maybeRunWeeklyAngleGenerationJob() {
+  try {
+    const now = getNowDate();
+    if (!shouldRunAngleGeneration(now)) return;
+    const weekIso = currentWeek(now);
+    const anglePath = path.join(getStorageRoot(), '_market', '_angles', `${weekIso}.json`);
+    if (fs.existsSync(anglePath)) {
+      console.log(`[scheduler] angle-gen: skipped (already exists for week ${weekIso})`);
+      return;
+    }
+    console.log(`[scheduler] angle-gen: starting week=${weekIso}`);
+    const result = await generateWeeklyAngles({});
+    const topScore = result.angles.length > 0
+      ? Math.max(...result.angles.map(a => a.surpriseScore))
+      : 0;
+    console.log(`[scheduler] angle-gen: success week=${result.weekIso} angles=${result.angles.length} topScore=${topScore}`);
+  } catch (err) {
+    console.error(`[scheduler] angle-gen: failed err=${err.message}`);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Weekly digest (operator-scoped, runs once per cycle after all agents)
 // --------------------------------------------------------------------------
 
@@ -679,6 +731,8 @@ async function main() {
     console.error(`[actionHandler] unhandled error: ${err.message}`);
   }
 
+  await maybeRunDataPull();
+  await maybeRunWeeklyAngleGenerationJob();
   await maybeRunWeeklyDigest();
 
   console.log('\nOrchestrator cycle complete.');
@@ -691,4 +745,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, runCycle: main };
+module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, runCycle: main };

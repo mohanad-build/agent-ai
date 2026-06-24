@@ -31,6 +31,7 @@ const { UnknownMetricError } = require('../src/content/sources');
 const {
   generateWeeklyAngles,
   readWeeklyAngles,
+  shouldRunAngleGeneration,
   AngleGenerationError,
   _internal,
 } = require('../src/content/angles');
@@ -641,5 +642,35 @@ describe('readWeeklyAngles', () => {
 
   test('throws on malformed weekIso', async () => {
     await expect(readWeeklyAngles('2026-W00', { baseDir: tmpDir })).rejects.toThrow(/malformed weekIso/);
+  });
+});
+
+// ── shouldRunAngleGeneration — time gate ──────────────────────────────────────
+//
+// 2026-06-21 is a Sunday in summer (EDT = UTC-4).
+// Target: Sunday 04:00-04:05 America/Toronto (5-minute grace window).
+
+describe('shouldRunAngleGeneration — time gate', () => {
+  test('returns true at Sunday 04:00 Toronto', () => {
+    // 04:00 EDT = 08:00 UTC
+    expect(shouldRunAngleGeneration(new Date('2026-06-21T08:00:00Z'))).toBe(true);
+  });
+
+  test('returns true at Sunday 04:04 Toronto (inside 5-minute grace window)', () => {
+    expect(shouldRunAngleGeneration(new Date('2026-06-21T08:04:00Z'))).toBe(true);
+  });
+
+  test('returns false at Sunday 04:06 Toronto (outside 5-minute grace window)', () => {
+    expect(shouldRunAngleGeneration(new Date('2026-06-21T08:06:00Z'))).toBe(false);
+  });
+
+  test('returns false at Saturday 04:00 Toronto (wrong day)', () => {
+    // 2026-06-20 is Saturday; 04:00 EDT = 08:00 UTC
+    expect(shouldRunAngleGeneration(new Date('2026-06-20T08:00:00Z'))).toBe(false);
+  });
+
+  test('returns false at Sunday 03:00 Toronto (wrong hour)', () => {
+    // 03:00 EDT = 07:00 UTC
+    expect(shouldRunAngleGeneration(new Date('2026-06-21T07:00:00Z'))).toBe(false);
   });
 });

@@ -262,10 +262,41 @@ async function pullBankOfCanada(opts = {}) {
   return result;
 }
 
+// ── shouldRunDataPull ─────────────────────────────────────────────────────────
+
+/**
+ * Returns true iff now is within the 5-minute grace window of a target hour
+ * (00, 06, 12, or 18 America/Toronto) and the last pull was more than 5 hours
+ * ago (idempotency guard for the 5-minute polling loop).
+ *
+ * @param {Date} now
+ * @param {{ lastDataPullAt?: string|null }} operatorState
+ * @returns {boolean}
+ */
+function shouldRunDataPull(now, operatorState) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Toronto',
+    hour:     '2-digit',
+    minute:   '2-digit',
+    hour12:   false,
+  }).formatToParts(now);
+  const hour   = parseInt(parts.find(p => p.type === 'hour').value,   10) % 24;
+  const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+
+  const targetHours = new Set([0, 6, 12, 18]);
+  if (!targetHours.has(hour) || minute >= 6) return false;
+
+  const lastPull = operatorState.lastDataPullAt ? new Date(operatorState.lastDataPullAt) : null;
+  if (lastPull && (now - lastPull) < 5 * 60 * 60 * 1000) return false;
+
+  return true;
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
   pullBankOfCanada,
+  shouldRunDataPull,
   _internal: {
     fetchBocOvernightSeries,
     fetch5YrYield,
