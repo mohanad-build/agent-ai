@@ -25,7 +25,8 @@ const { readContentProfile, isContentEngineEnabled } = require('./content/profil
 const { generateWeeklyAngles } = require('./content/angles');
 const { readContentState } = require('./content/state');
 const operatorState = require('./operatorState');
-const { loadOperator, discoverOperatorIds } = require('./operatorConfig');
+const { loadOperator, discoverOperatorIds, validateAgentOperatorMappings } = require('./operatorConfig');
+const { getStorageRoot } = require('./storagePaths');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
@@ -580,7 +581,17 @@ async function maybeRunContentEngine(agent) {
       console.error(`[${agent.agentId}] content engine: agent missing operatorId, skipping`);
       return;
     }
-    const operatorConfig = loadOperator(agent.operatorId);
+    let operatorConfig;
+    try {
+      operatorConfig = loadOperator(agent.operatorId);
+    } catch (err) {
+      console.error(`[${agent.agentId}] content engine error:`, err.message);
+      const logPath = path.join(getStorageRoot(), '_operators', `${agent.operatorId}.config-errors.log`);
+      try {
+        fs.appendFileSync(logPath, `[${getNowIso()}] [${agent.agentId}] loadOperator failed: ${err.message}\n`);
+      } catch (_) { /* best effort */ }
+      return;
+    }
     await runContentEngineForAgent(agent, { operatorConfig });
   } catch (err) {
     console.error(`[${agent.agentId}] content engine error:`, err.message);
@@ -623,6 +634,11 @@ async function main() {
     return;
   }
   console.log(`Found ${agentIds.length} agent(s): ${agentIds.join(', ')}`);
+
+  const { orphans: mappingOrphans } = validateAgentOperatorMappings();
+  for (const { agentId, operatorId } of mappingOrphans) {
+    console.warn(`[startup] agent ${agentId} references missing operator config: operatorId=${operatorId}`);
+  }
 
   const allAgentConfigs = [];
   for (const id of agentIds) {

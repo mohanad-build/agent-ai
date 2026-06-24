@@ -22,8 +22,9 @@ jest.mock('../src/digest', () => ({
 }));
 jest.mock('../src/operatorState',  () => ({ getState: jest.fn(), recordWeeklyDigestRun: jest.fn() }));
 jest.mock('../src/operatorConfig', () => ({
-  loadOperator:         jest.fn(),
-  discoverOperatorIds:  jest.fn().mockReturnValue([]),
+  loadOperator:                  jest.fn(),
+  discoverOperatorIds:           jest.fn().mockReturnValue([]),
+  validateAgentOperatorMappings: jest.fn().mockReturnValue({ ok: true, orphans: [], missingOperators: [] }),
 }));
 jest.mock('../src/email', () => ({
   readSheetRows:              jest.fn().mockResolvedValue([]),

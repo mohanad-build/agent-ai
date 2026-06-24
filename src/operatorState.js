@@ -1,15 +1,17 @@
 // src/operatorState.js
 //
-// Per-operator state stored in operators/<operatorId>.state.json.
+// Per-operator state stored in STORAGE_ROOT/_operators/<operatorId>.state.json.
 // Mirrors src/agentState.js exactly, scoped to operators.
 
 const fs   = require('fs');
 const path = require('path');
 
+const { getStorageRoot } = require('./storagePaths');
+
 const DEFAULT_STATE = { lastWeeklyDigestRun: null };
 
 function statePath(operatorId) {
-  return path.join(__dirname, '..', 'operators', `${operatorId}.state.json`);
+  return path.join(getStorageRoot(), '_operators', `${operatorId}.state.json`);
 }
 
 // Returns the parsed state object for operatorId.
@@ -33,7 +35,7 @@ function getState(operatorId) {
   }
 }
 
-// Writes state to operators/<operatorId>.state.json using an atomic tmp-then-rename pattern.
+// Writes state to STORAGE_ROOT/_operators/<operatorId>.state.json using an atomic tmp-then-rename pattern.
 function setState(operatorId, state) {
   const filePath = statePath(operatorId);
   const tmpPath  = filePath + '.tmp';

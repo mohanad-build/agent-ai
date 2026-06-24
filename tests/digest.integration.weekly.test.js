@@ -2,6 +2,9 @@
 
 jest.mock('../src/twilio');
 jest.mock('../src/email');
+jest.mock('../src/content/sources', () => ({
+  checkAllSourcesFreshness: jest.fn().mockResolvedValue([]),
+}));
 jest.mock('../src/operatorState');
 jest.mock('../src/agentState');
 jest.mock('../src/agentConfig', () => ({
@@ -216,5 +219,31 @@ describe('runWeeklyDigestForOperator integration', () => {
     expect(capturedEmailArgs).toHaveProperty('body');
     expect(capturedEmailArgs).toHaveProperty('html');
     expect(capturedEmailArgs.body).not.toContain('<!DOCTYPE');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Email failure + SMS fallback path
+// ---------------------------------------------------------------------------
+
+describe('runWeeklyDigestForOperator email failure: SMS fallback body', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('SMS fallback body references _operators/ error log path when email exhausts retries', async () => {
+    jest.useFakeTimers();
+    emailMod.sendNewEmail.mockRejectedValue(new Error('SMTP timeout'));
+
+    const noPollFn = jest.fn().mockResolvedValue({ sentAsIs: 0, editedThenSent: 0, rejected: 0 });
+    const promise = runWeeklyDigestForOperator(OPERATOR, { pollFn: noPollFn });
+    await jest.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.emailResult).toBe('failed');
+    expect(twilioMod.sendSMS).toHaveBeenCalledWith(
+      expect.objectContaining({ agentPhone: OPERATOR.operatorPhone }),
+      expect.stringContaining('_operators/'),
+    );
   });
 });

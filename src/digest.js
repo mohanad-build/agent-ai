@@ -24,6 +24,7 @@ const twilio = require('./twilio');
 const { getFollowUpCadence, loadAgent } = require('./agentConfig');
 const { getNowIso, getNowDate } = require('./time');
 const { checkAllSourcesFreshness } = require('./content/sources');
+const { getStorageRoot } = require('./storagePaths');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -694,7 +695,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     emailResult = 'failed';
     errors.push({ channel: 'email', message: emailRetry.lastError.message });
     _appendDigestErrorLog(
-      path.join(__dirname, '..', 'operators', `${operatorConfig.operatorId}.digest-errors.log`),
+      path.join(getStorageRoot(), '_operators', `${operatorConfig.operatorId}.digest-errors.log`),
       'weekly-email',
       emailRetry.lastError
     );
@@ -702,7 +703,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     if (!operatorPhone) {
       console.log('[digest:weekly-email] no operatorPhone configured, skipping SMS fallback');
     } else {
-      const fallbackBody = `Weekly digest email to ${operatorConfig.operatorEmail} failed after retries. Check operators/${operatorConfig.operatorId}.digest-errors.log`;
+      const fallbackBody = `Weekly digest email to ${operatorConfig.operatorEmail} failed after retries. Check _operators/${operatorConfig.operatorId}.digest-errors.log`;
       const operatorTwilioShim = { agentId: `operator:${operatorConfig.operatorId}`, agentPhone: operatorPhone };
       try {
         await twilio.sendSMS(operatorTwilioShim, fallbackBody);
