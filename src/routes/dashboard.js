@@ -8,6 +8,7 @@ const router = express.Router();
 const { loadAgent } = require('../agentConfig');
 const agentState = require('../agentState');
 const email = require('../email');
+const { readContentProfile, setContentEngineEnabled } = require('../content/profile');
 
 const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
@@ -318,6 +319,11 @@ router.get('/agent/:agentId/edit', (req, res) => {
       ? agent.avoidPhrases.join('\n')
       : (agent.avoidPhrases || '');
 
+    const contentProfile = readContentProfile(agentId);
+    const contentEngineFieldHtml = contentProfile === null
+      ? `<div class="form-row"><label>Content Engine</label><span class="readonly-field">Not provisioned. Run <code>node scripts/enable-content-engine.js ${escHtml(agentId)}</code> to provision.</span></div>`
+      : field('Content Engine Enabled', 'contentEngineEnabled', select('contentEngineEnabled', ['false', 'true'], String(contentProfile.contentEngineEnabled)));
+
     res.send(pageWrap(`Edit: ${agentId}`, `
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
   <h2 style="margin:0">Edit Agent: ${escHtml(agentId)}</h2>
@@ -340,7 +346,7 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
     ${field('Uses Emojis', 'usesEmojis', select('usesEmojis', ['false', 'true'], String(agent.usesEmojis)))}
     ${field('Avoid Phrases', 'avoidPhrases', `<textarea name="avoidPhrases" rows="4">${escHtml(avoidPhrases)}</textarea>`)}
     ${field('Agent Signature', 'agentSignature', `<input type="text" name="agentSignature" value="${escHtml(agent.agentSignature || '')}" />`)}
-    ${field('Content Engine Enabled', 'isContentEngineEnabled', select('isContentEngineEnabled', ['false', 'true'], String(agent.isContentEngineEnabled)))}
+    ${contentEngineFieldHtml}
 
     <div class="form-row" style="margin-top:1.25rem">
       <a href="/onboard/oauth/start?agentId=${encodeURIComponent(agentId)}" class="btn" style="background:#e67e22">Re-authorize Google Account</a>
@@ -400,11 +406,17 @@ router.post('/agent/:agentId/edit', (req, res) => {
 
     agent.agentSignature = (b.agentSignature || '').trim();
 
-    agent.isContentEngineEnabled = b.isContentEngineEnabled === 'true';
-
     const tmpPath = filePath + '.tmp';
     fs.writeFileSync(tmpPath, JSON.stringify(agent, null, 2), 'utf8');
     fs.renameSync(tmpPath, filePath);
+
+    const profileForCE = readContentProfile(agentId);
+    if (profileForCE !== null && (b.contentEngineEnabled === 'true' || b.contentEngineEnabled === 'false')) {
+      const desired = b.contentEngineEnabled === 'true';
+      if (profileForCE.contentEngineEnabled !== desired) {
+        setContentEngineEnabled(agentId, desired);
+      }
+    }
 
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?saved=1`);
   } catch (err) {
