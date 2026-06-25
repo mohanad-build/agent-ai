@@ -174,12 +174,6 @@ const FORM_HTML = `<!DOCTYPE html>
           <label><input type="radio" name="mode" value="live"> Live Mode</label>
         </div>
       </div>
-      <div class="field">
-        <div class="checkbox-row">
-          <input type="checkbox" id="isContentEngineEnabled" name="isContentEngineEnabled" value="yes">
-          <label for="isContentEngineEnabled">Enable Content Engine</label>
-        </div>
-      </div>
 
       <button type="submit">Save &amp; Connect Google Account</button>
     </form>
@@ -231,7 +225,6 @@ router.post('/', (req, res) => {
       mode: b.mode === 'live' ? 'live' : 'shadow',
       provider: 'gmail',
       operatorPhone: agentPhone,
-      isContentEngineEnabled: b.isContentEngineEnabled === 'yes',
       googleRefreshToken: '',
       googleSheetId: '',
     };
