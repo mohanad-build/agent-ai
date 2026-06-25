@@ -74,7 +74,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { maybeRunDataPull, maybeRunWeeklyAngleGenerationJob } = require('../src/index');
+const { maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, appendUpstreamErrorLog } = require('../src/index');
 
 const operatorState                         = require('../src/operatorState');
 const { pullBankOfCanada, shouldRunDataPull } = require('../src/content/pullData');
@@ -225,7 +225,9 @@ describe('maybeRunWeeklyAngleGenerationJob', () => {
 
     await maybeRunWeeklyAngleGenerationJob();
 
-    expect(generateWeeklyAngles).toHaveBeenCalledWith({});
+    expect(generateWeeklyAngles).toHaveBeenCalledWith(
+      expect.objectContaining({ appendUpstreamErrorLog: expect.any(Function) }),
+    );
   });
 
   it('logs success format on success', async () => {
@@ -257,5 +259,96 @@ describe('maybeRunWeeklyAngleGenerationJob', () => {
       '[scheduler] angle-gen: failed err=Claude API timeout',
     );
     errSpy.mockRestore();
+  });
+});
+
+// ── appendUpstreamErrorLog and wrapper integration ────────────────────────────
+
+describe('appendUpstreamErrorLog and wrapper integration', () => {
+  let tmpDir;
+  let errSpy;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'errlog-'));
+    process.env.STORAGE_ROOT = tmpDir;
+    operatorState.getState.mockReturnValue({ lastWeeklyDigestRun: null });
+    errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    errSpy.mockRestore();
+    delete process.env.STORAGE_ROOT;
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('writes a single line in expected format', () => {
+    appendUpstreamErrorLog('test-stage', 'test message');
+    const logPath = path.join(tmpDir, '_market', '_errors.log');
+    expect(fs.existsSync(logPath)).toBe(true);
+    const content = fs.readFileSync(logPath, 'utf8');
+    expect(content).toMatch(/^\[20\d{2}-.*Z\] \[test-stage\] test message\n$/);
+  });
+
+  it('SITE 1: writes log entry when pullBankOfCanada returns success:false', async () => {
+    shouldRunDataPull.mockReturnValue(true);
+    pullBankOfCanada.mockResolvedValue({
+      success: false,
+      errors: [{ metric: 'x', error: 'HTTP 503' }],
+      metricsWritten: [],
+      metricsFailed: ['x'],
+      pulledAt: '2026-05-17T07:00:00.000Z',
+    });
+
+    await maybeRunDataPull();
+
+    const content = fs.readFileSync(path.join(tmpDir, '_market', '_errors.log'), 'utf8');
+    expect(content).toContain('[data-pull] failed: HTTP 503');
+  });
+
+  it('SITE 2: writes log entry when pullBankOfCanada throws', async () => {
+    shouldRunDataPull.mockReturnValue(true);
+    pullBankOfCanada.mockRejectedValue(new Error('network down'));
+
+    await maybeRunDataPull();
+
+    const content = fs.readFileSync(path.join(tmpDir, '_market', '_errors.log'), 'utf8');
+    expect(content).toContain('[data-pull] exception: network down');
+  });
+
+  it('SITE 3: writes log entry when generateWeeklyAngles throws', async () => {
+    shouldRunAngleGeneration.mockReturnValue(true);
+    generateWeeklyAngles.mockRejectedValue(new Error('claude api down'));
+
+    await maybeRunWeeklyAngleGenerationJob();
+
+    const content = fs.readFileSync(path.join(tmpDir, '_market', '_errors.log'), 'utf8');
+    expect(content).toContain('[angle-gen] exception: claude api down');
+  });
+
+  it('log append failure does not crash the wrapper', async () => {
+    shouldRunDataPull.mockReturnValue(true);
+    pullBankOfCanada.mockResolvedValue({
+      success: false,
+      errors: [{ metric: 'x', error: 'HTTP 503' }],
+      metricsWritten: [],
+      metricsFailed: ['x'],
+      pulledAt: '2026-05-17T07:00:00.000Z',
+    });
+    jest.spyOn(fs, 'appendFileSync').mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+
+    await expect(maybeRunDataPull()).resolves.toBeUndefined();
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('upstream log append failed'));
+  });
+
+  it('log directory is created on first write even when _market/ does not exist', async () => {
+    shouldRunDataPull.mockReturnValue(true);
+    pullBankOfCanada.mockRejectedValue(new Error('test error'));
+
+    await maybeRunDataPull();
+
+    expect(fs.existsSync(path.join(tmpDir, '_market', '_errors.log'))).toBe(true);
   });
 });

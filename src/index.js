@@ -601,6 +601,22 @@ async function maybeRunContentEngine(agent) {
 }
 
 // --------------------------------------------------------------------------
+// Upstream error observability
+// --------------------------------------------------------------------------
+
+function appendUpstreamErrorLog(stage, message) {
+  try {
+    const logPath = path.join(getStorageRoot(), '_market', '_errors.log');
+    const dir = path.dirname(logPath);
+    fs.mkdirSync(dir, { recursive: true });
+    const line = `[${new Date().toISOString()}] [${stage}] ${message}\n`;
+    fs.appendFileSync(logPath, line);
+  } catch (logErr) {
+    console.error(`[scheduler] upstream log append failed: ${logErr.message}`);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Scheduled data pull (operator-scoped, every 6h in America/Toronto)
 // --------------------------------------------------------------------------
 
@@ -618,9 +634,11 @@ async function maybeRunDataPull() {
       const errMsg = result.errors.length > 0
         ? result.errors.map(e => e.error).join('; ')
         : 'all metrics failed';
+      appendUpstreamErrorLog('data-pull', `failed: ${errMsg}`);
       console.error(`[scheduler] data-pull: failed err=${errMsg}`);
     }
   } catch (err) {
+    appendUpstreamErrorLog('data-pull', `exception: ${err.message}`);
     console.error(`[scheduler] data-pull: failed err=${err.message}`);
   }
 }
@@ -640,12 +658,13 @@ async function maybeRunWeeklyAngleGenerationJob() {
       return;
     }
     console.log(`[scheduler] angle-gen: starting week=${weekIso}`);
-    const result = await generateWeeklyAngles({});
+    const result = await generateWeeklyAngles({ appendUpstreamErrorLog });
     const topScore = result.angles.length > 0
       ? Math.max(...result.angles.map(a => a.surpriseScore))
       : 0;
     console.log(`[scheduler] angle-gen: success week=${result.weekIso} angles=${result.angles.length} topScore=${topScore}`);
   } catch (err) {
+    appendUpstreamErrorLog('angle-gen', `exception: ${err.message}`);
     console.error(`[scheduler] angle-gen: failed err=${err.message}`);
   }
 }
@@ -745,4 +764,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, runCycle: main };
+module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, appendUpstreamErrorLog, runCycle: main };

@@ -23,6 +23,19 @@ class AngleGenerationError extends Error {
   }
 }
 
+class InsufficientDataError extends Error {
+  constructor(message, detail) {
+    super(message);
+    this.name = 'InsufficientDataError';
+    this.detail = detail;
+  }
+}
+
+// Tied to the metric registry in src/content/sources.js.
+// Update this when adding or removing required metrics.
+// Currently: BoC overnight rate, BoC 5yr GoC bond yield, BoC last decision date.
+const EXPECTED_METRIC_COUNT = 3;
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const VALID_THEME_TAGS = new Set([
@@ -512,6 +525,22 @@ async function generateWeeklyAngles(opts = {}) {
 
   // Build data slice
   const slice = await gatherDataSlice({ weekIso, now, baseDir });
+
+  const metricCount = Object.keys(slice.metrics || {}).length;
+  if (metricCount === 0) {
+    throw new InsufficientDataError(
+      'angle generation refused: zero metrics in data slice',
+      { fresh: 0, expected: EXPECTED_METRIC_COUNT, weekIso }
+    );
+  }
+  if (metricCount < EXPECTED_METRIC_COUNT) {
+    const warnMsg = `proceeding with degraded data: ${metricCount} of ${EXPECTED_METRIC_COUNT} metrics fresh for ${weekIso}`;
+    if (typeof opts.appendUpstreamErrorLog === 'function') {
+      opts.appendUpstreamErrorLog('angle-gen-degraded', warnMsg);
+    }
+    console.warn(`[angles] ${warnMsg}`);
+  }
+
   const dataSliceFingerprint = hashDataSlice(slice);
 
   // Idempotency check
@@ -681,6 +710,7 @@ module.exports = {
   readWeeklyAngles,
   shouldRunAngleGeneration,
   AngleGenerationError,
+  InsufficientDataError,
   _internal: {
     gatherDataSlice,
     buildAngleGenerationPrompt,

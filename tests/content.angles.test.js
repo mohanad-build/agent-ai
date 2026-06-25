@@ -33,6 +33,7 @@ const {
   readWeeklyAngles,
   shouldRunAngleGeneration,
   AngleGenerationError,
+  InsufficientDataError,
   _internal,
 } = require('../src/content/angles');
 
@@ -488,6 +489,14 @@ describe('generateWeeklyAngles', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'angles-gen-'));
+    // Provide fixture data so the defensive data-presence check in generateWeeklyAngles passes.
+    const dir = path.join(tmpDir, '_market', 'canada');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'fixture.json'), JSON.stringify([
+      { metric: 'goc_5yr_yield',         value: 3.22, unit: 'percent', asOf: '2026-05-14T00:00:00.000Z', source: 'Bank of Canada', sourceUrl: 'https://bankofcanada.ca', confidence: 'high' },
+      { metric: 'boc_overnight_rate',    value: 2.75, unit: 'percent', asOf: '2026-01-01T00:00:00.000Z', source: 'Bank of Canada', sourceUrl: 'https://bankofcanada.ca', confidence: 'high' },
+      { metric: 'boc_last_decision_date', value: '2026-01-29', unit: 'date',    asOf: '2026-01-29T00:00:00.000Z', source: 'Bank of Canada', sourceUrl: 'https://bankofcanada.ca', confidence: 'high' },
+    ]));
   });
 
   afterEach(() => {
@@ -672,5 +681,132 @@ describe('shouldRunAngleGeneration — time gate', () => {
   test('returns false at Sunday 03:00 Toronto (wrong hour)', () => {
     // 03:00 EDT = 07:00 UTC
     expect(shouldRunAngleGeneration(new Date('2026-06-21T07:00:00Z'))).toBe(false);
+  });
+});
+
+// ── defensive data-presence check ────────────────────────────────────────────
+
+describe('defensive data-presence check', () => {
+  let tmpDir;
+  const NOW_D = new Date('2026-06-25T12:00:00Z');
+  const WEEK = '2026-W26';
+
+  function w26Angle(overrides = {}) {
+    return validAngle({
+      id: 'angle-2026-W26-001',
+      weekStartIso: '2026-06-22T00:00:00Z',
+      ...overrides,
+    });
+  }
+
+  function w26AnglesResponse(count = 2) {
+    const angles = [];
+    for (let i = 1; i <= count; i++) {
+      const pad = String(i).padStart(3, '0');
+      angles.push(w26Angle({ id: `angle-2026-W26-${pad}`, headline: `Angle ${i}` }));
+    }
+    return JSON.stringify({ angles });
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'angles-defensive-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+
+  test('throws InsufficientDataError on zero metrics', async () => {
+    const callRaw = jest.fn();
+    const err = await generateWeeklyAngles({ weekIso: WEEK, now: NOW_D, baseDir: tmpDir, callRaw })
+      .catch(e => e);
+    expect(err).toBeInstanceOf(InsufficientDataError);
+    expect(err.detail.fresh).toBe(0);
+    expect(err.detail.expected).toBe(3);
+    expect(err.detail.weekIso).toBe(WEEK);
+    expect(callRaw).not.toHaveBeenCalled();
+  });
+
+  test('proceeds with degraded data (1 of 3), calls injected log helper', async () => {
+    await writeTmpSnapshot(tmpDir, 'canada', '2026-06.json', [{
+      metric: 'goc_5yr_yield', value: 3.22, unit: 'percent',
+      asOf: '2026-06-20T00:00:00.000Z', source: 'Bank of Canada',
+      sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+    }]);
+    const callRaw = jest.fn().mockResolvedValue(w26AnglesResponse(2));
+    const logHelper = jest.fn();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await generateWeeklyAngles({
+      weekIso: WEEK, now: NOW_D, baseDir: tmpDir, callRaw,
+      appendUpstreamErrorLog: logHelper,
+    });
+
+    expect(result.angles.length).toBeGreaterThanOrEqual(2);
+    expect(logHelper).toHaveBeenCalledWith('angle-gen-degraded', expect.stringContaining('1 of 3'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('1 of 3'));
+  });
+
+  test('proceeds with degraded data (2 of 3) without injected helper, only console.warn fires', async () => {
+    await writeTmpSnapshot(tmpDir, 'canada', '2026-06.json', [
+      {
+        metric: 'goc_5yr_yield', value: 3.22, unit: 'percent',
+        asOf: '2026-06-20T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'boc_overnight_rate', value: 2.75, unit: 'percent',
+        asOf: '2026-05-01T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+    ]);
+    const callRaw = jest.fn().mockResolvedValue(w26AnglesResponse(2));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await generateWeeklyAngles({ weekIso: WEEK, now: NOW_D, baseDir: tmpDir, callRaw });
+
+    expect(result.angles.length).toBeGreaterThanOrEqual(2);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('2 of 3'));
+  });
+
+  test('full 3-metric count proceeds normally, no degraded-data warn or log call', async () => {
+    await writeTmpSnapshot(tmpDir, 'canada', '2026-06.json', [
+      {
+        metric: 'goc_5yr_yield', value: 3.22, unit: 'percent',
+        asOf: '2026-06-20T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'boc_overnight_rate', value: 2.75, unit: 'percent',
+        asOf: '2026-05-01T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+      {
+        metric: 'boc_last_decision_date', value: '2026-05-01', unit: 'date',
+        asOf: '2026-05-01T00:00:00.000Z', source: 'Bank of Canada',
+        sourceUrl: 'https://bankofcanada.ca', confidence: 'high',
+      },
+    ]);
+    const callRaw = jest.fn().mockResolvedValue(w26AnglesResponse(2));
+    const logHelper = jest.fn();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await generateWeeklyAngles({
+      weekIso: WEEK, now: NOW_D, baseDir: tmpDir, callRaw,
+      appendUpstreamErrorLog: logHelper,
+    });
+
+    expect(result.angles.length).toBeGreaterThanOrEqual(2);
+    expect(logHelper).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('degraded'));
+  });
+
+  test('InsufficientDataError is exported from angles module', () => {
+    const mod = require('../src/content/angles');
+    expect(typeof mod.InsufficientDataError).toBe('function');
+    const e = new mod.InsufficientDataError('test', { fresh: 0, expected: 3 });
+    expect(e.name).toBe('InsufficientDataError');
+    expect(e.detail).toEqual({ fresh: 0, expected: 3 });
   });
 });
