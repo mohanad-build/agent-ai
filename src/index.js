@@ -65,6 +65,7 @@ const ALLOWED_STATUSES = new Set([
 
 // Files in agents/ that are NOT real agents.
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
+const AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
 
 // --------------------------------------------------------------------------
 // Agent discovery
@@ -80,7 +81,7 @@ function discoverAgentIds() {
   if (!fs.existsSync(agentsDir)) return [];
   return fs
     .readdirSync(agentsDir)
-    .filter((f) => f.endsWith('.json') && !AGENT_FILE_BLOCKLIST.has(f))
+    .filter((f) => AGENT_ID_REGEX.test(f) && !AGENT_FILE_BLOCKLIST.has(f))
     .map((f) => f.replace(/\.json$/, ''))
     .sort();
 }
@@ -722,9 +723,19 @@ async function main() {
         continue;
       }
 
-      await processAgent(id);
+      const hasSheet = guardCfg && typeof guardCfg.googleSheetId === 'string' && guardCfg.googleSheetId.trim() !== '';
+
+      if (hasSheet) {
+        await processAgent(id);
+      }
       const agent = loadAgent(id);
       allAgentConfigs.push(agent);
+
+      if (!hasSheet) {
+        console.log(`[${id}] skipped Sheet-dependent processing: no googleSheetId`);
+        continue;
+      }
+
       const staleResult = await checkStaleQuestions(agent);
       console.log(`[${id}] stale check: reminders=${staleResult.remindersSent} escalations=${staleResult.escalationsSent} errors=${staleResult.errors.length}`);
       try {
@@ -764,4 +775,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, appendUpstreamErrorLog, runCycle: main };
+module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, appendUpstreamErrorLog, runCycle: main, discoverAgentIds, AGENT_ID_REGEX };

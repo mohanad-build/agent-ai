@@ -139,7 +139,7 @@ describe('runCycle: googleRefreshToken guard', () => {
   });
 
   it('2: valid googleRefreshToken → processing runs normally (runLeadIntake called)', async () => {
-    loadAgent.mockReturnValue(makeAgent({ googleRefreshToken: 'tok_valid_xyz' }));
+    loadAgent.mockReturnValue(makeAgent({ googleRefreshToken: 'tok_valid_xyz', googleSheetId: 'sheet-abc' }));
     runLeadIntake.mockResolvedValue({
       candidates: 0, leads: 0, noise: 0, businessCorrespondence: 0, errors: 0,
     });
