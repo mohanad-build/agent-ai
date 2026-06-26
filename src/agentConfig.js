@@ -5,9 +5,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { getStorageRoot } = require('./storagePaths');
 
 function loadAgent(agentId) {
-  const filePath = path.resolve(__dirname, '..', 'agents', `${agentId}.json`);
+  const filePath = path.join(getStorageRoot(), `${agentId}.json`);
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`Agent config not found: ${agentId} (looked for ${filePath})`);
@@ -18,10 +19,10 @@ function loadAgent(agentId) {
 }
 
 function findAgentByPhone(phone) {
-  const agentsDir = path.join(__dirname, '..', 'agents');
+  const agentsDir = getStorageRoot();
   const files = fs.readdirSync(agentsDir);
   for (const file of files) {
-    if (!file.endsWith('.json') || file.endsWith('.state.json')) continue;
+    if (!/^[a-z0-9-]+\.json$/.test(file)) continue;
     const filePath = path.join(agentsDir, file);
     let config;
     try {

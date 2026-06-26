@@ -34,10 +34,7 @@ function discoverOperatorIds() {
 //
 // Returns { ok, orphans: [{agentId, operatorId}], missingOperators: [operatorId] }
 function validateAgentOperatorMappings(agentsDir, operatorsDir) {
-  // Default agentsDir matches agentConfig.js's Pattern A resolution (__dirname/../agents/)
-  // so both resolve to the same path on Railway. When agentConfig.js migrates to Pattern B,
-  // update both defaults together.
-  const aDir = agentsDir   || path.join(__dirname, '..', 'agents');
+  const aDir = agentsDir   || getStorageRoot();
   const oDir = operatorsDir || path.join(getStorageRoot(), '_operators');
 
   const orphans = [];

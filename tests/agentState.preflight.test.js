@@ -5,13 +5,16 @@ const path = require('path');
 const { incrementWeeklyPreflightSkips, resetWeeklyPreflightSkips, getState } = require('../src/agentState');
 
 const AGENT_ID = 'test-preflight-skip-counter';
-const STATE_PATH = path.join(__dirname, '..', 'agents', `${AGENT_ID}.state.json`);
+const AGENTS_DIR = path.join(__dirname, '..', 'agents');
+const STATE_PATH = path.join(AGENTS_DIR, `${AGENT_ID}.state.json`);
 
 beforeEach(() => {
+  process.env.STORAGE_ROOT = AGENTS_DIR;
   if (fs.existsSync(STATE_PATH)) fs.unlinkSync(STATE_PATH);
 });
 
 afterEach(() => {
+  delete process.env.STORAGE_ROOT;
   if (fs.existsSync(STATE_PATH)) fs.unlinkSync(STATE_PATH);
 });
 

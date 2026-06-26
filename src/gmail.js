@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 const { getNowIso } = require('./time');
+const { getStorageRoot } = require('./storagePaths');
 
 // Module state
 const oauthClientCache = new Map();
@@ -52,7 +53,7 @@ function isAuthFailure(err) {
 }
 
 function handleAuthFailure(agentConfig, originalError) {
-  const configPath = path.join(__dirname, '..', 'agents', `${agentConfig.agentId}.json`);
+  const configPath = path.join(getStorageRoot(), `${agentConfig.agentId}.json`);
   try {
     const current = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     current.isActive = false;

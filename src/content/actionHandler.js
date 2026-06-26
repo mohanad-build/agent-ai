@@ -13,18 +13,19 @@ const { renderBlogPost }          = require('./renderBlogPost');
 const { callRaw, MODELS, stripCodeFences } = require('../claude');
 const gmail                       = require('../gmail');
 const email                       = require('../email');
+const { getStorageRoot }          = require('../storagePaths');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
 const ASSISTANT_EMAIL      = 'assistant@getklosed.ca';
-const TOKEN_PATH           = path.join(__dirname, '..', '..', 'agents', 'assistant.json');
-const AGENTS_DIR           = path.join(__dirname, '..', '..', 'agents');
+function getTokenPath() { return path.join(getStorageRoot(), 'assistant.json'); }
+function getAgentsDir()  { return getStorageRoot(); }
 const REGEN_CAP            = 5;
 const CONFIDENCE_THRESHOLD = 0.7;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function loadAssistantConfig() {
-  const agentData = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+  const agentData = JSON.parse(fs.readFileSync(getTokenPath(), 'utf8'));
   return {
     agentId:            ASSISTANT_AGENT_ID,
     gmailAddress:       ASSISTANT_EMAIL,
@@ -267,7 +268,7 @@ async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSub
   }
 
   if (intent === 'pause_account') {
-    const configPath = path.join(AGENTS_DIR, `${agentId}.json`);
+    const configPath = path.join(getAgentsDir(), `${agentId}.json`);
     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     cfg.isActive = false;
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
@@ -279,7 +280,7 @@ async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSub
   }
 
   if (intent === 'resume_account') {
-    const configPath = path.join(AGENTS_DIR, `${agentId}.json`);
+    const configPath = path.join(getAgentsDir(), `${agentId}.json`);
     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     cfg.isActive = true;
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));

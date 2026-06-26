@@ -439,7 +439,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
       smsResult = 'failed';
       errors.push({ channel: 'sms', message: smsRetry.lastError.message });
       _appendDigestErrorLog(
-        path.join(__dirname, '..', 'agents', `${agentConfig.agentId}.digest-errors.log`),
+        path.join(getStorageRoot(), `${agentConfig.agentId}.digest-errors.log`),
         'daily-sms',
         smsRetry.lastError
       );
@@ -471,7 +471,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
       emailResult = 'failed';
       errors.push({ channel: 'email', message: emailRetry.lastError.message });
       _appendDigestErrorLog(
-        path.join(__dirname, '..', 'agents', `${agentConfig.agentId}.digest-errors.log`),
+        path.join(getStorageRoot(), `${agentConfig.agentId}.digest-errors.log`),
         'daily-email',
         emailRetry.lastError
       );
@@ -504,7 +504,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
 
   // Discover all agent IDs (mirrors discoverAgentIds in src/index.js; not imported to avoid circular)
   const AGENT_BLOCKLIST = new Set(['example.json', '.gitkeep']);
-  const agentsDir = path.join(__dirname, '..', 'agents');
+  const agentsDir = getStorageRoot();
   let allAgentIds = [];
   if (fs.existsSync(agentsDir)) {
     allAgentIds = fs.readdirSync(agentsDir)

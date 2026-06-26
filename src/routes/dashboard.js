@@ -9,14 +9,15 @@ const { loadAgent } = require('../agentConfig');
 const agentState = require('../agentState');
 const email = require('../email');
 const { readContentProfile, setContentEngineEnabled } = require('../content/profile');
+const { getStorageRoot } = require('../storagePaths');
 
-const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
+function getAgentsDir() { return getStorageRoot(); }
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
 
 function discoverAgentIds() {
-  if (!fs.existsSync(AGENTS_DIR)) return [];
+  if (!fs.existsSync(getAgentsDir())) return [];
   return fs
-    .readdirSync(AGENTS_DIR)
+    .readdirSync(getAgentsDir())
     .filter((f) => f.endsWith('.json') && !f.endsWith('.state.json') && !AGENT_FILE_BLOCKLIST.has(f))
     .map((f) => f.replace(/\.json$/, ''))
     .sort();
@@ -365,7 +366,7 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
 router.post('/agent/:agentId/edit', (req, res) => {
   try {
     const { agentId } = req.params;
-    const filePath = path.join(AGENTS_DIR, `${agentId}.json`);
+    const filePath = path.join(getAgentsDir(), `${agentId}.json`);
     if (!fs.existsSync(filePath)) return res.status(404).send('Agent not found');
 
     let agent;

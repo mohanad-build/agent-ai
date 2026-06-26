@@ -77,7 +77,7 @@ function discoverAgentIds() {
   if (process.env.AGENT_ID) {
     return [process.env.AGENT_ID];
   }
-  const agentsDir = path.join(__dirname, '..', 'agents');
+  const agentsDir = getStorageRoot();
   if (!fs.existsSync(agentsDir)) return [];
   return fs
     .readdirSync(agentsDir)

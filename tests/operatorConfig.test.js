@@ -149,21 +149,17 @@ describe('validateAgentOperatorMappings', () => {
   });
 
   // Default-path smoke test. All behavioural tests above pass explicit dirs to
-  // stay hermetic. This test calls with zero arguments and asserts only that the
-  // default agentsDir is __dirname-based (contains 'agents' in its path) -- the
-  // same resolution agentConfig.js uses. It does not assert on return value
-  // because the real agents/ directory is not modified by tests.
-  test('zero-argument call uses __dirname-based default agentsDir (contains "agents")', () => {
-    // Spy on fs.readdirSync to capture the path the function passes as its default agentsDir.
+  // stay hermetic. This test calls with zero arguments and asserts that the
+  // default agentsDir is getStorageRoot() (Pattern B), which during the test
+  // is the tmpDir set by beforeEach.
+  test('zero-argument call uses getStorageRoot() as default agentsDir', () => {
     const readdirSpy = jest.spyOn(fs, 'readdirSync').mockReturnValue([]);
     jest.spyOn(fs, 'existsSync').mockReturnValue(true);
 
     validateAgentOperatorMappings();
 
     const calledPath = readdirSpy.mock.calls[0][0];
-    expect(calledPath).toMatch(/agents/);
-    // Must NOT contain a doubled 'agents/agents' segment (the bug this test guards).
-    expect(calledPath).not.toMatch(/agents[/\\]agents/);
+    expect(calledPath).toBe(tmpDir);
 
     jest.restoreAllMocks();
   });

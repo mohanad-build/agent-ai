@@ -5,9 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 
+const { getStorageRoot } = require('../storagePaths');
+
 const router = express.Router();
 
-const AGENTS_DIR = path.resolve(__dirname, '..', '..', 'agents');
+function getAgentsDir() { return getStorageRoot(); }
 
 const COLUMN_HEADERS = [
   'Lead ID', 'Name', 'Phone', 'Source', 'Date Added',
@@ -18,8 +20,8 @@ const COLUMN_HEADERS = [
 ];
 
 function writeAgentAtomic(agentId, config) {
-  const tmpPath = path.join(AGENTS_DIR, `${agentId}.tmp.json`);
-  const finalPath = path.join(AGENTS_DIR, `${agentId}.json`);
+  const tmpPath = path.join(getAgentsDir(), `${agentId}.tmp.json`);
+  const finalPath = path.join(getAgentsDir(), `${agentId}.json`);
   fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n');
   fs.renameSync(tmpPath, finalPath);
 }
@@ -28,7 +30,7 @@ function generateAgentId(name) {
   const base = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   let candidate = base;
   let suffix = 2;
-  while (fs.existsSync(path.join(AGENTS_DIR, `${candidate}.json`))) {
+  while (fs.existsSync(path.join(getAgentsDir(), `${candidate}.json`))) {
     candidate = `${base}-${suffix++}`;
   }
   return candidate;
@@ -272,7 +274,7 @@ router.get('/oauth/callback', async (req, res) => {
       return res.status(400).send('No refresh token received. Please try again.');
     }
 
-    const agentPath = path.join(AGENTS_DIR, `${agentId}.json`);
+    const agentPath = path.join(getAgentsDir(), `${agentId}.json`);
     const config = JSON.parse(fs.readFileSync(agentPath, 'utf-8'));
     config.googleRefreshToken = tokens.refresh_token;
     config.isActive = true;
@@ -364,7 +366,7 @@ router.get('/done', (req, res) => {
   if (agentId) {
     try {
       const config = JSON.parse(
-        fs.readFileSync(path.join(AGENTS_DIR, `${agentId}.json`), 'utf-8')
+        fs.readFileSync(path.join(getAgentsDir(), `${agentId}.json`), 'utf-8')
       );
       agentName = config.agentName || '';
       gmailAddress = config.gmailAddress || '';
