@@ -459,6 +459,10 @@ async function sendOperatorEscalationEmail(agent, row) {
 //   Branch B (24h): escalate to the operator if not yet escalated.
 // Both branches may fire for the same row in the same pass if it is old enough.
 async function checkStaleQuestions(agent) {
+  if (agent.isActive === false) {
+    console.log(`[${agent.agentId}] stale check: skipped (inactive)`);
+    return { skipped: 'inactive', remindersSent: 0, escalationsSent: 0, errors: [] };
+  }
   const rows = await email.readSheetRows(agent);
   let remindersSent = 0;
   let escalationsSent = 0;

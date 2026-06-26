@@ -45,6 +45,10 @@ function getPromptBuilder(touchIndex) {
 
 async function runFollowUps(agentConfig) {
   const agentId = agentConfig.agentId;
+  if (agentConfig.isActive === false) {
+    console.log(`[${agentId}] follow-ups: skipped (inactive)`);
+    return { skipped: 'inactive', eligible: 0, fired: 0, threadingMismatchSkipped: 0, errors: 0 };
+  }
   const stats = {
     eligible: 0,
     threadingMismatchSkipped: 0,
