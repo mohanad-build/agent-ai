@@ -10,15 +10,24 @@ const agentState = require('../agentState');
 const email = require('../email');
 const { readContentProfile, setContentEngineEnabled } = require('../content/profile');
 const { getStorageRoot } = require('../storagePaths');
+const {
+  ROOT_TOKENS,
+  SHARED_HEAD_LINKS,
+  SHARED_HEADER,
+  SHARED_FOOTER,
+  ARROW_SVG, // eslint-disable-line no-unused-vars
+  renderErrorPage,
+} = require('../brandChrome');
 
 function getAgentsDir() { return getStorageRoot(); }
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
+const AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
 
 function discoverAgentIds() {
   if (!fs.existsSync(getAgentsDir())) return [];
   return fs
     .readdirSync(getAgentsDir())
-    .filter((f) => f.endsWith('.json') && !f.endsWith('.state.json') && !AGENT_FILE_BLOCKLIST.has(f))
+    .filter((f) => AGENT_ID_REGEX.test(f) && !AGENT_FILE_BLOCKLIST.has(f))
     .map((f) => f.replace(/\.json$/, ''))
     .sort();
 }
@@ -63,59 +72,98 @@ function pageWrap(title, body) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escHtml(title)}</title>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #f4f6f8; color: #222; }
-  .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
-  h1,h2,h3,h4 { margin-top: 0; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 1.5rem; }
-  .card { background: #fff; border: 1px solid #dde1e7; border-radius: 8px; padding: 1.25rem; }
-  .card.error { border-color: #e74c3c; }
-  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: .75rem; }
-  .card-header h3 { margin-bottom: 0; }
-  .stat-row { display: flex; flex-wrap: wrap; gap: .4rem .9rem; margin: .75rem 0; font-size: .88rem; align-items: baseline; }
-  .stat-item { display: flex; align-items: baseline; gap: .2rem; }
-  .stat-label { color: #666; }
-  .stat-val { font-weight: 700; }
-  .stat-val.hot { color: #e74c3c; }
-  .section { margin-top: .85rem; }
-  .section h4 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: #888; margin-bottom: .3rem; }
-  .section ul { margin: 0; padding-left: 1.2rem; font-size: .84rem; line-height: 1.6; }
-  .actions { margin-top: 1rem; display: flex; gap: .5rem; flex-wrap: wrap; }
-  .meta { font-size: .8rem; color: #888; margin: .25rem 0; }
-  .btn { display: inline-block; padding: .4rem .85rem; background: #1a73e8; color: #fff; text-decoration: none; border-radius: 4px; border: none; cursor: pointer; font-size: .875rem; }
-  .btn:hover { background: #1558b0; }
-  .btn-sm { font-size: .8rem; padding: .3rem .65rem; }
-  .btn-danger { background: #e74c3c; }
-  .btn-danger:hover { background: #c0392b; }
-  .btn-link { background: none; border: none; color: #1a73e8; cursor: pointer; font-size: .85rem; padding: 0; text-decoration: underline; }
-  .badge { display: inline-block; padding: .15rem .45rem; border-radius: 3px; font-size: .75rem; font-weight: 600; }
-  .badge.live { background: #d4edda; color: #155724; }
-  .badge.shadow { background: #fff3cd; color: #856404; }
-  .badge.active { background: #cce5ff; color: #004085; }
-  .badge.paused { background: #f8d7da; color: #721c24; }
-  .badge.ok { background: #d4edda; color: #155724; }
-  .badge.err-badge { background: #f8d7da; color: #721c24; }
-  .err { color: #e74c3c; }
-  .banner-ok { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: .75rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
-  .form-row { margin-bottom: .9rem; }
-  .form-row label { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .3rem; }
-  .form-row input[type=text], .form-row select, .form-row textarea { width: 100%; padding: .4rem .6rem; border: 1px solid #ccc; border-radius: 4px; font-size: .9rem; }
-  .form-row textarea { resize: vertical; }
-  .form-row small { font-size: .78rem; color: #888; }
-  .readonly-field { font-size: .9rem; color: #555; background: #f8f9fa; padding: .35rem .6rem; border-radius: 4px; border: 1px solid #e0e0e0; display: block; word-break: break-all; }
-  table { width: 100%; border-collapse: collapse; background: #fff; font-size: .875rem; }
-  th, td { padding: .5rem .75rem; text-align: left; border-bottom: 1px solid #eee; }
-  th { background: #f4f6f8; font-weight: 600; white-space: nowrap; }
-  tr:hover td { background: #f9fbff; }
-  .status-badge { display: inline-block; padding: .15rem .4rem; border-radius: 3px; font-size: .75rem; font-weight: 600; color: #fff; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escHtml(title)}</title>
+  ${SHARED_HEAD_LINKS}
+  <style>
+    ${ROOT_TOKENS}
+    /* dashboard-specific rules */
+    .shell-wide { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin: 32px 0 24px; }
+    .page-header h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+    .page-header h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; }
+    .page-actions { display: flex; gap: 12px; align-items: center; }
+    .page-actions a { color: var(--muted); font-size: 14px; text-decoration: none; }
+    .page-actions a:hover { color: var(--text); }
+    .page-actions span { color: var(--muted-2); font-size: 14px; }
+
+    /* Agent cards */
+    .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+    .agent-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .agent-card.error { border-color: #DC2626; }
+    .agent-card .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+    .agent-card h3 { margin: 0; font-size: 18px; font-weight: 600; }
+    .agent-card .badge-row { display: flex; gap: 4px; flex-wrap: wrap; }
+    .agent-card .meta { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+    .agent-card .stat-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+    .agent-card .stat { display: flex; flex-direction: column; gap: 2px; }
+    .agent-card .stat-label { color: var(--muted-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .agent-card .stat-value { color: var(--text); font-size: 20px; font-weight: 700; }
+    .agent-card .stat-value.hot { color: #DC2626; }
+    .agent-card .section { margin-top: 14px; }
+    .agent-card .section-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 6px; }
+    .agent-card .section ul { margin: 0; padding-left: 16px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+    .agent-card .card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+    .agent-card .card-actions a { display: inline-block; padding: 8px 14px; border-radius: 8px; background: var(--surface-2); color: var(--text); text-decoration: none; font-size: 13px; font-weight: 500; border: 1px solid var(--border); }
+    .agent-card .card-actions a:hover { background: var(--violet-soft); border-color: var(--violet); color: var(--violet-bright); }
+    .agent-card .err { color: #DC2626; font-size: 14px; margin: 8px 0 0; }
+
+    /* Pill badges (mode, active, oauth health) */
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+    .pill-live    { background: rgba(16,185,129,0.15); color: #10B981; border: 1px solid rgba(16,185,129,0.3); }
+    .pill-shadow  { background: rgba(245,158,11,0.12); color: #F59E0B; border: 1px solid rgba(245,158,11,0.3); }
+    .pill-active  { background: rgba(124,58,237,0.13); color: #8B5CF6; border: 1px solid rgba(124,58,237,0.3); }
+    .pill-paused  { background: rgba(220,38,38,0.1);   color: #DC2626; border: 1px solid rgba(220,38,38,0.25); }
+    .pill-ok      { background: rgba(16,185,129,0.12); color: #10B981; border: 1px solid rgba(16,185,129,0.25); }
+    .pill-err     { background: rgba(220,38,38,0.1);   color: #DC2626; border: 1px solid rgba(220,38,38,0.25); }
+
+    /* Edit page */
+    .edit-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 680px; }
+    .form-row { margin-bottom: 16px; }
+    .form-row label { display: block; color: var(--text); font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+    .form-row input, .form-row select, .form-row textarea { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font: inherit; font-size: 14px; }
+    .form-row input:focus, .form-row select:focus, .form-row textarea:focus { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-soft); }
+    .form-row textarea { resize: vertical; }
+    .form-row small { color: var(--muted-2); font-size: 12px; display: block; margin-top: 4px; }
+    .readonly-field { display: block; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--muted); word-break: break-all; }
+    .form-actions { margin-top: 24px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; background: var(--violet); color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; border: none; cursor: pointer; font-family: inherit; }
+    .btn:hover { background: var(--violet-bright); }
+    .btn-warn { background: #D97706; color: #fff; }
+    .btn-warn:hover { background: #B45309; }
+
+    /* Save banner */
+    .banner-ok { background: var(--violet-soft); border: 1px solid var(--violet); color: var(--violet-bright); padding: 10px 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+
+    /* Leads table */
+    .leads-table { width: 100%; border-collapse: collapse; }
+    .leads-table th { text-align: left; padding: 10px 12px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+    .leads-table td { padding: 12px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); vertical-align: top; }
+    .leads-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .inline-form { display: inline-block; margin-left: 6px; }
+    .inline-form button { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 500; cursor: pointer; font-family: inherit; }
+    .inline-form button:hover { background: var(--violet-soft); border-color: var(--violet); color: var(--violet-bright); }
+
+    /* Status badges */
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+    .status-badge--red-filled        { background: #DC2626; color: #fff; }
+    .status-badge--amber-filled      { background: #F59E0B; color: #0a0a0a; }
+    .status-badge--amber-dark-filled { background: #D97706; color: #fff; }
+    .status-badge--violet-outline    { background: transparent; color: #8B5CF6; border: 1px solid #8B5CF6; }
+    .status-badge--violet-filled     { background: #7C3AED; color: #fff; }
+    .status-badge--emerald-filled    { background: #10B981; color: #0a0a0a; }
+    .status-badge--cyan-filled       { background: #06B6D4; color: #0a0a0a; }
+    .status-badge--gray-outline      { background: transparent; color: #8b8b93; border: 1px solid rgba(255,255,255,0.14); }
+    .status-badge--red-outline       { background: transparent; color: #DC2626; border: 1px solid #DC2626; }
+  </style>
 </head>
 <body>
-<div class="container">${body}</div>
+  ${SHARED_HEADER}
+  <main class="shell-wide">
+    ${body}
+  </main>
+  ${SHARED_FOOTER}
 </body>
 </html>`;
 }
@@ -125,29 +173,43 @@ function pageWrap(title, body) {
 router.get('/login', (req, res) => {
   const error = req.query.error === '1';
   res.send(`<!DOCTYPE html>
-<html><head><title>Dashboard Login</title>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f4f6f8; }
-  .card { background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.1); min-width: 320px; }
-  h2 { margin-top: 0; }
-  label { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .3rem; }
-  input[type=password] { width: 100%; padding: .5rem .6rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
-  button { width: 100%; padding: .6rem; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; }
-  button:hover { background: #1558b0; }
-  .err { color: #e74c3c; margin-bottom: .75rem; font-size: .9rem; }
-</style>
-</head><body>
-<div class="card">
-  <h2>GetKlosed Dashboard</h2>
-  ${error ? '<p class="err">Incorrect password.</p>' : ''}
-  <form method="POST" action="/dashboard/login">
-    <label for="password">Password</label>
-    <input type="password" id="password" name="password" autofocus required />
-    <button type="submit">Sign In</button>
-  </form>
-</div>
-</body></html>`);
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in: GetKlosed Dashboard</title>
+  ${SHARED_HEAD_LINKS}
+  <style>
+    ${ROOT_TOKENS}
+    .login-shell { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 200px); padding: 32px 24px; }
+    .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 32px; max-width: 400px; width: 100%; }
+    .login-card h2 { margin: 0 0 8px; font-size: 22px; font-weight: 700; letter-spacing: -0.015em; }
+    .login-card p.sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+    .login-card label { display: block; color: var(--text); font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+    .login-card input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font: inherit; font-size: 14px; }
+    .login-card input:focus { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-soft); }
+    .login-card button { width: 100%; margin-top: 16px; padding: 12px; border-radius: 8px; background: var(--violet); color: #fff; font-size: 15px; font-weight: 600; border: none; cursor: pointer; font-family: inherit; }
+    .login-card button:hover { background: var(--violet-bright); }
+    .login-card .err { color: #DC2626; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  ${SHARED_HEADER}
+  <main class="login-shell">
+    <div class="login-card">
+      <h2>Sign in</h2>
+      <p class="sub">Enter the dashboard password to continue.</p>
+      <form method="POST" action="/dashboard/login">
+        <label for="password">Password</label>
+        <input type="password" name="password" id="password" required autofocus />
+        ${error ? '<p class="err">Incorrect password.</p>' : ''}
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+  </main>
+  ${SHARED_FOOTER}
+</body>
+</html>`);
 });
 
 router.post('/login', (req, res) => {
@@ -170,13 +232,15 @@ router.use(requireAuth);
 
 const STATUS_KEYS = ['HOT', 'awaiting_agent', 'awaiting_response', 'needs_review', 'warm', 'cold', 'new'];
 const STATUS_COLOR = {
-  HOT: '#e74c3c',
-  awaiting_agent: '#e67e22',
-  awaiting_response: '#f39c12',
-  needs_review: '#9b59b6',
-  warm: '#27ae60',
-  cold: '#7f8c8d',
-  new: '#2980b9',
+  HOT:               'red-filled',
+  awaiting_agent:    'amber-filled',
+  awaiting_response: 'amber-dark-filled',
+  needs_review:      'violet-outline',
+  warm:              'emerald-filled',
+  cold:              'gray-outline',
+  new:               'cyan-filled',
+  operatorEscalated: 'red-outline',
+  path1b:            'violet-filled',
 };
 
 const TS_RE = /^\[(\d{4}-\d{2}-\d{2}T[\d:.Z+-]+)/;
@@ -237,67 +301,70 @@ router.get('/', async (req, res) => {
 
     const cards = results.map((result, i) => {
       if (result.status === 'rejected') {
-        return `<div class="card error"><h3>${escHtml(agentIds[i])}</h3><p class="err">Error loading agent: ${escHtml(result.reason.message)}</p></div>`;
+        return `<div class="agent-card error"><h3>${escHtml(agentIds[i])}</h3><p class="err">Error loading agent: ${escHtml(result.reason.message)}</p></div>`;
       }
       const { agentId, agent, leadCounts, recentActivity, followUpPipeline, lastCycleRun, oauthHealthy } = result.value;
 
       const modeBadge = agent.mode === 'live'
-        ? '<span class="badge live">LIVE</span>'
-        : '<span class="badge shadow">SHADOW</span>';
+        ? '<span class="pill pill-live">Live</span>'
+        : '<span class="pill pill-shadow">Shadow</span>';
       const activeBadge = agent.isActive
-        ? '<span class="badge active">Active</span>'
-        : '<span class="badge paused">Paused</span>';
+        ? '<span class="pill pill-active">Active</span>'
+        : '<span class="pill pill-paused">Paused</span>';
       const oauthBadge = oauthHealthy
-        ? '<span class="badge ok">Token OK</span>'
-        : '<span class="badge err-badge">No Token</span>';
+        ? '<span class="pill pill-ok">Token OK</span>'
+        : '<span class="pill pill-err">No Token</span>';
 
       const hotClass = leadCounts.HOT > 0 ? ' hot' : '';
 
       const pipelineHtml = followUpPipeline.length
-        ? followUpPipeline.map((f) => `<li>${escHtml(f.name)} &mdash; touch ${f.followUpCount}/3</li>`).join('')
+        ? followUpPipeline.map((f) => `<li>${escHtml(f.name)}: touch ${f.followUpCount}/3</li>`).join('')
         : '<li><em>none</em></li>';
 
       const activityHtml = recentActivity.length
         ? recentActivity.map((a) => `<li>${escHtml(a.substring(0, 120))}</li>`).join('')
         : '<li><em>none</em></li>';
 
-      return `<div class="card">
-  <div class="card-header">
+      return `<div class="agent-card">
+  <div class="card-top">
     <h3>${escHtml(agentId)}</h3>
-    <div>${modeBadge} ${activeBadge} ${oauthBadge}</div>
+    <div class="badge-row">${modeBadge} ${activeBadge} ${oauthBadge}</div>
   </div>
   ${lastCycleRun ? `<p class="meta">Last cycle: ${escHtml(lastCycleRun)}</p>` : ''}
   <div class="stat-row">
-    <div class="stat-item"><span class="stat-label">HOT</span> <span class="stat-val${hotClass}">${leadCounts.HOT}</span></div>
-    <div class="stat-item"><span class="stat-label">Awaiting Agent</span> <span class="stat-val">${leadCounts.awaiting_agent}</span></div>
-    <div class="stat-item"><span class="stat-label">Awaiting Response</span> <span class="stat-val">${leadCounts.awaiting_response}</span></div>
-    <div class="stat-item"><span class="stat-label">Needs Review</span> <span class="stat-val">${leadCounts.needs_review}</span></div>
-    <div class="stat-item"><span class="stat-label">Warm</span> <span class="stat-val">${leadCounts.warm}</span></div>
-    <div class="stat-item"><span class="stat-label">Cold</span> <span class="stat-val">${leadCounts.cold}</span></div>
-    <div class="stat-item"><span class="stat-label">New</span> <span class="stat-val">${leadCounts.new}</span></div>
-    <div class="stat-item"><span class="stat-label">Total</span> <span class="stat-val">${leadCounts.total}</span></div>
+    <div class="stat"><span class="stat-label">HOT</span><span class="stat-value${hotClass}">${leadCounts.HOT}</span></div>
+    <div class="stat"><span class="stat-label">Awaiting Agent</span><span class="stat-value">${leadCounts.awaiting_agent}</span></div>
+    <div class="stat"><span class="stat-label">Awaiting Response</span><span class="stat-value">${leadCounts.awaiting_response}</span></div>
+    <div class="stat"><span class="stat-label">Needs Review</span><span class="stat-value">${leadCounts.needs_review}</span></div>
+    <div class="stat"><span class="stat-label">Warm</span><span class="stat-value">${leadCounts.warm}</span></div>
+    <div class="stat"><span class="stat-label">Cold</span><span class="stat-value">${leadCounts.cold}</span></div>
+    <div class="stat"><span class="stat-label">New</span><span class="stat-value">${leadCounts.new}</span></div>
+    <div class="stat"><span class="stat-label">Total</span><span class="stat-value">${leadCounts.total}</span></div>
   </div>
   <div class="section">
-    <h4>Follow-up Pipeline</h4>
+    <p class="section-label">Follow-up Pipeline</p>
     <ul>${pipelineHtml}</ul>
   </div>
   <div class="section">
-    <h4>Recent Activity</h4>
+    <p class="section-label">Recent Activity</p>
     <ul>${activityHtml}</ul>
   </div>
-  <div class="actions">
-    <a href="/dashboard/agent/${encodeURIComponent(agentId)}/edit" class="btn btn-sm">Edit Agent</a>
-    <a href="/dashboard/agent/${encodeURIComponent(agentId)}/leads" class="btn btn-sm">View Leads</a>
+  <div class="card-actions">
+    <a href="/dashboard/agent/${encodeURIComponent(agentId)}/edit">Edit Agent</a>
+    <a href="/dashboard/agent/${encodeURIComponent(agentId)}/leads">View Leads</a>
   </div>
 </div>`;
     });
 
     res.send(pageWrap('GetKlosed Dashboard', `
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
-  <h1 style="margin:0">GetKlosed Dashboard</h1>
-  <a href="/dashboard/logout" class="btn btn-sm">Logout</a>
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <div class="page-actions">
+    <span>Signed in</span>
+    <a href="/dashboard/logout">Sign out</a>
+  </div>
 </div>
-<div class="grid">${cards.join('')}</div>`));
+<div class="agent-grid">${cards.join('')}</div>`));
   } catch (err) {
     console.error('[dashboard] GET /:', err.message);
     res.status(500).send(err.message);
@@ -309,7 +376,13 @@ router.get('/', async (req, res) => {
 router.get('/agent/:agentId/edit', (req, res) => {
   try {
     let agent;
-    try { agent = loadAgent(req.params.agentId); } catch { return res.status(404).send('Agent not found'); }
+    try { agent = loadAgent(req.params.agentId); } catch {
+      return res.status(404).send(renderErrorPage(
+        'Agent not found',
+        'No agent matches that ID. It may have been removed or the URL is incorrect.',
+        { href: '/dashboard', label: 'Back to dashboard' }
+      ));
+    }
 
     const { agentId } = req.params;
     const saved = req.query.saved === '1';
@@ -326,12 +399,14 @@ router.get('/agent/:agentId/edit', (req, res) => {
       : field('Content Engine Enabled', 'contentEngineEnabled', select('contentEngineEnabled', ['false', 'true'], String(contentProfile.contentEngineEnabled)));
 
     res.send(pageWrap(`Edit: ${agentId}`, `
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-  <h2 style="margin:0">Edit Agent: ${escHtml(agentId)}</h2>
-  <a href="/dashboard" class="btn btn-sm">&#8592; Back</a>
-</div>
 ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
-<div class="card">
+<div class="page-header">
+  <h2>Edit Agent: ${escHtml(agentId)}</h2>
+  <div class="page-actions">
+    <a href="/dashboard">Back to dashboard</a>
+  </div>
+</div>
+<div class="edit-card">
   <div class="form-row"><label>Agent ID</label><span class="readonly-field">${escHtml(agent.agentId || agentId)}</span></div>
   <div class="form-row"><label>Gmail Address</label><span class="readonly-field">${escHtml(agent.gmailAddress || '')}</span></div>
   <div class="form-row"><label>Google Sheet ID</label><span class="readonly-field">${escHtml(agent.googleSheetId || '')}</span></div>
@@ -341,7 +416,7 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
     ${field('Agent Active', 'isActive', select('isActive', ['true', 'false'], String(agent.isActive)))}
     ${field('Agent Phone', 'agentPhone', `<input type="text" name="agentPhone" value="${escHtml(agent.agentPhone || '')}" />`)}
     ${field('Escalation Email', 'escalationEmail', `<input type="text" name="escalationEmail" value="${escHtml(agent.escalationEmail || '')}" />`)}
-    ${field('Follow-up Cadence', 'followUpCadence', `<input type="text" name="followUpCadence" value="${escHtml(cadence)}" placeholder="e.g. 3, 7, 14" /><small>comma-separated days</small>`)}
+    ${field('Follow-up Cadence', 'followUpCadence', `<input type="text" name="followUpCadence" value="${escHtml(cadence)}" placeholder="e.g. 3, 7, 14" /><small>Comma-separated days</small>`)}
     ${field('Tone', 'tone', `<input type="text" name="tone" value="${escHtml(agent.tone || '')}" />`)}
     ${field('Email Length', 'emailLength', select('emailLength', ['short', 'medium', 'long'], agent.emailLength))}
     ${field('Uses Emojis', 'usesEmojis', select('usesEmojis', ['false', 'true'], String(agent.usesEmojis)))}
@@ -349,11 +424,9 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
     ${field('Agent Signature', 'agentSignature', `<input type="text" name="agentSignature" value="${escHtml(agent.agentSignature || '')}" />`)}
     ${contentEngineFieldHtml}
 
-    <div class="form-row" style="margin-top:1.25rem">
-      <a href="/onboard/oauth/start?agentId=${encodeURIComponent(agentId)}" class="btn" style="background:#e67e22">Re-authorize Google Account</a>
-    </div>
-    <div class="form-row">
-      <button type="submit" class="btn">Save Changes</button>
+    <div class="form-actions">
+      <button type="submit" class="btn">Save changes</button>
+      <a href="/onboard/oauth/start?agentId=${encodeURIComponent(agentId)}" class="btn btn-warn">Re-authorize Google Account</a>
     </div>
   </form>
 </div>`));
@@ -367,10 +440,18 @@ router.post('/agent/:agentId/edit', (req, res) => {
   try {
     const { agentId } = req.params;
     const filePath = path.join(getAgentsDir(), `${agentId}.json`);
-    if (!fs.existsSync(filePath)) return res.status(404).send('Agent not found');
+    if (!fs.existsSync(filePath)) return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    ));
 
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send('Agent not found'); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
 
     const b = req.body;
 
@@ -432,7 +513,13 @@ router.get('/agent/:agentId/leads', async (req, res) => {
   try {
     const { agentId } = req.params;
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send('Agent not found'); }
+    try { agent = loadAgent(agentId); } catch {
+      return res.status(404).send(renderErrorPage(
+        'Agent not found',
+        'No agent matches that ID. It may have been removed or the URL is incorrect.',
+        { href: '/dashboard', label: 'Back to dashboard' }
+      ));
+    }
 
     let rows = [];
     try { rows = await email.readSheetRows(agent); } catch { /* render empty */ }
@@ -440,7 +527,7 @@ router.get('/agent/:agentId/leads', async (req, res) => {
     const rowsHtml = rows.map((row) => {
       const aiOn = isAiEnabled(row);
       const isSoi = (row.leadCategory || '').toLowerCase() === 'soi';
-      const sc = STATUS_COLOR[row.status] || '#555';
+      const sc = STATUS_COLOR[row.status] || 'gray-outline';
       const lastAction = (() => {
         if (!row.conversationHistory) return '';
         const lines = row.conversationHistory.split('\n').filter(Boolean);
@@ -450,30 +537,25 @@ router.get('/agent/:agentId/leads', async (req, res) => {
   <td>${row.rowIndex}</td>
   <td>${escHtml(row.name || '')}</td>
   <td>${escHtml(row.leadId || '')}</td>
-  <td><span class="status-badge" style="background:${sc}">${escHtml(row.status || '')}</span></td>
-  <td>${aiOn ? 'Yes' : 'No'}
-    <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-ai" style="display:inline;margin-left:.35rem">
-      <button type="submit" class="btn-link">[toggle]</button>
-    </form>
-  </td>
+  <td><span class="status-badge status-badge--${sc}">${escHtml(row.status || '')}</span></td>
+  <td>${aiOn ? 'Yes' : 'No'}<form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-ai" class="inline-form"><button type="submit">[toggle]</button></form></td>
   <td>${escHtml(row.source || '')}</td>
   <td>${escHtml(String(row.followUpCount || ''))}</td>
   <td>${escHtml(lastAction)}</td>
-  <td>
-    <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-soi" style="display:inline">
-      <button type="submit" class="btn-link">${isSoi ? '[unmark SOI]' : '[mark SOI]'}</button>
-    </form>
-  </td>
+  <td><form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-soi" class="inline-form"><button type="submit">${isSoi ? '[unmark SOI]' : '[mark SOI]'}</button></form></td>
 </tr>`;
     }).join('');
 
     res.send(pageWrap(`Leads: ${agentId}`, `
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-  <h2 style="margin:0">Leads: ${escHtml(agentId)}</h2>
-  <a href="/dashboard" class="btn btn-sm">&#8592; Back</a>
+<div class="page-header">
+  <h2>Leads: ${escHtml(agentId)}</h2>
+  <div class="page-actions">
+    <a href="/dashboard">Back to dashboard</a>
+    <a href="/dashboard/agent/${encodeURIComponent(agentId)}/edit">Edit settings</a>
+  </div>
 </div>
-<div style="overflow-x:auto">
-  <table>
+<div style="overflow-x: auto;">
+  <table class="leads-table">
     <thead><tr>
       <th>Row</th><th>Name</th><th>Email</th><th>Status</th>
       <th>AI Enabled</th><th>Source</th><th>Follow-Up Count</th><th>Last Action</th><th>SOI</th>
@@ -494,7 +576,11 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', async (req, res) => {
     const { agentId, rowIndex } = req.params;
     const ri = parseInt(rowIndex, 10);
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send('Agent not found'); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
     const rows = await email.readSheetRows(agent);
     const row = rows.find((r) => r.rowIndex === ri);
     if (!row) return res.status(404).send('Row not found');
@@ -514,7 +600,11 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
     const { agentId, rowIndex } = req.params;
     const ri = parseInt(rowIndex, 10);
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send('Agent not found'); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
     const rows = await email.readSheetRows(agent);
     const row = rows.find((r) => r.rowIndex === ri);
     if (!row) return res.status(404).send('Row not found');
@@ -528,3 +618,5 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.discoverAgentIds = discoverAgentIds;
+module.exports.AGENT_ID_REGEX = AGENT_ID_REGEX;
