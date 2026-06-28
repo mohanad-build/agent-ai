@@ -44,142 +44,295 @@ function makeOAuthClient() {
   );
 }
 
+const SHARED_HEAD_LINKS = `
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />`;
+
+const SHARED_HEADER = `
+  <header class="site-header">
+    <div class="shell-narrow">
+      <a class="logo" href="https://getklosed.ca">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="5.7" r="2.8" fill="none" stroke="#fff" stroke-width="2.3"></circle>
+            <path d="M12 8.5 V20.2" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round"></path>
+            <path d="M12 14.7 L17 11.2" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round"></path>
+            <path d="M12 14.7 L17 18.2" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round"></path>
+          </svg>
+        </span>
+        <span class="logo-word">Get<span class="k">Klosed</span></span>
+      </a>
+    </div>
+  </header>`;
+
+const SHARED_FOOTER = `
+  <footer class="site-footer">
+    <div class="shell-narrow">
+      <span class="footer-copy">© 2026 Mohanad Mohamed. All rights reserved.</span>
+      <div class="footer-links">
+        <a href="https://getklosed.ca/privacy.html">Privacy Policy</a>
+        <a href="https://getklosed.ca/terms.html">Terms of Service</a>
+        <a href="mailto:mohanad@getklosed.ca">Contact</a>
+      </div>
+    </div>
+  </footer>`;
+
+const ARROW_SVG = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+const ROOT_TOKENS = `
+    :root {
+      --bg:            #0a0a0a;
+      --surface:       #111111;
+      --surface-2:     #181818;
+      --border:        rgba(255,255,255,0.08);
+      --border-strong: rgba(255,255,255,0.14);
+      --violet:        #7C3AED;
+      --violet-bright: #8B5CF6;
+      --violet-soft:   rgba(124,58,237,0.13);
+      --text:          #FAFAFA;
+      --muted:         #8b8b93;
+      --muted-2:       #65656d;
+      --font:          'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+    body { min-height: 100vh; padding-bottom: 64px; }
+    .shell-narrow { max-width: 680px; margin: 0 auto; padding: 0 24px; }
+    .site-header { border-bottom: 1px solid var(--border); }
+    .site-header .shell-narrow { display: flex; align-items: center; height: 72px; }
+    .logo { display: inline-flex; align-items: center; gap: 11px; text-decoration: none; user-select: none; }
+    .logo-mark { width: 31px; height: 31px; border-radius: 9px; background: var(--violet); display: grid; place-items: center; box-shadow: 0 2px 10px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.22); }
+    .logo-mark svg { width: 19px; height: 19px; }
+    .logo-word { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); }
+    .logo-word .k { color: var(--violet-bright); }
+    .btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 20px; background: var(--violet); color: #fff; border: none; border-radius: 10px; font-family: var(--font); font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.15s, transform 0.12s, box-shadow 0.15s; box-shadow: 0 6px 22px rgba(124,58,237,0.36); text-decoration: none; }
+    .btn-primary:hover { background: var(--violet-bright); transform: translateY(-1px); box-shadow: 0 10px 30px rgba(124,58,237,0.46); }
+    .btn-primary:active { transform: translateY(0); }
+    .site-footer { margin-top: 64px; padding: 24px 0; border-top: 1px solid var(--border); }
+    .site-footer .shell-narrow { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .footer-copy { font-size: 13px; color: var(--muted-2); }
+    .footer-links { display: flex; gap: 20px; }
+    .footer-links a { font-size: 13px; color: var(--muted); text-decoration: none; transition: color 0.15s; }
+    .footer-links a:hover { color: var(--text); }`;
+
+function renderErrorPage(title, message, retryLink) {
+  const btnHtml = retryLink
+    ? `<a href="${retryLink.href}" class="btn-primary" style="margin-top:24px;">${retryLink.label} ${ARROW_SVG}</a>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GetKlosed: Something went wrong</title>${SHARED_HEAD_LINKS}
+  <style>${ROOT_TOKENS}
+    .error-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 40px 32px; margin-top: 48px; }
+    .error-card h1 { font-size: 22px; font-weight: 700; margin-bottom: 14px; letter-spacing: -0.01em; }
+    .error-card p { font-size: 15px; color: var(--muted); line-height: 1.65; }
+  </style>
+</head>
+<body>
+${SHARED_HEADER}
+  <main>
+    <div class="shell-narrow">
+      <div class="error-card">
+        <h1>${title}</h1>
+        <p>${message}</p>
+        ${btnHtml}
+      </div>
+    </div>
+  </main>
+${SHARED_FOOTER}
+</body>
+</html>`;
+}
+
 const FORM_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Onboarding</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 40px 16px; }
-    .container { background: #fff; max-width: 640px; margin: 0 auto; padding: 40px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-    h1 { font-size: 24px; margin-bottom: 8px; }
-    .subtitle { color: #666; margin-bottom: 32px; font-size: 14px; }
-    .field { margin-bottom: 20px; }
-    label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; }
-    .hint { font-size: 12px; color: #888; margin-top: 4px; }
-    input[type=text], input[type=email], input[type=tel], input[type=number], select, textarea {
-      width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
-      font-size: 14px; outline: none; transition: border-color 0.15s;
+  <title>GetKlosed: Onboard your agent</title>${SHARED_HEAD_LINKS}
+  <style>${ROOT_TOKENS}
+    .page-heading { padding: 48px 0 32px; }
+    .page-heading h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 10px; }
+    .subhead { font-size: 15px; color: var(--muted); line-height: 1.6; }
+    .form-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 32px; margin-bottom: 16px; }
+    .form-section { margin-bottom: 28px; }
+    .form-section:last-child { margin-bottom: 0; }
+    .form-section h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    .field { margin-bottom: 18px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label { display: block; font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+    .field .required { color: var(--violet-bright); margin-left: 3px; }
+    .field input[type=text],
+    .field input[type=email],
+    .field input[type=tel],
+    .field input[type=number],
+    .field select,
+    .field textarea {
+      width: 100%; padding: 10px 14px;
+      background: var(--surface-2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      font-family: var(--font); font-size: 14px;
+      outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+      -webkit-appearance: none; appearance: none;
     }
-    input:focus, select:focus, textarea:focus { border-color: #3b82f6; }
-    textarea { min-height: 80px; resize: vertical; }
-    .radio-group { display: flex; gap: 24px; margin-top: 6px; }
-    .radio-group label { font-weight: normal; display: flex; align-items: center; gap: 8px; cursor: pointer; }
-    .section-title { font-size: 16px; font-weight: 600; margin: 28px 0 16px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
-    .checkbox-row { display: flex; align-items: center; gap: 10px; }
-    .checkbox-row input { width: auto; }
-    .checkbox-row label { margin: 0; font-weight: normal; }
-    button[type=submit] {
-      width: 100%; padding: 12px; background: #1d4ed8; color: #fff;
-      border: none; border-radius: 6px; font-size: 16px; font-weight: 600;
-      cursor: pointer; margin-top: 16px; transition: background 0.15s;
+    .field input::placeholder, .field textarea::placeholder { color: var(--muted-2); }
+    .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-soft); }
+    .field textarea { min-height: 80px; resize: vertical; }
+    .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b8b93' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; cursor: pointer; }
+    .field .help { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
+    .radio-group { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+    .radio-option { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: border-color 0.15s; }
+    .radio-option input[type=radio] { accent-color: var(--violet); width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; margin-top: 2px; }
+    .radio-option:has(input:checked) { border-color: var(--violet); background: var(--violet-soft); }
+    .radio-option .radio-label { display: block; font-size: 14px; font-weight: 500; }
+    .radio-option .radio-desc { display: block; font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+    .btn-submit { width: 100%; margin-top: 8px; }
+    .submit-note { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+    @media (max-width: 600px) {
+      .form-card { padding: 20px; }
+      .page-heading { padding: 32px 0 20px; }
+      .site-footer .shell-narrow { flex-direction: column; align-items: flex-start; }
     }
-    button[type=submit]:hover { background: #1e40af; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Agent Onboarding</h1>
-    <p class="subtitle">Fill out your profile, then connect your Google account to activate your agent.</p>
-    <form action="/onboard" method="POST">
-
-      <div class="section-title">Your Info</div>
-
-      <div class="field">
-        <label for="agentName">Full Name <span style="color:red">*</span></label>
-        <input type="text" id="agentName" name="agentName" required placeholder="Sarah Ahmed">
-      </div>
-      <div class="field">
-        <label for="firstName">First Name <span style="color:red">*</span></label>
-        <input type="text" id="firstName" name="firstName" required placeholder="Sarah">
-      </div>
-      <div class="field">
-        <label for="gmailAddress">Email Address <span style="color:red">*</span></label>
-        <input type="email" id="gmailAddress" name="gmailAddress" required placeholder="sarah@gmail.com">
-      </div>
-      <div class="field">
-        <label for="agentPhone">Phone Number <span style="color:red">*</span></label>
-        <input type="tel" id="agentPhone" name="agentPhone" required placeholder="+16471234567">
+${SHARED_HEADER}
+  <main>
+    <div class="shell-narrow">
+      <div class="page-heading">
+        <h1>Connect your inbox</h1>
+        <p class="subhead">We'll set up the AI on your Gmail and create your lead tracking sheet. Takes about 10 minutes.</p>
       </div>
 
-      <div class="section-title">Brokerage</div>
+      <form action="/onboard" method="POST">
+        <div class="form-card">
 
-      <div class="field">
-        <label for="brokerage">Brokerage Name <span style="color:red">*</span></label>
-        <input type="text" id="brokerage" name="brokerage" required placeholder="Royal LePage">
-      </div>
-      <div class="field">
-        <label for="brokerageLocation">Brokerage City <span style="color:red">*</span></label>
-        <input type="text" id="brokerageLocation" name="brokerageLocation" required placeholder="Toronto, Ontario">
-      </div>
+          <div class="form-section">
+            <h2>Your info</h2>
+            <div class="field">
+              <label for="firstName">First Name<span class="required">*</span></label>
+              <input type="text" id="firstName" name="firstName" required placeholder="Sarah">
+            </div>
+            <div class="field">
+              <label for="lastName">Last Name<span class="required">*</span></label>
+              <input type="text" id="lastName" name="lastName" required placeholder="Ahmed">
+            </div>
+            <div class="field">
+              <label for="gmailAddress">Email Address<span class="required">*</span></label>
+              <input type="email" id="gmailAddress" name="gmailAddress" required placeholder="sarah@gmail.com">
+            </div>
+            <div class="field">
+              <label for="agentPhone">Phone Number<span class="required">*</span></label>
+              <input type="tel" id="agentPhone" name="agentPhone" required placeholder="+16471234567">
+            </div>
+          </div>
 
-      <div class="section-title">Communication</div>
+          <div class="form-section">
+            <h2>Brokerage</h2>
+            <div class="field">
+              <label for="brokerage">Brokerage Name<span class="required">*</span></label>
+              <input type="text" id="brokerage" name="brokerage" required placeholder="Royal LePage">
+            </div>
+            <div class="field">
+              <label for="brokerageLocation">Brokerage City<span class="required">*</span></label>
+              <input type="text" id="brokerageLocation" name="brokerageLocation" required placeholder="Toronto, Ontario">
+            </div>
+          </div>
 
-      <div class="field">
-        <label for="escalationEmail">Escalation Email <span style="color:red">*</span></label>
-        <input type="email" id="escalationEmail" name="escalationEmail" required placeholder="sarah@gmail.com">
-        <div class="hint">Where urgent leads or questions get forwarded. Usually the same as your email.</div>
-      </div>
-      <div class="field">
-        <label for="agentSignature">Agent Signature <span style="color:red">*</span></label>
-        <input type="text" id="agentSignature" name="agentSignature" required placeholder="Sarah | Royal LePage">
-      </div>
-      <div class="field">
-        <label for="tone">Tone <span style="color:red">*</span></label>
-        <input type="text" id="tone" name="tone" required placeholder="warm, professional, and concise">
-      </div>
-      <div class="field">
-        <label for="emailLength">Email Length <span style="color:red">*</span></label>
-        <select id="emailLength" name="emailLength">
-          <option value="short" selected>Short</option>
-          <option value="medium">Medium</option>
-          <option value="long">Long</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="usesEmojis">Uses Emojis</label>
-        <select id="usesEmojis" name="usesEmojis">
-          <option value="no" selected>No</option>
-          <option value="yes">Yes</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="avoidPhrases">Avoid Phrases</label>
-        <textarea id="avoidPhrases" name="avoidPhrases" placeholder="Just checking in, thanks for reaching out"></textarea>
-        <div class="hint">Comma-separated. The AI will never use these phrases.</div>
-      </div>
+          <div class="form-section">
+            <h2>Communication</h2>
+            <div class="field">
+              <label for="escalationEmail">Escalation Email<span class="required">*</span></label>
+              <input type="email" id="escalationEmail" name="escalationEmail" required placeholder="sarah@gmail.com">
+              <div class="help">Where urgent leads or questions get forwarded. Usually the same as your email.</div>
+            </div>
+            <div class="field">
+              <label for="agentSignature">Agent Signature</label>
+              <input type="text" id="agentSignature" name="agentSignature" placeholder="Sarah | Royal LePage">
+              <div class="help">Optional. If left blank, we'll use your existing Gmail signature.</div>
+            </div>
+            <div class="field">
+              <label for="tone">Tone<span class="required">*</span></label>
+              <input type="text" id="tone" name="tone" required placeholder="warm, professional, and concise">
+            </div>
+            <div class="field">
+              <label for="emailLength">Email Length<span class="required">*</span></label>
+              <select id="emailLength" name="emailLength">
+                <option value="short" selected>Short</option>
+                <option value="medium">Medium</option>
+                <option value="long">Long</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="usesEmojis">Uses Emojis</label>
+              <select id="usesEmojis" name="usesEmojis">
+                <option value="no" selected>No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="avoidPhrases">Avoid Phrases</label>
+              <textarea id="avoidPhrases" name="avoidPhrases" placeholder="Just checking in, thanks for reaching out"></textarea>
+              <div class="help">Comma-separated. The AI will never use these phrases.</div>
+            </div>
+          </div>
 
-      <div class="section-title">Market Focus</div>
+          <div class="form-section">
+            <h2>Market focus</h2>
+            <div class="field">
+              <label for="targetMarket">Target Market</label>
+              <input type="text" id="targetMarket" name="targetMarket" placeholder="first-time buyers in Toronto">
+            </div>
+            <div class="field">
+              <label for="specialties">Specialties</label>
+              <input type="text" id="specialties" name="specialties" placeholder="condos, investment properties">
+              <div class="help">Comma-separated.</div>
+            </div>
+            <div class="field">
+              <label for="yearsExperience">Years of Experience</label>
+              <input type="number" id="yearsExperience" name="yearsExperience" min="0" placeholder="5">
+            </div>
+          </div>
 
-      <div class="field">
-        <label for="targetMarket">Target Market</label>
-        <input type="text" id="targetMarket" name="targetMarket" placeholder="first-time buyers in Toronto">
-      </div>
-      <div class="field">
-        <label for="specialties">Specialties</label>
-        <input type="text" id="specialties" name="specialties" placeholder="condos, investment properties">
-        <div class="hint">Comma-separated.</div>
-      </div>
-      <div class="field">
-        <label for="yearsExperience">Years of Experience</label>
-        <input type="number" id="yearsExperience" name="yearsExperience" min="0" placeholder="5">
-      </div>
+          <div class="form-section">
+            <h2>Agent mode</h2>
+            <div class="field">
+              <label>Mode</label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input type="radio" name="mode" value="shadow" checked>
+                  <div>
+                    <span class="radio-label">Shadow Mode (recommended)</span>
+                    <span class="radio-desc">AI drafts every reply for you to review and send. Nothing goes out without your approval.</span>
+                  </div>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="mode" value="live">
+                  <div>
+                    <span class="radio-label">Live Mode</span>
+                    <span class="radio-desc">AI sends replies directly. You'll still get notified for anything urgent.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
 
-      <div class="section-title">Agent Mode</div>
-
-      <div class="field">
-        <label>Mode</label>
-        <div class="radio-group">
-          <label><input type="radio" name="mode" value="shadow" checked> Shadow Mode (recommended)</label>
-          <label><input type="radio" name="mode" value="live"> Live Mode</label>
         </div>
-      </div>
 
-      <button type="submit">Save &amp; Connect Google Account</button>
-    </form>
-  </div>
+        <button type="submit" class="btn-primary btn-submit">
+          Save &amp; Connect Google Account
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <p class="submit-note">By continuing, you'll be redirected to Google to grant Gmail and Sheets access.</p>
+      </form>
+    </div>
+  </main>
+${SHARED_FOOTER}
 </body>
 </html>`;
 
@@ -192,7 +345,9 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const b = req.body;
-    const agentName = (b.agentName || '').trim();
+    const firstName = (b.firstName || '').trim();
+    const lastName = (b.lastName || '').trim();
+    const agentName = (firstName + ' ' + lastName).trim();
     const agentPhone = (b.agentPhone || '').trim();
 
     const splitArr = (val) =>
@@ -204,7 +359,8 @@ router.post('/', (req, res) => {
       agentId,
       operatorId: 'mo',
       agentName,
-      firstName: (b.firstName || '').trim(),
+      firstName,
+      lastName,
       brokerage: (b.brokerage || '').trim(),
       brokerageLocation: (b.brokerageLocation || '').trim(),
       gmailAddress: (b.gmailAddress || '').trim(),
@@ -234,7 +390,11 @@ router.post('/', (req, res) => {
     writeAgentAtomic(agentId, config);
     res.redirect(`/onboard/oauth/start?agentId=${encodeURIComponent(agentId)}`);
   } catch (err) {
-    res.status(500).send(`Error: ${err.message}`);
+    res.status(500).send(renderErrorPage(
+      "We couldn't save your details",
+      'Something went wrong saving your onboarding info. Please try again, or email mohanad@getklosed.ca if it keeps happening.',
+      { href: '/onboard', label: 'Try again' }
+    ));
   }
 });
 
@@ -263,7 +423,11 @@ router.get('/oauth/start', (req, res) => {
 router.get('/oauth/callback', async (req, res) => {
   const { code, state: agentId } = req.query;
   if (!code || !agentId) {
-    return res.status(400).send('Missing code or state (agentId) in callback');
+    return res.status(400).send(renderErrorPage(
+      "Connection didn't complete",
+      "It looks like the Google authorization step didn't finish. This can happen if you closed the window or denied access.",
+      { href: '/onboard', label: 'Start over' }
+    ));
   }
 
   try {
@@ -271,7 +435,11 @@ router.get('/oauth/callback', async (req, res) => {
     const { tokens } = await oauth2Client.getToken(code);
 
     if (!tokens.refresh_token) {
-      return res.status(400).send('No refresh token received. Please try again.');
+      return res.status(400).send(renderErrorPage(
+        'We need a fresh connection',
+        'Google did not send us a refresh token, which usually means this Gmail account has connected to GetKlosed before. Please revoke the existing GetKlosed access at https://myaccount.google.com/permissions and try again.',
+        { href: '/onboard', label: 'Try again' }
+      ));
     }
 
     const agentPath = path.join(getAgentsDir(), `${agentId}.json`);
@@ -352,7 +520,11 @@ router.get('/oauth/callback', async (req, res) => {
 
     res.redirect(`/onboard/done?agentId=${encodeURIComponent(agentId)}`);
   } catch (err) {
-    res.status(500).send(`Error: ${err.message}`);
+    res.status(500).send(renderErrorPage(
+      'Something went wrong',
+      'We hit an error while finishing your setup. Please try again, or email mohanad@getklosed.ca with this error: ' + (err && err.message ? err.message : 'unknown'),
+      { href: '/onboard', label: 'Try again' }
+    ));
   }
 });
 
@@ -385,29 +557,75 @@ router.get('/done', (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>You're All Set!</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 40px 16px; }
-    .container { background: #fff; max-width: 640px; margin: 0 auto; padding: 40px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); text-align: center; }
-    h1 { font-size: 28px; margin-bottom: 16px; color: #15803d; }
-    .detail { font-size: 15px; color: #374151; margin: 8px 0; }
-    .note { margin-top: 28px; padding: 16px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 14px; color: #92400e; text-align: left; }
-    .sheet-link { display: inline-block; margin-top: 24px; padding: 10px 20px; background: #1d4ed8; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; }
-    .sheet-link:hover { background: #1e40af; }
+  <title>GetKlosed: All set</title>${SHARED_HEAD_LINKS}
+  <style>${ROOT_TOKENS}
+    .success-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 40px 32px; margin-top: 48px; }
+    .success-icon { width: 56px; height: 56px; background: var(--violet-soft); border: 1px solid var(--violet); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; }
+    .success-icon svg { width: 28px; height: 28px; }
+    .success-card h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 10px; }
+    .success-card .subhead { font-size: 15px; color: var(--muted); line-height: 1.6; margin-bottom: 32px; }
+    .steps-label { font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+    .step-list { display: flex; flex-direction: column; gap: 16px; }
+    .step-item { display: flex; gap: 16px; align-items: flex-start; }
+    .step-number { width: 26px; height: 26px; border-radius: 50%; background: var(--violet); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+    .step-body { flex: 1; }
+    .step-body strong { display: block; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .step-body p { font-size: 14px; color: var(--muted); line-height: 1.55; }
+    .sheet-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 16px; background: var(--violet); color: #fff; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; transition: background 0.15s; }
+    .sheet-link:hover { background: var(--violet-bright); }
+    .contact-note { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted-2); }
+    .contact-note a { color: var(--muted); text-decoration: none; }
+    .contact-note a:hover { color: var(--text); }
+    @media (max-width: 600px) {
+      .success-card { padding: 24px 20px; }
+      .site-footer .shell-narrow { flex-direction: column; align-items: flex-start; }
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>You're all set!</h1>
-    ${agentName ? `<p class="detail"><strong>Name:</strong> ${agentName}</p>` : ''}
-    ${gmailAddress ? `<p class="detail"><strong>Email:</strong> ${gmailAddress}</p>` : ''}
-    ${sheetLink}
-    <div class="note">
-      <strong>Shadow Mode Active</strong><br>
-      Your agent is running in Shadow Mode. Emails will be reviewed before sending.
+${SHARED_HEADER}
+  <main>
+    <div class="shell-narrow">
+      <div class="success-card">
+        <div class="success-icon">
+          <svg viewBox="0 0 28 28" fill="none">
+            <path d="M6 14.5l5.5 5.5 10-11" stroke="var(--violet-bright)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h1>You're all set${agentName ? ', ' + agentName.split(' ')[0] : ''}.</h1>
+        <p class="subhead">GetKlosed is now connected${gmailAddress ? ' to ' + gmailAddress : ''} and ready to start handling your leads.</p>
+
+        <p class="steps-label">What happens next</p>
+        <div class="step-list">
+          <div class="step-item">
+            <div class="step-number">1</div>
+            <div class="step-body">
+              <strong>Send your first lead.</strong>
+              <p>We'll start drafting replies within 5 minutes of new emails arriving in your inbox.</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-number">2</div>
+            <div class="step-body">
+              <strong>Review your tracking sheet.</strong>
+              <p>Every lead, reply, and follow-up gets logged here for you to review.</p>
+              ${sheetLink}
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-number">3</div>
+            <div class="step-body">
+              <strong>Watch the digest.</strong>
+              <p>You'll get a daily summary email and SMS for anything urgent.</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="contact-note">Questions or issues? Email <a href="mailto:mohanad@getklosed.ca">mohanad@getklosed.ca</a>.</p>
+      </div>
     </div>
-  </div>
+  </main>
+${SHARED_FOOTER}
 </body>
 </html>`);
 });
