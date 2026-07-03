@@ -6,6 +6,7 @@ const path = require('path');
 const { google } = require('googleapis');
 
 const { getStorageRoot } = require('../storagePaths');
+const { OAUTH_SCOPES } = require('../scopes');
 
 const router = express.Router();
 
@@ -313,10 +314,7 @@ router.get('/oauth/start', (req, res) => {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: [
-      'https://www.googleapis.com/auth/gmail.modify',
-      'https://www.googleapis.com/auth/spreadsheets',
-    ],
+    scope: OAUTH_SCOPES,
     state: agentId,
   });
 

@@ -15,16 +15,11 @@ const path = require('path');
 const http = require('http');
 const url = require('url');
 const { google } = require('googleapis');
+const { OAUTH_SCOPES } = require('../src/scopes');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const AGENTS_DIR = path.join(PROJECT_ROOT, 'agents');
 
-const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/spreadsheets',
-];
 const REDIRECT_URI = 'http://localhost:3000/oauth/callback';
 const PORT = 3000;
 
@@ -71,7 +66,7 @@ const oauth2Client = new google.auth.OAuth2(
 const authUrl = oauth2Client.generateAuthUrl({
   access_type: 'offline', // required to get a refresh token
   prompt: 'consent',       // forces consent screen + refresh token every time
-  scope: SCOPES,
+  scope: OAUTH_SCOPES,
 });
 
 // --- Start temp server to catch redirect ---
