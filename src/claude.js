@@ -122,6 +122,26 @@ async function callApi({ model, maxTokens, system, user }) {
 // Categorization
 // ---------------------------------------------------------------------------
 
+const VALID_CATEGORIES = [
+  'answer_general',
+  'answer_property_specific',
+  'hot_signal',
+  'stop_signal',
+  'needs_review',
+  'conversation_continue',
+];
+
+/**
+ * Validate that category is one of the six canonical categorization outputs.
+ * Returns the category unchanged when valid; throws otherwise.
+ */
+function validateCategory(category) {
+  if (!VALID_CATEGORIES.includes(category)) {
+    throw new Error(`Invalid category in response: "${category}"`);
+  }
+  return category;
+}
+
 /**
  * Run the categorization Claude call. Uses Haiku.
  *
@@ -152,16 +172,7 @@ async function categorize({ system, user }) {
 
   const { category, confidence, reasoning } = parsed;
 
-  const validCategories = [
-    'answer_general',
-    'answer_property_specific',
-    'hot_signal',
-    'stop_signal',
-    'needs_review',
-  ];
-  if (!validCategories.includes(category)) {
-    throw new Error(`Invalid category in response: "${category}"`);
-  }
+  validateCategory(category);
   if (typeof confidence !== 'number' || confidence < 0 || confidence > 1) {
     throw new Error(`Invalid confidence in response: "${confidence}"`);
   }
@@ -286,6 +297,7 @@ module.exports = {
   stripDashes,
   findBannedPhrases,
   stripCodeFences,
+  validateCategory,
   // Constants exported for testability and orchestrator visibility:
   MODELS,
   DRAFT_RETRY_LIMIT,
