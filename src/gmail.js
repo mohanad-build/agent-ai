@@ -85,6 +85,27 @@ async function withRetry(agentConfig, fn) {
 }
 
 // ---------------------------------------------------------------------------
+// From header formatting
+// ---------------------------------------------------------------------------
+
+// Returns `"Display Name" <address>` when config.displayName is a usable
+// non-empty string, otherwise returns config.gmailAddress unchanged. A
+// displayName containing a double quote or newline would break the header,
+// so those fall back to the bare address instead of being escaped.
+function formatFromHeader(config) {
+  const address = config && config.gmailAddress;
+  const displayName = config && config.displayName;
+
+  if (typeof displayName !== 'string' || displayName.trim().length === 0) {
+    return address;
+  }
+  if (displayName.includes('"') || displayName.includes('\n') || displayName.includes('\r')) {
+    return address;
+  }
+  return `"${displayName}" <${address}>`;
+}
+
+// ---------------------------------------------------------------------------
 // Subject normalization
 // ---------------------------------------------------------------------------
 
@@ -380,7 +401,7 @@ async function sendReply(agentConfig, { to, subject, body, threadId, attachments
   const gmail = google.gmail({ version: 'v1', auth });
 
   const raw = buildRfc5322Message({
-    from: agentConfig.gmailAddress,
+    from: formatFromHeader(agentConfig),
     to,
     cc: agentConfig.ccEmails || [],
     bcc: agentConfig.bccEmails || [],
@@ -403,7 +424,7 @@ async function sendNewEmail(agentConfig, { to, subject, body, html, attachments 
   const gmail = google.gmail({ version: 'v1', auth });
 
   const raw = buildRfc5322Message({
-    from: agentConfig.gmailAddress,
+    from: formatFromHeader(agentConfig),
     to,
     cc: agentConfig.ccEmails || [],
     bcc: agentConfig.bccEmails || [],
@@ -714,5 +735,6 @@ module.exports = {
     buildRfc5322Message,
     parseGmailMessage,
     COLUMN_MAP,
+    formatFromHeader,
   },
 };
