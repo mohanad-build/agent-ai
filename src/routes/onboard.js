@@ -7,6 +7,9 @@ const { google } = require('googleapis');
 
 const { getStorageRoot } = require('../storagePaths');
 const { OAUTH_SCOPES } = require('../scopes');
+const { loadAgent } = require('../agentConfig');
+const email = require('../email');
+const { renderWelcomeEmail } = require('../welcomeEmail');
 
 const router = express.Router();
 
@@ -418,6 +421,36 @@ router.get('/oauth/callback', async (req, res) => {
       writeAgentAtomic(agentId, config);
     } catch (sheetErr) {
       console.error(`[onboard] Sheet setup failed for ${agentId}:`, sheetErr.message);
+    }
+
+    // Best-effort welcome email. Must never block onboarding.
+    try {
+      let welcomeSenderConfig;
+      try {
+        welcomeSenderConfig = loadAgent('welcome-sender');
+      } catch (loadErr) {
+        console.error('[onboard] welcome email skipped: welcome-sender config unavailable');
+        welcomeSenderConfig = null;
+      }
+
+      if (welcomeSenderConfig) {
+        const sheetLinkUrl = config.googleSheetId
+          ? `https://docs.google.com/spreadsheets/d/${config.googleSheetId}/edit`
+          : '';
+        const { subject, text, html } = renderWelcomeEmail({
+          firstName: config.firstName,
+          sheetLink: sheetLinkUrl,
+          mode: config.mode,
+        });
+        await email.sendNewEmail(welcomeSenderConfig, {
+          to: config.gmailAddress,
+          subject,
+          body: text,
+          html,
+        });
+      }
+    } catch (welcomeErr) {
+      console.error(`[onboard] welcome email failed for ${agentId}: ${welcomeErr.message}`);
     }
 
     res.redirect(`/onboard/done?agentId=${encodeURIComponent(agentId)}`);
