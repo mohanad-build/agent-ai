@@ -32,6 +32,11 @@ function discoverAgentIds() {
     .sort();
 }
 
+const NON_DASHBOARD_IDS = new Set(['welcome-sender']);
+function filterDashboardIds(ids) {
+  return ids.filter(id => !NON_DASHBOARD_IDS.has(id));
+}
+
 function isAiEnabled(row) {
   const v = row.aiEnabled;
   if (v === undefined || v === null || v === '') return true;
@@ -247,7 +252,7 @@ const TS_RE = /^\[(\d{4}-\d{2}-\d{2}T[\d:.Z+-]+)/;
 
 router.get('/', async (req, res) => {
   try {
-    const agentIds = discoverAgentIds();
+    const agentIds = filterDashboardIds(discoverAgentIds());
     const results = await Promise.allSettled(
       agentIds.map(async (agentId) => {
         const agent = loadAgent(agentId);
@@ -620,3 +625,5 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
 module.exports = router;
 module.exports.discoverAgentIds = discoverAgentIds;
 module.exports.AGENT_ID_REGEX = AGENT_ID_REGEX;
+module.exports.NON_DASHBOARD_IDS = NON_DASHBOARD_IDS;
+module.exports.filterDashboardIds = filterDashboardIds;
