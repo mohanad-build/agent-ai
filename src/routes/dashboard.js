@@ -23,6 +23,22 @@ function getAgentsDir() { return getStorageRoot(); }
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
 const AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
 
+function moveAgentFilesToDeleted(agentId, opts = {}) {
+  const baseDir = (opts && opts.baseDir) || getAgentsDir();
+  const prefix = `${agentId}.`;
+  const matched = fs.existsSync(baseDir)
+    ? fs.readdirSync(baseDir).filter((f) => f.startsWith(prefix))
+    : [];
+  if (matched.length === 0) return [];
+
+  const destDir = path.join(baseDir, '_deleted', `${agentId}-${Date.now()}`);
+  fs.mkdirSync(destDir, { recursive: true });
+  for (const f of matched) {
+    fs.renameSync(path.join(baseDir, f), path.join(destDir, f));
+  }
+  return matched;
+}
+
 function discoverAgentIds() {
   if (!fs.existsSync(getAgentsDir())) return [];
   return fs
@@ -137,6 +153,8 @@ function pageWrap(title, body) {
     .btn:hover { background: var(--violet-bright); }
     .btn-warn { background: #D97706; color: #fff; }
     .btn-warn:hover { background: #B45309; }
+    .btn-danger { background: #DC2626; color: #fff; }
+    .btn-danger:hover { background: #B91C1C; }
 
     /* Save banner */
     .banner-ok { background: var(--violet-soft); border: 1px solid var(--violet); color: var(--violet-bright); padding: 10px 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
@@ -252,6 +270,7 @@ const TS_RE = /^\[(\d{4}-\d{2}-\d{2}T[\d:.Z+-]+)/;
 
 router.get('/', async (req, res) => {
   try {
+    const deletedId = req.query.deleted ? String(req.query.deleted) : null;
     const agentIds = filterDashboardIds(discoverAgentIds());
     const results = await Promise.allSettled(
       agentIds.map(async (agentId) => {
@@ -362,6 +381,7 @@ router.get('/', async (req, res) => {
     });
 
     res.send(pageWrap('GetKlosed Dashboard', `
+${deletedId ? `<div class="banner-ok">Agent "${escHtml(deletedId)}" removed from the dashboard.</div>` : ''}
 <div class="page-header">
   <h1>Dashboard</h1>
   <div class="page-actions">
@@ -391,6 +411,7 @@ router.get('/agent/:agentId/edit', (req, res) => {
 
     const { agentId } = req.params;
     const saved = req.query.saved === '1';
+    const deleteError = req.query.delete_error === '1';
     const cadence = Array.isArray(agent.followUpCadence)
       ? agent.followUpCadence.join(', ')
       : (agent.followUpCadence || '3, 7, 14');
@@ -432,6 +453,17 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
     <div class="form-actions">
       <button type="submit" class="btn">Save changes</button>
       <a href="/onboard/oauth/start?agentId=${encodeURIComponent(agentId)}" class="btn btn-warn">Re-authorize Google Account</a>
+    </div>
+  </form>
+</div>
+<div class="edit-card" style="margin-top: 20px; border-color: rgba(220,38,38,0.4);">
+  <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Danger Zone</h2>
+  <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">Removing this agent takes it off the dashboard and stops processing. The Google Sheet and Google authorization for this agent are left intact.</p>
+  ${deleteError ? '<p class="err" style="margin-bottom: 16px;">Agent ID did not match. Nothing was removed.</p>' : ''}
+  <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/delete">
+    ${field('Type the agent ID to confirm', 'confirmId', `<input type="text" name="confirmId" placeholder="${escHtml(agentId)}" autocomplete="off" />`)}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-danger">Delete agent</button>
     </div>
   </form>
 </div>`));
@@ -508,6 +540,33 @@ router.post('/agent/:agentId/edit', (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?saved=1`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/edit:', err.message);
+    res.status(500).send(err.message);
+  }
+});
+
+// ---- Delete agent (soft) ----
+
+router.post('/agent/:agentId/delete', (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const confirmId = req.body.confirmId || '';
+
+    if (confirmId !== agentId) {
+      return res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?delete_error=1`);
+    }
+
+    const moved = moveAgentFilesToDeleted(agentId);
+    if (moved.length === 0) {
+      return res.status(404).send(renderErrorPage(
+        'Agent not found',
+        'No agent matches that ID. It may have been removed or the URL is incorrect.',
+        { href: '/dashboard', label: 'Back to dashboard' }
+      ));
+    }
+
+    res.redirect(`/dashboard?deleted=${encodeURIComponent(agentId)}`);
+  } catch (err) {
+    console.error('[dashboard] POST /agent/:id/delete:', err.message);
     res.status(500).send(err.message);
   }
 });
@@ -627,3 +686,4 @@ module.exports.discoverAgentIds = discoverAgentIds;
 module.exports.AGENT_ID_REGEX = AGENT_ID_REGEX;
 module.exports.NON_DASHBOARD_IDS = NON_DASHBOARD_IDS;
 module.exports.filterDashboardIds = filterDashboardIds;
+module.exports.moveAgentFilesToDeleted = moveAgentFilesToDeleted;
