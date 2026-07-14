@@ -585,10 +585,17 @@ async function updateSheetRow(agentConfig, rowIndex, updates) {
   });
 }
 
+// Maps a rowData object to a positional array in COLUMN_MAP order, defaulting
+// missing fields to ''. Single source of truth shared by appendSheetRow and
+// appendSheetRows.
+function buildSheetRowArray(rowData) {
+  const orderedNames = Object.keys(COLUMN_MAP);
+  return orderedNames.map((name) => (rowData[name] !== undefined ? rowData[name] : ''));
+}
+
 async function appendSheetRow(agentConfig, rowData) {
   const sheets = getSheetsClient(agentConfig);
-  const orderedNames = Object.keys(COLUMN_MAP);
-  const row = orderedNames.map((name) => (rowData[name] !== undefined ? rowData[name] : ''));
+  const row = buildSheetRowArray(rowData);
   return withRetry(agentConfig, async () => {
     await sheets.spreadsheets.values.append({
       spreadsheetId: agentConfig.googleSheetId,
@@ -596,6 +603,23 @@ async function appendSheetRow(agentConfig, rowData) {
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] },
+    });
+  });
+}
+
+async function appendSheetRows(agentConfig, rowDataArray) {
+  if (!rowDataArray || rowDataArray.length === 0) {
+    return undefined;
+  }
+  const sheets = getSheetsClient(agentConfig);
+  const rows = rowDataArray.map((rowData) => buildSheetRowArray(rowData));
+  return withRetry(agentConfig, async () => {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: agentConfig.googleSheetId,
+      range: 'A:T',
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: rows },
     });
   });
 }
@@ -729,6 +753,7 @@ module.exports = {
   findRowByEmail,
   updateSheetRow,
   appendSheetRow,
+  appendSheetRows,
   appendToConversationHistory,
   extractTextBody,
   searchMessages,
