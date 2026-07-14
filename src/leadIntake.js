@@ -183,6 +183,28 @@ async function transitionToIntaken(agentConfig, messageId) {
 // ---------------------------------------------------------------------------
 
 // Returns { pass: bool, reason: string }.
+// Operates only on msg.from, msg.subject, msg.body -- the fields fetchMessage()
+// also returns -- so historical enrichment can reuse it without the
+// live-inbox-only reply/label rules in applyPreFilter.
+function isNoiseSender(msg) {
+  // Rule: Sender is from a calendar-automation domain
+  const senderEmail = getSenderEmail(msg.from || '');
+  const domain = getSenderDomain(senderEmail);
+  if (domain && CALENDAR_DOMAINS.has(domain)) {
+    return { pass: false, reason: 'calendar domain: ' + domain };
+  }
+
+  // Rule: Empty body and trivially short subject
+  const bodyText = String(msg.body || '').trim();
+  const subjectText = String(msg.subject || '').trim();
+  if (!bodyText && subjectText.length < 5) {
+    return { pass: false, reason: 'empty body and short subject' };
+  }
+
+  return { pass: true, reason: '' };
+}
+
+// Returns { pass: bool, reason: string }.
 // Applied per-message before classification. Fast-fail, checks in order.
 function applyPreFilter(msg, labelMap) {
   // Rule 1: Is a reply (In-Reply-To header set)
@@ -190,18 +212,10 @@ function applyPreFilter(msg, labelMap) {
     return { pass: false, reason: 'reply (In-Reply-To present)' };
   }
 
-  // Rule 2: Sender is from a calendar-automation domain
-  const senderEmail = getSenderEmail(msg.from || '');
-  const domain = getSenderDomain(senderEmail);
-  if (domain && CALENDAR_DOMAINS.has(domain)) {
-    return { pass: false, reason: 'calendar domain: ' + domain };
-  }
-
-  // Rule 3: Empty body and trivially short subject
-  const bodyText = String(msg.body || '').trim();
-  const subjectText = String(msg.subject || '').trim();
-  if (!bodyText && subjectText.length < 5) {
-    return { pass: false, reason: 'empty body and short subject' };
+  // Rules 2-3: sender/body noise, delegated
+  const noiseResult = isNoiseSender(msg);
+  if (!noiseResult.pass) {
+    return noiseResult;
   }
 
   // Rule 4: Already has an intake label (idempotency)
@@ -453,9 +467,11 @@ async function runLeadIntake(agentConfig) {
 module.exports = {
   runLeadIntake,
   transitionToIntaken,
+  isNoiseSender,
   LEAD_INTAKE_MAX_PER_CYCLE,
   _internal: {
     applyPreFilter,
+    isNoiseSender,
     parseClassifierResponse,
     buildIntakeLogEntry,
     getSenderEmail,
