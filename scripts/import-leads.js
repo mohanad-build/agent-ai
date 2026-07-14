@@ -1,5 +1,7 @@
 'use strict';
 
+require('dotenv').config();
+
 // CLI wrapper over normalizeLeads + landLeads. Thin: no normalization, dedup,
 // or Sheet logic lives here. Mirrors scripts/enable-content-engine.js's shape
 // (testable core + require.main CLI block using loadAgent to validate/load).
