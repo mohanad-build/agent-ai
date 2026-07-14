@@ -244,9 +244,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
     const senderAddr = getSenderEmail(msg.from || '');
 
     // Dedup: check if this sender already exists in the Sheet
-    const existingRow = rows.find(
-      (r) => String(r.leadId || '').trim().toLowerCase() === senderAddr
-    );
+    const existingRow = gmail.findRowByEmail(rows, senderAddr);
 
     if (existingRow) {
       const now = getNowDate();

@@ -553,6 +553,14 @@ async function readSheetRows(agentConfig) {
   });
 }
 
+// Column-A (leadId/email) lookup against rows returned by readSheetRows.
+// Matches Array.find semantics: returns the row object or undefined.
+function findRowByEmail(rows, email) {
+  const target = String(email || '').trim().toLowerCase();
+  if (!target) return undefined;
+  return rows.find((r) => String(r.leadId || '').trim().toLowerCase() === target);
+}
+
 async function updateSheetRow(agentConfig, rowIndex, updates) {
   const sheets = getSheetsClient(agentConfig);
   const data = [];
@@ -718,6 +726,7 @@ module.exports = {
   markRead,
   getSignaturePresence,
   readSheetRows,
+  findRowByEmail,
   updateSheetRow,
   appendSheetRow,
   appendToConversationHistory,
