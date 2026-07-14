@@ -58,6 +58,30 @@ describe('renderWelcomeEmail', () => {
     expect(html.length).toBeGreaterThan(0);
   });
 
+  test('shadow mode: text and html contain the shared CTA sentence and the shadow-specific lead-in', () => {
+    const { text, html } = renderWelcomeEmail({ firstName: 'Sarah', sheetLink: SHEET_LINK, mode: 'shadow' });
+    const cta = "Reply to this email with a CSV export from your CRM and we'll import your existing leads for you.";
+    const shadowLeadIn = 'The more of your existing leads we can see, the more useful your shadow-mode review will be.';
+    expect(text).toContain(cta);
+    expect(html).toContain(cta);
+    expect(text).toContain(shadowLeadIn);
+    expect(html).toContain(shadowLeadIn);
+    expect(text).not.toContain('Want your current book working from day one?');
+    expect(html).not.toContain('Want your current book working from day one?');
+  });
+
+  test('live mode: text and html contain the shared CTA sentence and the live-specific lead-in', () => {
+    const { text, html } = renderWelcomeEmail({ firstName: 'Sarah', sheetLink: SHEET_LINK, mode: 'live' });
+    const cta = "Reply to this email with a CSV export from your CRM and we'll import your existing leads for you.";
+    const liveLeadIn = 'Want your current book working from day one?';
+    expect(text).toContain(cta);
+    expect(html).toContain(cta);
+    expect(text).toContain(liveLeadIn);
+    expect(html).toContain(liveLeadIn);
+    expect(text).not.toContain('The more of your existing leads we can see');
+    expect(html).not.toContain('The more of your existing leads we can see');
+  });
+
   test('no em-dash character appears in subject, text, or html', () => {
     const { subject, text, html } = renderWelcomeEmail({ firstName: 'Sarah', sheetLink: SHEET_LINK, mode: 'shadow' });
     expect(subject).not.toContain('—');

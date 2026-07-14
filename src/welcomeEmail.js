@@ -25,6 +25,13 @@ function renderWelcomeEmail({ firstName, sheetLink, mode }) {
     ? "You're starting in shadow mode. GetKlosed drafts every reply into your Drafts folder and sends nothing on its own, so you can see exactly how it works before anything reaches a lead. When you're comfortable, you can switch to live mode anytime."
     : "You're set to live mode, so GetKlosed will reply to leads automatically in your voice. If you'd rather review before anything sends, you can switch to shadow mode anytime, and you can turn off automation for any single lead the moment you want to take over.";
 
+  const ctaLeadInText = isShadow
+    ? "The more of your existing leads we can see, the more useful your shadow-mode review will be."
+    : 'Want your current book working from day one?';
+  const ctaSentence =
+    "Reply to this email with a CSV export from your CRM and we'll import your existing leads for you.";
+  const ctaParagraphText = `${ctaLeadInText} ${ctaSentence}`;
+
   const subject = "You're all set with GetKlosed";
 
   const text = [
@@ -38,6 +45,8 @@ function renderWelcomeEmail({ firstName, sheetLink, mode }) {
     '',
     modeParagraphText,
     '',
+    ctaParagraphText,
+    '',
     "One handy thing: you can email assistant@getklosed.ca in plain language to run quick actions, like asking for your daily digest. It's there whenever you want a fast check-in without opening the sheet.",
     '',
     'And for anything at all, questions, changes, or if something looks off, just reply to this email. It comes straight to me.',
@@ -50,6 +59,7 @@ function renderWelcomeEmail({ firstName, sheetLink, mode }) {
   const escName = esc(name);
   const escLink = esc(sheetLink);
   const modeParagraphHtml = esc(modeParagraphText);
+  const ctaParagraphHtml = esc(ctaParagraphText);
 
   const html =
     `<div style="background-color:#ffffff;padding:32px 16px;font-family:${FONT_STACK};color:${TEXT_COLOR};font-size:16px;line-height:1.6;">` +
@@ -65,6 +75,7 @@ function renderWelcomeEmail({ firstName, sheetLink, mode }) {
     `</div>` +
     `<p style="margin:0 0 16px 0;">Here's what happens now. GetKlosed watches your inbox for lead replies, drafts responses in your voice, and logs every lead and conversation to that sheet.</p>` +
     `<p style="margin:0 0 16px 0;">${modeParagraphHtml}</p>` +
+    `<p style="margin:0 0 16px 0;">${ctaParagraphHtml}</p>` +
     `<p style="margin:0 0 16px 0;">One handy thing: you can email assistant@getklosed.ca in plain language to run quick actions, like asking for your daily digest. It's there whenever you want a fast check-in without opening the sheet.</p>` +
     `<p style="margin:0 0 16px 0;">And for anything at all, questions, changes, or if something looks off, just reply to this email. It comes straight to me.</p>` +
     `<p style="margin:24px 0 0 0;color:${MUTED_COLOR};">Talk soon,<br>Mohanad<br>GetKlosed</p>` +
