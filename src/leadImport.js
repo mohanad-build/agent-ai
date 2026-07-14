@@ -262,8 +262,109 @@ async function normalizeLeads(rawText, opts = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Landing: writes normalizeLeads' 'ok' rows to the Sheet
+// ---------------------------------------------------------------------------
+
+// Mirrors buildIntakeLogEntry's style in leadIntake.js (a single templated
+// string with a parenthetical), but for the import path.
+function buildImportLogEntry(source, isoDate) {
+  const trimmedSource = String(source || '').trim();
+  const sourcePart = trimmedSource
+    ? ` (original source: ${trimmedSource})`
+    : ' (no original source provided)';
+  return `Imported from CSV on ${isoDate}${sourcePart}`;
+}
+
+async function landLeads(agentConfig, normalized, opts = {}) {
+  const email = opts.email || require('./gmail');
+  const now = opts.now || new Date();
+
+  if (!agentConfig.googleSheetId) {
+    throw new Error(
+      `Cannot land leads for agent "${agentConfig.agentId}": onboarding did not complete Sheet creation (googleSheetId missing).`
+    );
+  }
+
+  const existingRows = await email.readSheetRows(agentConfig);
+
+  const counts = {
+    ok: 0,
+    skippedNoEmail: 0,
+    skippedUnparseable: 0,
+    skippedDupeInFile: 0,
+    skippedDupeInSheet: 0,
+  };
+
+  const seenInFile = new Set();
+  const rowDataArray = [];
+  const outputRows = [];
+  const isoDate = now.toISOString();
+
+  for (const row of normalized.rows) {
+    if (row.status === 'skip:no-email') {
+      counts.skippedNoEmail++;
+      outputRows.push(row);
+      continue;
+    }
+    if (row.status === 'skip:unparseable') {
+      counts.skippedUnparseable++;
+      outputRows.push(row);
+      continue;
+    }
+
+    if (seenInFile.has(row.email)) {
+      counts.skippedDupeInFile++;
+      outputRows.push({
+        ...row,
+        status: 'skip:duplicate-in-file',
+        statusReason: 'duplicate email within import file',
+      });
+      continue;
+    }
+    seenInFile.add(row.email);
+
+    const existingRow = email.findRowByEmail(existingRows, row.email);
+    if (existingRow) {
+      counts.skippedDupeInSheet++;
+      outputRows.push({
+        ...row,
+        status: 'skip:duplicate-in-sheet',
+        statusReason: 'email already exists in the Sheet',
+      });
+      continue;
+    }
+
+    rowDataArray.push({
+      leadId: row.email,
+      name: row.name,
+      phone: row.phone,
+      source: 'import',
+      dateAdded: '',
+      status: 'needs_review',
+      aiEnabled: 'FALSE',
+      conversationHistory: buildImportLogEntry(row.source, isoDate),
+    });
+
+    counts.ok++;
+    outputRows.push({ ...row, status: 'landed', statusReason: '' });
+  }
+
+  if (rowDataArray.length > 0) {
+    await email.appendSheetRows(agentConfig, rowDataArray);
+  }
+
+  return {
+    landed: counts.ok,
+    skipped: outputRows.length - counts.ok,
+    rows: outputRows,
+    counts,
+  };
+}
+
 module.exports = {
   normalizeLeads,
+  landLeads,
   _internal: {
     parseDelimited,
     parseDelimitedLine,
@@ -271,6 +372,7 @@ module.exports = {
     parseMappingResponse,
     normalizeRow,
     normalizePhone,
+    buildImportLogEntry,
     isValidEmail,
     collectMappedIndices,
   },
