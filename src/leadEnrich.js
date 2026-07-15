@@ -345,13 +345,128 @@ async function enrichLeads(agentConfig, opts = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// enableLeads: the bulk-enable step. Flips aiEnabled to TRUE, the moment the
+// system starts acting on a lead for real. Only ever touches rows already in
+// the inert-import pool (source === 'import' AND aiEnabled === 'FALSE'), and
+// hard-blocks any row that is or might be an SOI before it ever writes.
+// ---------------------------------------------------------------------------
+
+// Mirrors determineAiEnabledDefault's literal in src/leadIntake.js: the TRUE
+// value written to column O is the string 'TRUE', not a boolean.
+const AI_ENABLED_TRUE = 'TRUE';
+
+// Mirrors isLeadCategoryActionable's normalization in src/agentConfig.js
+// (trim + lowercase compared against 'soi'), duplicated here rather than
+// imported, matching this codebase's convention of self-contained modules.
+function isSoiCategory(leadCategory) {
+  return String(leadCategory || '').trim().toLowerCase() === 'soi';
+}
+
+async function enableLeads(agentConfig, opts = {}) {
+  const email = opts.email || require('./gmail');
+
+  // Same guard shape as enrichLeads/landLeads, worded for this script.
+  if (!agentConfig.googleSheetId) {
+    throw new Error(
+      `Cannot enable leads for agent "${agentConfig.agentId}": onboarding did not complete Sheet creation (googleSheetId missing).`
+    );
+  }
+
+  const hasEmails = opts.emails !== undefined;
+  const hasStatus = opts.status !== undefined;
+  if (hasEmails === hasStatus) {
+    throw new Error('enableLeads requires EXACTLY ONE selector: opts.emails or opts.status, not both or neither');
+  }
+
+  const allRows = await email.readSheetRows(agentConfig);
+  const pool = allRows.filter((row) => row.source === 'import' && row.aiEnabled === 'FALSE');
+
+  const counts = { enabled: 0, blockedSoi: 0, blockedProposedSoi: 0, notFound: 0, notEligible: 0 };
+  const rows = [];
+  const candidateRows = [];
+
+  if (hasEmails) {
+    for (const rawEmail of opts.emails) {
+      const trimmedEmail = String(rawEmail || '').trim();
+      const poolMatch = email.findRowByEmail(pool, trimmedEmail);
+      if (poolMatch) {
+        candidateRows.push(poolMatch);
+        continue;
+      }
+
+      // Not in the pool. Check the full row set to tell "never existed" apart
+      // from "exists but is not an inert import row" (e.g. already live).
+      const fullMatch = email.findRowByEmail(allRows, trimmedEmail);
+      counts.notFound++;
+      rows.push({
+        email: trimmedEmail,
+        action: 'not-found',
+        reason: fullMatch
+          ? 'found in the Sheet but not an inert import row (source and/or aiEnabled do not match)'
+          : 'not in the Sheet at all',
+      });
+    }
+  } else {
+    for (const row of pool) {
+      if (row.status === opts.status) {
+        candidateRows.push(row);
+      }
+    }
+  }
+
+  for (const row of candidateRows) {
+    // Hard block 5a: leadCategory is SOI. Never enabled, even if listed by
+    // email explicitly.
+    if (isSoiCategory(row.leadCategory)) {
+      counts.blockedSoi++;
+      rows.push({
+        email: row.leadId,
+        action: 'blocked',
+        reason: 'leadCategory is SOI; never auto-enabled',
+      });
+      continue;
+    }
+
+    // Hard block 5b: a PROPOSED SOI is sitting in the history with column T
+    // still empty, i.e. no manual decision has been made yet.
+    const hasProposedSoi = String(row.conversationHistory || '').includes('PROPOSED SOI:');
+    const leadCategoryEmpty = !String(row.leadCategory || '').trim();
+    if (hasProposedSoi && leadCategoryEmpty) {
+      counts.blockedProposedSoi++;
+      rows.push({
+        email: row.leadId,
+        action: 'blocked',
+        reason: 'conversation history has a PROPOSED SOI awaiting a manual column T decision',
+      });
+      continue;
+    }
+
+    if (!opts.dryRun) {
+      await email.updateSheetRow(agentConfig, row.rowIndex, { aiEnabled: AI_ENABLED_TRUE });
+    }
+    counts.enabled++;
+    rows.push({ email: row.leadId, action: 'enabled', reason: '' });
+  }
+
+  return {
+    enabled: counts.enabled,
+    blocked: counts.blockedSoi + counts.blockedProposedSoi,
+    notFound: counts.notFound,
+    rows,
+    counts,
+  };
+}
+
 module.exports = {
   scanLeadHistory,
   summarizeLeadHistory,
   enrichLeads,
+  enableLeads,
   SCAN_MAX_MESSAGES,
   SUMMARIZE_THRESHOLD,
   STATUS_ALLOWLIST,
+  AI_ENABLED_TRUE,
   _internal: {
     buildScanQuery,
     buildSummaryPrompt,
@@ -359,5 +474,6 @@ module.exports = {
     parseSummaryResponse,
     resolveStatus,
     groupMessagesByThread,
+    isSoiCategory,
   },
 };
