@@ -38,10 +38,10 @@ async function runEnable(agentId, opts = {}) {
   return { agentConfig, result };
 }
 
-function formatReport(result) {
+function formatReport(result, dryRun = false) {
   const lines = [];
 
-  lines.push(`Enabled: ${result.enabled}`);
+  lines.push(`${dryRun ? 'Would enable' : 'Enabled'}: ${result.enabled}`);
   lines.push('');
 
   const blockedRows = result.rows.filter((row) => row.action === 'blocked');
@@ -66,7 +66,11 @@ function formatReport(result) {
   }
   lines.push('');
 
-  lines.push('Enabled leads are now LIVE. The AI will act on them starting with the next cycle.');
+  lines.push(
+    dryRun
+      ? 'This was a preview (--dry-run). NO leads were changed.'
+      : 'Enabled leads are now LIVE. The AI will act on them starting with the next cycle.'
+  );
 
   return lines.join('\n');
 }
@@ -102,7 +106,7 @@ if (require.main === module) {
     try {
       if (hasStatus && !yes) {
         const { result } = await runEnable(agentId, { status, dryRun: true });
-        console.log(formatReport(result));
+        console.log(formatReport(result, true));
         console.log('');
         console.log('--status enables leads based on an AI-inferred status. Re-run with --yes to proceed.');
         process.exit(1);
@@ -110,7 +114,7 @@ if (require.main === module) {
       }
 
       const { result } = await runEnable(agentId, hasFile ? { filePath, dryRun } : { status, dryRun });
-      console.log(formatReport(result));
+      console.log(formatReport(result, dryRun));
       process.exit(0);
     } catch (err) {
       console.error(err.message);

@@ -77,6 +77,23 @@ describe('formatReport', () => {
     expect(report).toContain('c@x.com: not in the Sheet at all');
     expect(report).toContain('now LIVE');
   });
+
+  test('dryRun=false (explicit) is unchanged from the default: "Enabled" and "now LIVE"', () => {
+    const report = formatReport(enableResult(), false);
+
+    expect(report).toContain('Enabled: 1');
+    expect(report).toContain('now LIVE');
+    expect(report).not.toContain('Would enable');
+    expect(report).not.toContain('preview');
+  });
+
+  test('dryRun=true reports "Would enable" and does NOT claim leads went live', () => {
+    const report = formatReport(enableResult(), true);
+
+    expect(report).toContain('Would enable: 1');
+    expect(report).not.toContain('now LIVE');
+    expect(report).toContain('NO leads were changed');
+  });
 });
 
 describe('CLI argument handling (spawned subprocess)', () => {
