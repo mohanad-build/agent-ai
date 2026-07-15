@@ -266,9 +266,89 @@ async function summarizeLeadHistory(scanResult, opts = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// enrichLeads: batch-drives scanLeadHistory + summarizeLeadHistory over an
+// agent's imported-but-inert leads and writes the results back to the Sheet.
+// Only ever touches rows with source === 'import' AND aiEnabled === 'FALSE':
+// a live lead (aiEnabled TRUE) or a non-import row is never written. Never
+// writes column T (leadCategory) or column O (aiEnabled); the SOI flag is
+// PROPOSED only, surfaced in the conversation history and the report for an
+// operator to act on manually.
+// ---------------------------------------------------------------------------
+
+async function enrichLeads(agentConfig, opts = {}) {
+  const email = opts.email || require('./gmail');
+  const claude = opts.claude || require('./claude');
+  const scanFn = opts.scanLeadHistory || scanLeadHistory;
+  const summarizeFn = opts.summarizeLeadHistory || summarizeLeadHistory;
+
+  // Same guard, same message, as landLeads in src/leadImport.js.
+  if (!agentConfig.googleSheetId) {
+    throw new Error(
+      `Cannot enrich leads for agent "${agentConfig.agentId}": onboarding did not complete Sheet creation (googleSheetId missing).`
+    );
+  }
+
+  const allRows = await email.readSheetRows(agentConfig);
+
+  let selectedRows = allRows.filter(
+    (row) => row.source === 'import' && row.aiEnabled === 'FALSE'
+  );
+  const skipped = allRows.length - selectedRows.length;
+
+  if (typeof opts.limit === 'number') {
+    selectedRows = selectedRows.slice(0, opts.limit);
+  }
+
+  const counts = { enriched: 0, noHistory: 0, failed: 0 };
+  const rows = [];
+
+  for (const row of selectedRows) {
+    try {
+      const scanResult = await scanFn(agentConfig, row.leadId, { email });
+      const summary = await summarizeFn(scanResult, { claude });
+
+      await email.updateSheetRow(agentConfig, row.rowIndex, {
+        dateAdded: summary.lastContactDate,
+        status: summary.inferredStatus,
+      });
+
+      const historyEntry = summary.proposedSoi
+        ? `PROPOSED SOI: ${summary.soiReason}\n${summary.summary}`
+        : summary.summary;
+      await email.appendToConversationHistory(agentConfig, row.rowIndex, historyEntry);
+
+      if (scanResult.found) {
+        counts.enriched++;
+        rows.push({
+          email: row.leadId,
+          status: 'enriched',
+          note: summary.proposedSoi ? `PROPOSED SOI: ${summary.soiReason}` : '',
+        });
+      } else {
+        counts.noHistory++;
+        rows.push({ email: row.leadId, status: 'no-history', note: summary.summary });
+      }
+    } catch (err) {
+      counts.failed++;
+      rows.push({ email: row.leadId, status: 'error', note: err.message });
+    }
+  }
+
+  return {
+    processed: selectedRows.length,
+    enriched: counts.enriched,
+    failed: counts.failed,
+    skipped,
+    rows,
+    counts,
+  };
+}
+
 module.exports = {
   scanLeadHistory,
   summarizeLeadHistory,
+  enrichLeads,
   SCAN_MAX_MESSAGES,
   SUMMARIZE_THRESHOLD,
   STATUS_ALLOWLIST,
