@@ -19,6 +19,7 @@ const {
   renderErrorPage,
 } = require('../brandChrome');
 const { enableLeads } = require('../leadEnrich');
+const { normalizeLeads, landLeads } = require('../leadImport');
 
 function getAgentsDir() { return getStorageRoot(); }
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
@@ -414,6 +415,7 @@ router.get('/agent/:agentId/edit', (req, res) => {
     const { agentId } = req.params;
     const saved = req.query.saved === '1';
     const deleteError = req.query.delete_error === '1';
+    const importErrorEmpty = req.query.import_error === 'empty';
     const cadence = Array.isArray(agent.followUpCadence)
       ? agent.followUpCadence.join(', ')
       : (agent.followUpCadence || '3, 7, 14');
@@ -457,6 +459,52 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
       <a href="/onboard/oauth/start?agentId=${encodeURIComponent(agentId)}" class="btn btn-warn">Re-authorize Google Account</a>
     </div>
   </form>
+</div>
+<div class="edit-card" style="margin-top: 20px;">
+  <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Import Leads</h2>
+  <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">Imported rows land inert (AI disabled) in the Sheet -- enable them from the leads table before the agent will work them.</p>
+  ${importErrorEmpty ? '<p class="err-banner">No CSV was provided.</p>' : ''}
+  <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/import">
+    ${field('Choose a CSV file (optional)', 'csvFile', '<input type="file" id="csvFile" accept=".csv,.tsv,.txt" />')}
+    ${field('CSV / TSV Paste', 'csvText', '<textarea name="csvText" rows="10" placeholder="Paste CSV or TSV here, or choose a file above"></textarea>')}
+    <p id="importClientError" class="err-banner" style="display: none;"></p>
+    <div class="form-actions">
+      <button type="submit" class="btn">Import leads</button>
+    </div>
+  </form>
+  <script>
+  (function () {
+    "use strict";
+    var fileInput = document.getElementById('csvFile');
+    var textarea = document.querySelector('textarea[name="csvText"]');
+    var clientError = document.getElementById('importClientError');
+    var form = textarea ? textarea.form : null;
+
+    if (fileInput && textarea) {
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          textarea.value = reader.result;
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    if (form && textarea) {
+      form.addEventListener('submit', function (e) {
+        if (textarea.value.length > 1500000) {
+          e.preventDefault();
+          if (clientError) {
+            clientError.textContent = 'That paste is too large to submit. Import it from the CLI instead.';
+            clientError.style.display = 'block';
+          }
+        }
+      });
+    }
+  })();
+  </script>
 </div>
 <div class="edit-card" style="margin-top: 20px; border-color: rgba(220,38,38,0.4);">
   <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Danger Zone</h2>
@@ -570,6 +618,74 @@ router.post('/agent/:agentId/delete', (req, res) => {
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/delete:', err.message);
     res.status(500).send(err.message);
+  }
+});
+
+// ---- Import leads helpers ----
+
+function parseImportBody(body) {
+  const raw = body && body.csvText;
+  const csvText = (typeof raw === 'string' ? raw : '').trim();
+  return { csvText };
+}
+
+function renderImportResult(agentId, normalized, result) {
+  const mappingJson = JSON.stringify(normalized.meta.mapping, null, 2);
+
+  const manualRows = result.rows.filter((r) => r.status !== 'landed');
+  const manualHtml = manualRows.length
+    ? `<table class="leads-table"><thead><tr><th>Email</th><th>Status</th><th>Reason</th></tr></thead><tbody>${manualRows.map((r) => `<tr><td>${escHtml(r.email || '(none)')}</td><td>${escHtml(r.status)}</td><td>${escHtml(r.statusReason)}</td></tr>`).join('')}</tbody></table>`
+    : '<p>No rows require manual attention.</p>';
+
+  return `
+<h3>Column Mapping</h3>
+<pre>${escHtml(mappingJson)}</pre>
+<div class="banner-ok">Landed ${escHtml(String(result.landed))} lead(s) for ${escHtml(agentId)}.</div>
+<h3>Counts</h3>
+<table class="leads-table"><thead><tr><th>Outcome</th><th>Count</th></tr></thead><tbody>
+<tr><td>ok</td><td>${escHtml(String(result.counts.ok))}</td></tr>
+<tr><td>skippedNoEmail</td><td>${escHtml(String(result.counts.skippedNoEmail))}</td></tr>
+<tr><td>skippedUnparseable</td><td>${escHtml(String(result.counts.skippedUnparseable))}</td></tr>
+<tr><td>skippedDupeInFile</td><td>${escHtml(String(result.counts.skippedDupeInFile))}</td></tr>
+<tr><td>skippedDupeInSheet</td><td>${escHtml(String(result.counts.skippedDupeInSheet))}</td></tr>
+</tbody></table>
+<h3>Needs Manual Attention</h3>
+${manualHtml}
+<p style="margin-top: 20px;"><a href="/dashboard/agent/${encodeURIComponent(agentId)}/leads">View leads</a> -- landed rows are inert until enabled there.</p>`;
+}
+
+// ---- Import leads ----
+
+router.post('/agent/:agentId/import', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    let agent;
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
+
+    const { csvText } = parseImportBody(req.body);
+    if (!csvText) {
+      return res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?import_error=empty`);
+    }
+
+    const normalized = await normalizeLeads(csvText);
+    const result = await landLeads(agent, normalized);
+
+    res.send(pageWrap(`Import Leads: ${agentId}`, `
+<div class="page-header">
+  <h2>Import Leads: ${escHtml(agentId)}</h2>
+</div>
+${renderImportResult(agentId, normalized, result)}`));
+  } catch (err) {
+    console.error('[dashboard] POST /agent/:id/import:', err.message);
+    res.status(400).send(renderErrorPage(
+      'Import failed',
+      escHtml(err.message),
+      { href: `/dashboard/agent/${encodeURIComponent(req.params.agentId)}/edit`, label: 'Back to edit page' }
+    ));
   }
 });
 
@@ -790,3 +906,5 @@ module.exports.moveAgentFilesToDeleted = moveAgentFilesToDeleted;
 module.exports.isEnableEligible = isEnableEligible;
 module.exports.parseSelectedEmails = parseSelectedEmails;
 module.exports.renderEnableResult = renderEnableResult;
+module.exports.parseImportBody = parseImportBody;
+module.exports.renderImportResult = renderImportResult;
