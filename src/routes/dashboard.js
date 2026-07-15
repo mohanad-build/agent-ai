@@ -18,6 +18,7 @@ const {
   ARROW_SVG, // eslint-disable-line no-unused-vars
   renderErrorPage,
 } = require('../brandChrome');
+const { enableLeads } = require('../leadEnrich');
 
 function getAgentsDir() { return getStorageRoot(); }
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
@@ -148,6 +149,7 @@ function pageWrap(title, body) {
     .form-row textarea { resize: vertical; }
     .form-row small { color: var(--muted-2); font-size: 12px; display: block; margin-top: 4px; }
     .readonly-field { display: block; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--muted); word-break: break-all; }
+    .err-banner { color: #DC2626; font-size: 14px; margin: 0 0 12px; }
     .form-actions { margin-top: 24px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; background: var(--violet); color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; border: none; cursor: pointer; font-family: inherit; }
     .btn:hover { background: var(--violet-bright); }
@@ -571,6 +573,58 @@ router.post('/agent/:agentId/delete', (req, res) => {
   }
 });
 
+// ---- Bulk enable helpers ----
+
+function isEnableEligible(row) {
+  const source = String(row.source || '').trim().toLowerCase();
+  const aiEnabled = String(row.aiEnabled || '').trim().toUpperCase();
+  return source === 'import' && aiEnabled === 'FALSE';
+}
+
+function parseSelectedEmails(body) {
+  const raw = body && body.emails;
+  let list;
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === 'string') {
+    list = [raw];
+  } else {
+    return [];
+  }
+
+  const seen = new Set();
+  const result = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function renderEnableResult(agentId, result) {
+  const blockedRows = result.rows.filter((r) => r.action === 'blocked');
+  const notFoundRows = result.rows.filter((r) => r.action === 'not-found');
+
+  const blockedHtml = blockedRows.length
+    ? `<table class="leads-table"><thead><tr><th>Email</th><th>Reason</th></tr></thead><tbody>${blockedRows.map((r) => `<tr><td>${escHtml(r.email)}</td><td><span class="status-badge status-badge--amber-filled">blocked</span> ${escHtml(r.reason)}</td></tr>`).join('')}</tbody></table>`
+    : '<p>None blocked.</p>';
+
+  const notFoundHtml = notFoundRows.length
+    ? `<table class="leads-table"><thead><tr><th>Email</th><th>Reason</th></tr></thead><tbody>${notFoundRows.map((r) => `<tr><td>${escHtml(r.email)}</td><td><span class="status-badge status-badge--gray-outline">not found</span> ${escHtml(r.reason)}</td></tr>`).join('')}</tbody></table>`
+    : '<p>None.</p>';
+
+  return `
+<div class="banner-ok">Enabled ${escHtml(String(result.enabled))} lead(s) for ${escHtml(agentId)}.</div>
+<h3>Blocked</h3>
+${blockedHtml}
+<h3>Not found</h3>
+${notFoundHtml}
+<p style="margin-top: 20px;"><a href="/dashboard/agent/${encodeURIComponent(agentId)}/leads">Back to leads</a></p>`;
+}
+
 // ---- Leads table ----
 
 router.get('/agent/:agentId/leads', async (req, res) => {
@@ -585,19 +639,25 @@ router.get('/agent/:agentId/leads', async (req, res) => {
       ));
     }
 
+    const enableError = req.query.enable_error === 'empty';
+
     let rows = [];
     try { rows = await email.readSheetRows(agent); } catch { /* render empty */ }
 
+    let anyEligible = false;
     const rowsHtml = rows.map((row) => {
       const aiOn = isAiEnabled(row);
       const isSoi = (row.leadCategory || '').toLowerCase() === 'soi';
       const sc = STATUS_COLOR[row.status] || 'gray-outline';
+      const eligible = isEnableEligible(row);
+      if (eligible) anyEligible = true;
       const lastAction = (() => {
         if (!row.conversationHistory) return '';
         const lines = row.conversationHistory.split('\n').filter(Boolean);
         return (lines[lines.length - 1] || '').substring(0, 80);
       })();
       return `<tr>
+  <td>${eligible ? `<input type="checkbox" name="emails" value="${escHtml(row.leadId || '')}" form="bulkEnableForm">` : ''}</td>
   <td>${row.rowIndex}</td>
   <td>${escHtml(row.name || '')}</td>
   <td>${escHtml(row.leadId || '')}</td>
@@ -610,6 +670,15 @@ router.get('/agent/:agentId/leads', async (req, res) => {
 </tr>`;
     }).join('');
 
+    const bulkEnableHtml = anyEligible
+      ? `<form id="bulkEnableForm" method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/enable">
+  ${enableError ? '<p class="err-banner">No leads were selected.</p>' : ''}
+  <div class="form-actions">
+    <button type="submit" class="btn">Enable selected</button>
+  </div>
+</form>`
+      : '';
+
     res.send(pageWrap(`Leads: ${agentId}`, `
 <div class="page-header">
   <h2>Leads: ${escHtml(agentId)}</h2>
@@ -621,12 +690,13 @@ router.get('/agent/:agentId/leads', async (req, res) => {
 <div style="overflow-x: auto;">
   <table class="leads-table">
     <thead><tr>
-      <th>Row</th><th>Name</th><th>Email</th><th>Status</th>
+      <th></th><th>Row</th><th>Name</th><th>Email</th><th>Status</th>
       <th>AI Enabled</th><th>Source</th><th>Follow-Up Count</th><th>Last Action</th><th>SOI</th>
     </tr></thead>
-    <tbody>${rowsHtml || '<tr><td colspan="9"><em>No rows found.</em></td></tr>'}</tbody>
+    <tbody>${rowsHtml || '<tr><td colspan="10"><em>No rows found.</em></td></tr>'}</tbody>
   </table>
-</div>`));
+</div>
+${bulkEnableHtml}`));
   } catch (err) {
     console.error('[dashboard] GET /agent/:id/leads:', err.message);
     res.status(500).send(err.message);
@@ -681,9 +751,42 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
   }
 });
 
+// ---- Bulk enable ----
+
+router.post('/agent/:agentId/leads/enable', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    let agent;
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
+
+    const emails = parseSelectedEmails(req.body);
+    if (emails.length === 0) {
+      return res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/leads?enable_error=empty`);
+    }
+
+    const result = await enableLeads(agent, { emails });
+
+    res.send(pageWrap(`Enable Leads: ${agentId}`, `
+<div class="page-header">
+  <h2>Enable Leads: ${escHtml(agentId)}</h2>
+</div>
+${renderEnableResult(agentId, result)}`));
+  } catch (err) {
+    console.error('[dashboard] POST leads/enable:', err.message);
+    res.status(500).send(err.message);
+  }
+});
+
 module.exports = router;
 module.exports.discoverAgentIds = discoverAgentIds;
 module.exports.AGENT_ID_REGEX = AGENT_ID_REGEX;
 module.exports.NON_DASHBOARD_IDS = NON_DASHBOARD_IDS;
 module.exports.filterDashboardIds = filterDashboardIds;
 module.exports.moveAgentFilesToDeleted = moveAgentFilesToDeleted;
+module.exports.isEnableEligible = isEnableEligible;
+module.exports.parseSelectedEmails = parseSelectedEmails;
+module.exports.renderEnableResult = renderEnableResult;
