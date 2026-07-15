@@ -11,7 +11,7 @@ const dashboardRouter = require('./routes/dashboard');
 const app = express();
 
 // Body parsing
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 app.use(express.json());
 
 // Sessions (for dashboard auth only)
