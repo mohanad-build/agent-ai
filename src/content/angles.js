@@ -8,6 +8,7 @@ const claude  = require('../claude');
 const { resolveMetricPolicy, UnknownMetricError } = require('./sources');
 const { currentWeek } = require('./cache');
 const { getStorageRoot } = require('../storagePaths');
+const { VALID_THEME_TAGS } = require('./_shared');
 
 const { MODELS } = claude;
 
@@ -37,11 +38,6 @@ class InsufficientDataError extends Error {
 const EXPECTED_METRIC_COUNT = 3;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const VALID_THEME_TAGS = new Set([
-  'rates', 'supply', 'prices', 'sales_volume',
-  'buyer_psychology', 'seller_psychology', 'regulation', 'economy',
-]);
 
 const VALID_AUDIENCE_FOCUS = new Set(['buyers', 'sellers', 'both']);
 
