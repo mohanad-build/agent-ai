@@ -6,6 +6,7 @@ const RATE_DISCLAIMER_BLOCK =
 const VALID_THEME_TAGS = new Set([
   'rates', 'supply', 'prices', 'sales_volume',
   'buyer_psychology', 'seller_psychology', 'regulation', 'economy',
+  'process', 'craft', 'costs',
 ]);
 
 module.exports = {
