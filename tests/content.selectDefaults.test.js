@@ -18,6 +18,10 @@ function makeAngle(overrides = {}) {
   };
 }
 
+function makeEvergreenAngle(overrides = {}) {
+  return makeAngle({ origin: 'evergreen', ...overrides });
+}
+
 // Shared agent profiles and histories used across suites.
 const BUYERS_MAX     = { primaryFocus: 'buyers', contentVolume: 'max' };
 const BUYERS_BALANCED = { primaryFocus: 'buyers', contentVolume: 'balanced' };
@@ -291,6 +295,104 @@ describe("selectDefaults -- 'max' mode", () => {
     expect(result.reelDefaults).not.toContain(result.remaining[0]);
     expect(result.reelDefaults).not.toContain(result.remaining[1]);
     expect(result.remaining).not.toContain(result.blogDefault);
+  });
+});
+
+// ── selectDefaults -- 'max' origin mix ────────────────────────────────────────
+
+describe("selectDefaults -- 'max' origin mix", () => {
+  test('both origins, enough of each: slot1 market, slot2 evergreen, overrides pure score', () => {
+    // Top-2 by pure score would be the two market angles (0.9, 0.8); the mix
+    // must still place the evergreen angle in slot2.
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const M2 = makeAngle({ id: 'm2', surpriseScore: 0.8, bestSuitedFor: ['reel'] });
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.3, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([M1, M2, E1], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.reelDefaults).toHaveLength(2);
+    expect(result.reelDefaults[0]).toBe(M1);
+    expect(result.reelDefaults[0].origin).toBeUndefined();
+    expect(result.reelDefaults[1]).toBe(E1);
+    expect(result.reelDefaults[1].origin).toBe('evergreen');
+  });
+
+  test('market-only (no evergreen angles): two market reels, identical to pre-mix behavior', () => {
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const M2 = makeAngle({ id: 'm2', surpriseScore: 0.8, bestSuitedFor: ['reel'] });
+    const M3 = makeAngle({ id: 'm3', surpriseScore: 0.7, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([M1, M2, M3], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.reelDefaults).toEqual([M1, M2]);
+    expect(result.reelDefaults[0].origin).toBeUndefined();
+    expect(result.reelDefaults[1].origin).toBeUndefined();
+  });
+
+  test('evergreen-only: two evergreen reels', () => {
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const E2 = makeEvergreenAngle({ id: 'e2', surpriseScore: 0.8, bestSuitedFor: ['reel'] });
+    const E3 = makeEvergreenAngle({ id: 'e3', surpriseScore: 0.7, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([E1, E2, E3], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.reelDefaults).toEqual([E1, E2]);
+    expect(result.reelDefaults[0].origin).toBe('evergreen');
+    expect(result.reelDefaults[1].origin).toBe('evergreen');
+  });
+
+  test('both present but only one evergreen reel-eligible: slot1 market, slot2 that one evergreen', () => {
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const M2 = makeAngle({ id: 'm2', surpriseScore: 0.8, bestSuitedFor: ['reel'] });
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.3, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([M1, M2, E1], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.reelDefaults).toEqual([M1, E1]);
+  });
+
+  test('both present, zero market reel-eligible (all market angles blog-only): slot1 and slot2 both evergreen', () => {
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.9, bestSuitedFor: ['blog'], longFormSuitable: false });
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.5, bestSuitedFor: ['reel'] });
+    const E2 = makeEvergreenAngle({ id: 'e2', surpriseScore: 0.4, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([M1, E1, E2], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.reelDefaults).toEqual([E1, E2]);
+    expect(result.reelDefaults[0].origin).toBe('evergreen');
+    expect(result.reelDefaults[1].origin).toBe('evergreen');
+  });
+
+  test('blog prefers market: market longFormSuitable angle wins over a higher-scored evergreen one', () => {
+    const EBlog = makeEvergreenAngle({ id: 'e-blog', surpriseScore: 0.95, bestSuitedFor: ['blog'], longFormSuitable: true });
+    const MBlog = makeAngle({ id: 'm-blog', surpriseScore: 0.5, bestSuitedFor: ['blog'], longFormSuitable: true });
+
+    const result = selectDefaults([EBlog, MBlog], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.blogDefault).toBe(MBlog);
+    expect(result.blogDefault.origin).toBeUndefined();
+  });
+
+  test('blog fallback: no market longFormSuitable angle, evergreen longFormSuitable one wins', () => {
+    const EBlog = makeEvergreenAngle({ id: 'e-blog', surpriseScore: 0.6, bestSuitedFor: ['blog'], longFormSuitable: true });
+    const MReel = makeAngle({ id: 'm-reel', surpriseScore: 0.9, bestSuitedFor: ['reel'], longFormSuitable: false });
+
+    const result = selectDefaults([EBlog, MReel], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.blogDefault).toBe(EBlog);
+    expect(result.blogDefault.origin).toBe('evergreen');
+  });
+
+  test('blog-market-preferred angle is excluded from reel slot 1: reel slot1 is the NEXT market angle', () => {
+    const MBlog = makeAngle({ id: 'm-blog', surpriseScore: 0.9, bestSuitedFor: ['reel', 'blog'], longFormSuitable: true });
+    const M2    = makeAngle({ id: 'm2', surpriseScore: 0.7, bestSuitedFor: ['reel'], longFormSuitable: false });
+    const E1    = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.3, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([MBlog, M2, E1], BOTH_MAX, EMPTY_HISTORY);
+
+    expect(result.blogDefault).toBe(MBlog);
+    expect(result.reelDefaults).not.toContain(MBlog);
+    expect(result.reelDefaults).toEqual([M2, E1]);
   });
 });
 

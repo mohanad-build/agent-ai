@@ -90,6 +90,10 @@ function sortByScore(angles, agentProfile, agentHistory) {
   return scored.map(s => s.angle);
 }
 
+// ── Origin split ──────────────────────────────────────────────────────────────
+
+function isEvergreen(angle) { return angle.origin === 'evergreen'; }
+
 // ── Selection ─────────────────────────────────────────────────────────────────
 
 function selectDefaults(angles, agentProfile, agentHistory, opts = {}) {
@@ -105,13 +109,38 @@ function selectDefaults(angles, agentProfile, agentHistory, opts = {}) {
   if (contentVolume === 'max' || contentVolume === 'balanced') {
     const reelLimit = contentVolume === 'max' ? 2 : 1;
 
-    // Blog default: highest-scoring longFormSuitable angle.
-    const blogEligible = sorted.filter(a => a.longFormSuitable === true);
-    const blogDefault  = blogEligible.length > 0 ? blogEligible[0] : null;
+    // Blog default: highest-scoring longFormSuitable angle, preferring market
+    // over evergreen. A strong evergreen explainer is the fallback when no
+    // market angle is blog-eligible, not excluded outright.
+    const blogEligible       = sorted.filter(a => a.longFormSuitable === true);
+    const blogMarketEligible = blogEligible.filter(a => !isEvergreen(a));
+    const blogDefault =
+      blogMarketEligible.length > 0 ? blogMarketEligible[0]
+      : blogEligible.length > 0     ? blogEligible[0]
+      : null;
 
     // Reel defaults: top N reel-eligible angles excluding the blog default.
-    const reelPool     = sorted.filter(a => a !== blogDefault && a.bestSuitedFor.includes('reel'));
-    const reelDefaults = reelPool.slice(0, reelLimit);
+    const reelPool = sorted.filter(a => a !== blogDefault && a.bestSuitedFor.includes('reel'));
+
+    let reelDefaults;
+    if (reelLimit === 2) {
+      // 'max': slot-based origin mix. Slot 1 prefers MARKET, slot 2 prefers
+      // EVERGREEN, each falling back to the other origin rather than going
+      // empty (so a single-origin week fills both slots exactly as before).
+      const marketReels    = reelPool.filter(a => !isEvergreen(a));
+      const evergreenReels = reelPool.filter(a => isEvergreen(a));
+
+      const slot1 = marketReels[0] || evergreenReels[0] || null;
+      const slot2 =
+        evergreenReels.find(a => a !== slot1)
+        || reelPool.find(a => a !== slot1)
+        || null;
+
+      reelDefaults = [slot1, slot2].filter(a => a !== null);
+    } else {
+      // 'balanced' (reelLimit === 1): unchanged, origin-blind top reel.
+      reelDefaults = reelPool.slice(0, 1);
+    }
 
     const chosen    = new Set([...reelDefaults, ...(blogDefault !== null ? [blogDefault] : [])]);
     const remaining = sorted.filter(a => !chosen.has(a));
