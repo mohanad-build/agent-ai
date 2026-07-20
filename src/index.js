@@ -23,6 +23,7 @@ const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, run
 const { runContentEngineForAgent, shouldRunContentEngine } = require('./content/engine');
 const { readContentProfile, isContentEngineEnabled } = require('./content/profile');
 const { generateWeeklyAngles, shouldRunAngleGeneration } = require('./content/angles');
+const { generateEvergreenAngles, evergreenAnglesFilePath } = require('./content/evergreenAngles');
 const { pullBankOfCanada, shouldRunDataPull } = require('./content/pullData');
 const { currentWeek } = require('./content/cache');
 const { readContentState } = require('./content/state');
@@ -675,6 +676,29 @@ async function maybeRunWeeklyAngleGenerationJob() {
 }
 
 // --------------------------------------------------------------------------
+// Scheduled evergreen angle generation (operator-scoped, Sunday 04:00 America/Toronto)
+// --------------------------------------------------------------------------
+
+async function maybeRunWeeklyEvergreenAngleGenerationJob() {
+  try {
+    const now = getNowDate();
+    if (!shouldRunAngleGeneration(now)) return;
+    const weekIso = currentWeek(now);
+    const evergreenPath = evergreenAnglesFilePath(getStorageRoot(), weekIso);
+    if (fs.existsSync(evergreenPath)) {
+      console.log(`[scheduler] evergreen-angle-gen: skipped (already exists for week ${weekIso})`);
+      return;
+    }
+    console.log(`[scheduler] evergreen-angle-gen: starting week=${weekIso}`);
+    const result = await generateEvergreenAngles({});
+    console.log(`[scheduler] evergreen-angle-gen: success week=${result.weekIso} angles=${result.angles.length}`);
+  } catch (err) {
+    appendUpstreamErrorLog('evergreen-angle-gen', `exception: ${err.message}`);
+    console.error(`[scheduler] evergreen-angle-gen: failed err=${err.message}`);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Weekly digest (operator-scoped, runs once per cycle after all agents)
 // --------------------------------------------------------------------------
 
@@ -767,6 +791,7 @@ async function main() {
 
   await maybeRunDataPull();
   await maybeRunWeeklyAngleGenerationJob();
+  await maybeRunWeeklyEvergreenAngleGenerationJob();
   await maybeRunWeeklyDigest();
 
   console.log('\nOrchestrator cycle complete.');
@@ -779,4 +804,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, appendUpstreamErrorLog, runCycle: main, discoverAgentIds, AGENT_ID_REGEX };
+module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, maybeRunWeeklyEvergreenAngleGenerationJob, appendUpstreamErrorLog, runCycle: main, discoverAgentIds, AGENT_ID_REGEX };

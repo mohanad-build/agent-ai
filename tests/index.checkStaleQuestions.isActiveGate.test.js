@@ -48,6 +48,10 @@ jest.mock('../src/content/state', () => ({
 jest.mock('../src/content/angles', () => ({
   generateWeeklyAngles: jest.fn(),
 }));
+jest.mock('../src/content/evergreenAngles', () => ({
+  generateEvergreenAngles: jest.fn(),
+  evergreenAnglesFilePath: jest.fn(),
+}));
 jest.mock('../src/time', () => ({
   getNow:     jest.fn().mockReturnValue(Date.now()),
   getNowIso:  jest.fn().mockReturnValue('2026-06-26T07:00:00.000Z'),

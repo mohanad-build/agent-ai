@@ -52,6 +52,10 @@ jest.mock('../src/content/profile', () => ({
 jest.mock('../src/content/angles', () => ({
   generateWeeklyAngles: jest.fn(),
 }));
+jest.mock('../src/content/evergreenAngles', () => ({
+  generateEvergreenAngles: jest.fn(),
+  evergreenAnglesFilePath: jest.fn(),
+}));
 jest.mock('../src/content/state', () => ({
   readContentState: jest.fn(),
   recordBatchSent:  jest.fn(),

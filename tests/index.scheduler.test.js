@@ -56,6 +56,14 @@ jest.mock('../src/content/profile', () => ({
 jest.mock('../src/content/angles', () => ({
   generateWeeklyAngles:    jest.fn(),
   shouldRunAngleGeneration: jest.fn(),
+  // evergreenAngles.js's real evergreenAnglesFilePath (required below via
+  // requireActual) pulls _internal.validateWeekIso from this module -- keep it
+  // real so that load path does not break under the mock.
+  _internal: jest.requireActual('../src/content/angles')._internal,
+}));
+jest.mock('../src/content/evergreenAngles', () => ({
+  generateEvergreenAngles: jest.fn(),
+  evergreenAnglesFilePath: jest.requireActual('../src/content/evergreenAngles').evergreenAnglesFilePath,
 }));
 jest.mock('../src/content/pullData', () => ({
   pullBankOfCanada:  jest.fn(),
@@ -74,11 +82,12 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, appendUpstreamErrorLog } = require('../src/index');
+const { maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, maybeRunWeeklyEvergreenAngleGenerationJob, appendUpstreamErrorLog } = require('../src/index');
 
 const operatorState                         = require('../src/operatorState');
 const { pullBankOfCanada, shouldRunDataPull } = require('../src/content/pullData');
 const { generateWeeklyAngles, shouldRunAngleGeneration } = require('../src/content/angles');
+const { generateEvergreenAngles } = require('../src/content/evergreenAngles');
 
 // currentWeek is a real pure function -- used to compute the expected week ISO
 // for the angle-gen file path from the mocked getNowDate value.
@@ -262,6 +271,94 @@ describe('maybeRunWeeklyAngleGenerationJob', () => {
   });
 });
 
+// ── maybeRunWeeklyEvergreenAngleGenerationJob ─────────────────────────────────
+
+describe('maybeRunWeeklyEvergreenAngleGenerationJob', () => {
+  let tmpDir;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'evergreen-sched-'));
+    process.env.STORAGE_ROOT = tmpDir;
+  });
+
+  afterEach(async () => {
+    delete process.env.STORAGE_ROOT;
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('does nothing when the time gate is closed', async () => {
+    shouldRunAngleGeneration.mockReturnValue(false);
+
+    await maybeRunWeeklyEvergreenAngleGenerationJob();
+
+    expect(generateEvergreenAngles).not.toHaveBeenCalled();
+  });
+
+  it('logs skip and does not call generateEvergreenAngles when evergreen file already exists', async () => {
+    shouldRunAngleGeneration.mockReturnValue(true);
+    const evergreenDir = path.join(tmpDir, '_evergreen', '_angles');
+    fs.mkdirSync(evergreenDir, { recursive: true });
+    fs.writeFileSync(path.join(evergreenDir, `${MOCK_WEEK}.json`), '{}', 'utf8');
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await maybeRunWeeklyEvergreenAngleGenerationJob();
+
+    expect(generateEvergreenAngles).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      `[scheduler] evergreen-angle-gen: skipped (already exists for week ${MOCK_WEEK})`,
+    );
+    logSpy.mockRestore();
+  });
+
+  it('calls generateEvergreenAngles when evergreen file does not exist', async () => {
+    shouldRunAngleGeneration.mockReturnValue(true);
+    generateEvergreenAngles.mockResolvedValue({
+      angles:      [{ surpriseScore: 0.5 }, { surpriseScore: 0.4 }],
+      weekIso:     MOCK_WEEK,
+      generatedAt: '2026-05-17T08:00:00.000Z',
+      bankVersion: 1,
+      regenerated: true,
+    });
+
+    await maybeRunWeeklyEvergreenAngleGenerationJob();
+
+    expect(generateEvergreenAngles).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs success format on success', async () => {
+    shouldRunAngleGeneration.mockReturnValue(true);
+    generateEvergreenAngles.mockResolvedValue({
+      angles:      [{ surpriseScore: 0.5 }, { surpriseScore: 0.4 }],
+      weekIso:     MOCK_WEEK,
+      generatedAt: '2026-05-17T08:00:00.000Z',
+      bankVersion: 1,
+      regenerated: true,
+    });
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await maybeRunWeeklyEvergreenAngleGenerationJob();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      `[scheduler] evergreen-angle-gen: success week=${MOCK_WEEK} angles=2`,
+    );
+    logSpy.mockRestore();
+  });
+
+  it('logs failure format and does not rethrow when generateEvergreenAngles throws', async () => {
+    shouldRunAngleGeneration.mockReturnValue(true);
+    generateEvergreenAngles.mockRejectedValue(new Error('Claude API timeout'));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(maybeRunWeeklyEvergreenAngleGenerationJob()).resolves.toBeUndefined();
+
+    expect(errSpy).toHaveBeenCalledWith(
+      '[scheduler] evergreen-angle-gen: failed err=Claude API timeout',
+    );
+    errSpy.mockRestore();
+  });
+});
+
 // ── appendUpstreamErrorLog and wrapper integration ────────────────────────────
 
 describe('appendUpstreamErrorLog and wrapper integration', () => {
@@ -324,6 +421,18 @@ describe('appendUpstreamErrorLog and wrapper integration', () => {
 
     const content = fs.readFileSync(path.join(tmpDir, '_market', '_errors.log'), 'utf8');
     expect(content).toContain('[angle-gen] exception: claude api down');
+  });
+
+  it('SITE 4: writes log entry when generateEvergreenAngles throws', async () => {
+    shouldRunAngleGeneration.mockReturnValue(true);
+    generateEvergreenAngles.mockRejectedValue(new Error('claude api down'));
+
+    await maybeRunWeeklyEvergreenAngleGenerationJob();
+
+    // appendUpstreamErrorLog hardcodes _market/_errors.log; evergreen is tagged
+    // by stage string, not a separate log file.
+    const content = fs.readFileSync(path.join(tmpDir, '_market', '_errors.log'), 'utf8');
+    expect(content).toContain('[evergreen-angle-gen] exception: claude api down');
   });
 
   it('log append failure does not crash the wrapper', async () => {
