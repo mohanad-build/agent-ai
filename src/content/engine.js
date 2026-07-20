@@ -7,6 +7,7 @@ const { getNowDate, getNowIso }             = require('../time');
 const { getStorageRoot }                    = require('../storagePaths');
 const { currentWeek }                       = require('./cache');
 const { readWeeklyAngles }                  = require('./angles');
+const { readEvergreenAngles }               = require('./evergreenAngles');
 const { readContentProfile }                = require('./profile');
 const { readContentState, initBatch, buildAgentHistory, recordBatchSent } = require('./state');
 const { selectDefaults }                    = require('./selectDefaults');
@@ -141,15 +142,37 @@ async function gatherInputs(agentConfig, now) {
 
   const weekIso = currentWeek(now ?? getNowDate());
 
-  let weeklyAngles;
+  // Read both menus independently. A menu is "absent" if its reader returns
+  // null or throws (missing/unreadable) -- this preserves the pre-evergreen
+  // semantics per menu. 'no-angles' fires only when BOTH are absent.
+  let marketMenu = null;
   try {
-    weeklyAngles = await readWeeklyAngles(weekIso);
-    if (!weeklyAngles) {
-      throw new Error(`Angles file not found for ${weekIso}`);
-    }
+    marketMenu = await readWeeklyAngles(weekIso);
   } catch (err) {
-    throw new SkipError('no-angles', { batchWeekIso: weekIso, cause: err });
+    marketMenu = null;
   }
+
+  let evergreenMenu = null;
+  try {
+    evergreenMenu = await readEvergreenAngles(weekIso);
+  } catch (err) {
+    evergreenMenu = null;
+  }
+
+  const marketAngles    = (marketMenu    && Array.isArray(marketMenu.angles))    ? marketMenu.angles    : [];
+  const evergreenAngles = (evergreenMenu && Array.isArray(evergreenMenu.angles)) ? evergreenMenu.angles : [];
+
+  if (marketMenu === null && evergreenMenu === null) {
+    throw new SkipError('no-angles', { batchWeekIso: weekIso });
+  }
+
+  // Preserve the existing weeklyAngles object shape for downstream consumers,
+  // but back its .angles with the concatenated market + evergreen list. Market
+  // angles lead (commit 7 refines slot-based origin mix; commit 6 only merges).
+  const weeklyAngles = {
+    weekIso,
+    angles: [...marketAngles, ...evergreenAngles],
+  };
 
   const contentState = readContentState(agentConfig.agentId);
   const agentHistory = buildAgentHistory(agentConfig.agentId);

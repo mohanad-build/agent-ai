@@ -21,6 +21,18 @@ jest.mock('../src/content/angles', () => {
   };
 });
 
+// ── Redirect readEvergreenAngles to the same per-test tmp dir ─────────────────
+// Mirrors the readWeeklyAngles wrap above.
+jest.mock('../src/content/evergreenAngles', () => {
+  const real = jest.requireActual('../src/content/evergreenAngles');
+  return {
+    ...real,
+    readEvergreenAngles: jest.fn((weekIso, opts = {}) =>
+      real.readEvergreenAngles(weekIso, { ...opts, baseDir: mockTmpBaseDir })
+    ),
+  };
+});
+
 jest.mock('../src/content/profile',             () => ({ readContentProfile: jest.fn() }));
 jest.mock('../src/content/state',               () => ({
   readContentState:  jest.fn(),
@@ -128,6 +140,36 @@ function makeAngleMenu(weekIso) {
   };
 }
 
+function makeEvergreenAngle(id, overrides = {}) {
+  return {
+    origin:            'evergreen',
+    id,
+    headline:          `Evergreen headline ${id}`,
+    thesis:            'A durable take that needs no fresh data.',
+    themeTag:          'buyer_psychology',
+    audienceFocus:     'buyers',
+    bestSuitedFor:     ['reel'],
+    surpriseScore:     0.5,
+    longFormSuitable:  false,
+    forbidsRateAdvice: false,
+    sourceFooter:      null,
+    dataPoints:        [],
+    ...overrides,
+  };
+}
+
+function makeEvergreenAngleMenu(weekIso) {
+  return {
+    weekIso,
+    generatedAt: '2026-05-18T08:00:00.000Z',
+    bankVersion: 1,
+    angles: [
+      makeEvergreenAngle(`angle-evg-${weekIso}-001`),
+      makeEvergreenAngle(`angle-evg-${weekIso}-002`),
+    ],
+  };
+}
+
 function makeReelScriptResult() {
   return { text: 'Script text for reel.', generatedAt: '2026-05-18T11:00:01.000Z' };
 }
@@ -142,6 +184,13 @@ function makeBlogPostResult() {
 
 function writeAngleFile(weekIso, content) {
   const dir    = path.join(mockTmpBaseDir, '_market', '_angles');
+  const realFs = jest.requireActual('node:fs');
+  realFs.mkdirSync(dir, { recursive: true });
+  realFs.writeFileSync(path.join(dir, `${weekIso}.json`), JSON.stringify(content), 'utf8');
+}
+
+function writeEvergreenAngleFile(weekIso, content) {
+  const dir    = path.join(mockTmpBaseDir, '_evergreen', '_angles');
   const realFs = jest.requireActual('node:fs');
   realFs.mkdirSync(dir, { recursive: true });
   realFs.writeFileSync(path.join(dir, `${weekIso}.json`), JSON.stringify(content), 'utf8');
@@ -287,6 +336,47 @@ describe('runContentEngineForAgent integration', () => {
     expect(result.ok).toBe(true);
     expect(recordBatchSent).toHaveBeenCalledTimes(1);
     expect(recordBatchSent).toHaveBeenCalledWith('test-agent', WEEK_ISO, now.toISOString());
+  });
+
+  test('9. both menus on disk: batch assembles, review email generated, no skip', async () => {
+    writeEvergreenAngleFile(WEEK_ISO, makeEvergreenAngleMenu(WEEK_ISO));
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+
+    expect(result.skipped).toBeUndefined();
+    expect(result.ok).toBe(true);
+    expect(result.sent).toBe(true);
+    expect(result.pieceResults).toHaveLength(3);
+    expect(sendNewEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test('10. evergreen-only on disk: batch still assembles from evergreen angles, no skip', async () => {
+    const realFs = jest.requireActual('node:fs');
+    realFs.unlinkSync(path.join(mockTmpBaseDir, '_market', '_angles', `${WEEK_ISO}.json`));
+    writeEvergreenAngleFile(WEEK_ISO, makeEvergreenAngleMenu(WEEK_ISO));
+
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+
+    expect(result.skipped).toBeUndefined();
+    expect(result.ok).toBe(true);
+    expect(result.sent).toBe(true);
+    // Evergreen angles are all reel-only, longFormSuitable: false -> no blog default.
+    expect(result.pieceResults).toHaveLength(2);
+    expect(result.pieceResults.every(r => r.type === 'reel')).toBe(true);
+    expect(renderBlogPost).not.toHaveBeenCalled();
+    expect(sendNewEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test('11. both menus absent: result.skipped === no-angles', async () => {
+    const realFs = jest.requireActual('node:fs');
+    realFs.unlinkSync(path.join(mockTmpBaseDir, '_market', '_angles', `${WEEK_ISO}.json`));
+    // beforeEach never seeds an evergreen file, so it is already absent here.
+
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig });
+
+    expect(result.skipped).toBe('no-angles');
+    expect(result.batchWeekIso).toBe(WEEK_ISO);
+    expect(sendNewEmail).not.toHaveBeenCalled();
+    expect(recordBatchSent).not.toHaveBeenCalled();
   });
 
 });

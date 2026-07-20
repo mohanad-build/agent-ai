@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 
 jest.mock('../src/content/angles',              () => ({ readWeeklyAngles: jest.fn() }));
+jest.mock('../src/content/evergreenAngles',     () => ({ readEvergreenAngles: jest.fn() }));
 jest.mock('../src/content/profile',             () => ({ readContentProfile: jest.fn() }));
 jest.mock('../src/content/state',               () => ({
   readContentState:  jest.fn(),
@@ -22,6 +23,7 @@ jest.mock('node:fs', () => ({
 }));
 
 const { readWeeklyAngles }     = require('../src/content/angles');
+const { readEvergreenAngles }  = require('../src/content/evergreenAngles');
 const { readContentProfile }   = require('../src/content/profile');
 const { readContentState, initBatch, buildAgentHistory, recordBatchSent } = require('../src/content/state');
 const { selectDefaults }       = require('../src/content/selectDefaults');
@@ -110,6 +112,33 @@ function makeWeeklyAngles(angleCount = 5) {
   };
 }
 
+function makeEvergreenAngle(id, overrides = {}) {
+  return {
+    origin:            'evergreen',
+    id,
+    headline:          `Evergreen headline for ${id}`,
+    themeTag:          'buyer_psychology',
+    longFormSuitable:  false,
+    forbidsRateAdvice: false,
+    bestSuitedFor:     ['reel'],
+    surpriseScore:     0.5,
+    audienceFocus:     'buyers',
+    thesis:            'An evergreen take',
+    dataPoints:        [],
+    sourceFooter:      null,
+    ...overrides,
+  };
+}
+
+function makeEvergreenMenu(angleCount = 3) {
+  return {
+    weekIso: WEEK_ISO,
+    angles:  Array.from({ length: angleCount }, (_, i) =>
+      makeEvergreenAngle(`angle-evg-${WEEK_ISO}-${String(i + 1).padStart(3, '0')}`)
+    ),
+  };
+}
+
 function makeScript() {
   return { text: 'Hook\n\nBody\n\nCTA', generatedAt: '2026-05-19T07:00:00.000Z' };
 }
@@ -136,6 +165,7 @@ function setupHappyPath() {
   readContentState.mockReturnValue(makeContentState());
   buildAgentHistory.mockReturnValue({ recentThemeTags: [], rejectedRateContent: false });
   readWeeklyAngles.mockResolvedValue(makeWeeklyAngles());
+  readEvergreenAngles.mockResolvedValue(null);
   selectDefaults.mockReturnValue(makePicks());
   renderReelScript.mockResolvedValue(makeScript());
   renderInstagramCaption.mockResolvedValue(makeCaption());
@@ -148,6 +178,9 @@ function setupHappyPath() {
 beforeEach(() => {
   jest.clearAllMocks();
   jest.useRealTimers();
+  // Default: evergreen menu absent. Existing market-only tests keep passing
+  // unmodified; tests exercising the evergreen merge override this.
+  readEvergreenAngles.mockResolvedValue(null);
 });
 
 // ── 1. Early skip paths ───────────────────────────────────────────────────────
@@ -174,6 +207,7 @@ describe('Early skip paths', () => {
   test('missing angle file returns { skipped: "no-angles", batchWeekIso }', async () => {
     readContentProfile.mockReturnValue(makeContentProfile());
     readWeeklyAngles.mockResolvedValue(null);
+    readEvergreenAngles.mockResolvedValue(null);
     const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.skipped).toBe('no-angles');
     expect(typeof result.batchWeekIso).toBe('string');
@@ -183,6 +217,7 @@ describe('Early skip paths', () => {
   test('readWeeklyAngles throwing returns { skipped: "no-angles", batchWeekIso }', async () => {
     readContentProfile.mockReturnValue(makeContentProfile());
     readWeeklyAngles.mockRejectedValue(new Error('disk error'));
+    readEvergreenAngles.mockResolvedValue(null);
     const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
     expect(result.skipped).toBe('no-angles');
     expect(fs.appendFileSync).toHaveBeenCalled();
@@ -210,6 +245,60 @@ describe('Early skip paths', () => {
     expect(result.skipped).toBe('all-failed');
     expect(result.sent).toBe(false);
     expect(sendNewEmail).not.toHaveBeenCalled();
+  });
+});
+
+// ── 1b. Evergreen menu merge ──────────────────────────────────────────────────
+
+describe('Evergreen menu merge', () => {
+  test('market present, evergreen null: angles come through, count == market count, not skipped', async () => {
+    setupHappyPath();
+    readWeeklyAngles.mockResolvedValue(makeWeeklyAngles(5));
+    readEvergreenAngles.mockResolvedValue(null);
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBeUndefined();
+    const anglesArg = selectDefaults.mock.calls[0][0];
+    expect(anglesArg).toHaveLength(5);
+  });
+
+  test('market null, evergreen present: angles come through, count == evergreen count, not skipped', async () => {
+    setupHappyPath();
+    readWeeklyAngles.mockResolvedValue(null);
+    readEvergreenAngles.mockResolvedValue(makeEvergreenMenu(3));
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBeUndefined();
+    const anglesArg = selectDefaults.mock.calls[0][0];
+    expect(anglesArg).toHaveLength(3);
+  });
+
+  test('both present: concatenated, count == market + evergreen, market angles first', async () => {
+    setupHappyPath();
+    readWeeklyAngles.mockResolvedValue(makeWeeklyAngles(5));
+    readEvergreenAngles.mockResolvedValue(makeEvergreenMenu(3));
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBeUndefined();
+    const anglesArg = selectDefaults.mock.calls[0][0];
+    expect(anglesArg).toHaveLength(8);
+    expect(anglesArg.slice(0, 5).every(a => a.origin === undefined)).toBe(true);
+    expect(anglesArg.slice(5).every(a => a.origin === 'evergreen')).toBe(true);
+  });
+
+  test('both null: skips no-angles', async () => {
+    readContentProfile.mockReturnValue(makeContentProfile());
+    readWeeklyAngles.mockResolvedValue(null);
+    readEvergreenAngles.mockResolvedValue(null);
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBe('no-angles');
+  });
+
+  test('market throws, evergreen present: NOT skipped, evergreen angles come through', async () => {
+    setupHappyPath();
+    readWeeklyAngles.mockRejectedValue(new Error('disk error'));
+    readEvergreenAngles.mockResolvedValue(makeEvergreenMenu(3));
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBeUndefined();
+    const anglesArg = selectDefaults.mock.calls[0][0];
+    expect(anglesArg).toHaveLength(3);
   });
 });
 
