@@ -713,5 +713,6 @@ module.exports = {
     validateAngle,
     hashDataSlice,
     validateWeekIso,
+    weekStartIso,
   },
 };
