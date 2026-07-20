@@ -71,6 +71,17 @@ describe('TOPIC_BANK integrity', () => {
     const serialized = JSON.stringify(TOPIC_BANK);
     expect(serialized).not.toMatch(/[–—]/);
   });
+
+  test('every entry has at least 3 seeds', () => {
+    for (const entry of TOPIC_BANK) {
+      expect(entry.angleSeeds.length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  test('moving-day-logistics months equal [5, 6, 7, 8, 9]', () => {
+    const mdl = TOPIC_BANK.find(e => e.id === 'moving-day-logistics');
+    expect(mdl.months).toEqual([5, 6, 7, 8, 9]);
+  });
 });
 
 // ── validateEntry negative paths ─────────────────────────────────────────────
@@ -244,6 +255,7 @@ describe('selectWeeklyTopics', () => {
   });
 
   test('seasonal entries surface within their season', () => {
+    const mdl = TOPIC_BANK.find(e => e.id === 'moving-day-logistics');
     const weeksAppearedIn = [];
     for (let year = 2026; year <= 2028; year++) {
       for (let w = 1; w <= 52; w++) {
@@ -266,7 +278,7 @@ describe('selectWeeklyTopics', () => {
       const week1Monday = new Date(jan4.getTime() - (jan4IsoWeekday - 1) * 86400000);
       const thursday = new Date(week1Monday.getTime() + ((week - 1) * 7 + 3) * 86400000);
       const month = thursday.getUTCMonth() + 1;
-      expect([6, 7, 8]).toContain(month);
+      expect(mdl.months).toContain(month);
     }
   });
 
