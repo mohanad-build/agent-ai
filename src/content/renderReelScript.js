@@ -62,6 +62,7 @@ function validateInputs({ angle, contentProfile }) {
 function buildReelScriptPrompt({ angle, contentProfile }) {
   const forbiddenTermsList = contentProfile.forbiddenTerms.join(', ');
   const forbiddenTopicsList = contentProfile.forbiddenTopics.join(', ');
+  const hasSource = angle.sourceFooter !== null;
 
   const system = [
     'You are a professional video script writer producing 60-90 second talking-head Reels for a Canadian real estate agent. The script will be filmed on a phone in vertical format. The agent reads it aloud while looking at the camera.',
@@ -89,9 +90,7 @@ function buildReelScriptPrompt({ angle, contentProfile }) {
     '- <suggestion 1>',
     '- <suggestion 2>',
     '',
-    'SOURCES:',
-    '<source footer verbatim from the input angle>',
-    '',
+    ...(hasSource ? ['SOURCES:', '<source footer verbatim from the input angle>', ''] : []),
     'LENGTH:',
     'Target the BODY section at 110-200 words for natural delivery at conversational pace. Hook is one line. CTA is one or two short lines. B-roll is 2-3 bullet suggestions. Tight beats long. If you find yourself padding to hit the word floor, the angle is thinner than 110 words and the script should land closer to the floor.',
     '',
@@ -135,9 +134,7 @@ function buildReelScriptPrompt({ angle, contentProfile }) {
     'Data points referenced:',
     dpLines,
     '',
-    'Source footer (use verbatim in the SOURCES section):',
-    angle.sourceFooter,
-    '',
+    ...(hasSource ? ['Source footer (use verbatim in the SOURCES section):', angle.sourceFooter, ''] : []),
     'Write the Reel script.',
   ].join('\n');
 
@@ -154,7 +151,7 @@ const SECTION_HEADERS = [
   { key: 'sources', pattern: /^sources\s*:$/i },
 ];
 
-function parseSections(rawText) {
+function parseSections(rawText, hasSource = true) {
   const lines = rawText.split('\n');
   const buffers = { hook: [], body: [], cta: [], bRoll: [], sources: [] };
   let currentKey = null;
@@ -189,7 +186,7 @@ function parseSections(rawText) {
 
   sections.bRoll = bRollEntries;
 
-  for (const key of ['hook', 'body', 'cta', 'sources']) {
+  for (const key of ['hook', 'body', 'cta', ...(hasSource ? ['sources'] : [])]) {
     if (!sections[key] || sections[key] === '') return null;
   }
   if (sections.bRoll.length === 0) return null;
@@ -205,11 +202,12 @@ function countWords(text) {
 
 function validateReelScript(sections, { angle, contentProfile }) {
   const errors = [];
+  const hasSource = angle.sourceFooter !== null;
 
   if (!sections.hook || sections.hook.trim() === '') errors.push('hook is empty');
   if (!sections.body || sections.body.trim() === '') errors.push('body is empty');
   if (!sections.cta  || sections.cta.trim()  === '') errors.push('cta is empty');
-  if (!sections.sources || sections.sources.trim() === '') errors.push('sources is empty');
+  if (hasSource && (!sections.sources || sections.sources.trim() === '')) errors.push('sources is empty');
   if (!Array.isArray(sections.bRoll) || sections.bRoll.length === 0) {
     errors.push('bRoll must have at least 1 entry');
   }
@@ -247,7 +245,7 @@ function validateReelScript(sections, { angle, contentProfile }) {
     }
   }
 
-  if (angle.sourceFooter && sections.sources) {
+  if (hasSource && sections.sources) {
     if (!sections.sources.includes(angle.sourceFooter)) {
       errors.push('SOURCES section does not contain angle.sourceFooter verbatim');
     }
@@ -303,7 +301,8 @@ async function renderReelScript({ angle, contentProfile, opts = {} }) {
   async function attempt() {
     const raw = await callRawFn({ system, user, model: MODELS.SONNET, maxTokens });
     const cleaned = stripDashes(raw);
-    const sections = parseSections(cleaned);
+    const hasSource = angle.sourceFooter !== null;
+    const sections = parseSections(cleaned, hasSource);
     if (!sections) {
       return { sections: null, parseError: true, validationErrors: null };
     }

@@ -213,6 +213,7 @@ function renderText(batch, now) {
   batch.pieces.forEach((piece, index) => {
     const header     = pieceHeader(piece, index);
     const whyThisOne = buildWhyThisOne(piece.angle);
+    const hasSource  = piece.angle.sourceFooter != null;
 
     parts.push(header);
     parts.push(`Angle: ${piece.angle.headline}`);
@@ -232,8 +233,10 @@ function renderText(batch, now) {
       parts.push('');
     }
 
-    parts.push(`Sources: ${piece.angle.sourceFooter}`);
-    parts.push('');
+    if (hasSource) {
+      parts.push(`Sources: ${piece.angle.sourceFooter}`);
+      parts.push('');
+    }
     parts.push('Actions:');
     parts.push('→ Approve: reply with "APPROVE ' + piece.id + '"');
     parts.push('→ Regenerate: reply with "REGEN ' + piece.id + '"');
@@ -282,6 +285,7 @@ function renderHtml(batch, now) {
     const piece      = batch.pieces[i];
     const header     = pieceHeader(piece, i);
     const whyThisOne = buildWhyThisOne(piece.angle);
+    const hasSource  = piece.angle.sourceFooter != null;
 
     html += `\n<div style="margin-bottom:32px">`;
     html += `\n<h3 style="margin:0 0 8px">${escape(header)}</h3>`;
@@ -304,7 +308,9 @@ function renderHtml(batch, now) {
       html += `</p>`;
     }
 
-    html += `\n<p style="margin:0 0 8px;font-size:14px;color:${ST.mutedTextColor}"><strong>Sources:</strong> ${escape(piece.angle.sourceFooter)}</p>`;
+    if (hasSource) {
+      html += `\n<p style="margin:0 0 8px;font-size:14px;color:${ST.mutedTextColor}"><strong>Sources:</strong> ${escape(piece.angle.sourceFooter)}</p>`;
+    }
     html += `\n<div style="margin-top:12px">`;
     html += actionButton('Approve',    buildActionMailto(agentEmail, 'APPROVE', piece.id));
     html += actionButton('Regenerate', buildActionMailto(agentEmail, 'REGEN',   piece.id));

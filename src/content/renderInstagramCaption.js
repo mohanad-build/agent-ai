@@ -62,6 +62,7 @@ function validateInputs({ angle, contentProfile, reelScript }) {
 function buildInstagramCaptionPrompt({ angle, contentProfile, reelScript }) {
   const forbiddenTermsList = contentProfile.forbiddenTerms.join(', ');
   const forbiddenTopicsList = contentProfile.forbiddenTopics.join(', ');
+  const hasSource = angle.sourceFooter !== null;
 
   const system = [
     'You are writing an Instagram caption that accompanies a 60-90 second Reel for a Canadian real estate agent. The caption is the prose that lives under the video; together they ship as one post.',
@@ -148,9 +149,7 @@ function buildInstagramCaptionPrompt({ angle, contentProfile, reelScript }) {
     'Data points referenced:',
     dpLines,
     '',
-    'Source footer (for thematic reference, do not include in caption):',
-    angle.sourceFooter,
-    '',
+    ...(hasSource ? ['Source footer (for thematic reference, do not include in caption):', angle.sourceFooter, ''] : []),
     'Reel script (for thematic alignment, do not copy):',
     reelScript,
     '',

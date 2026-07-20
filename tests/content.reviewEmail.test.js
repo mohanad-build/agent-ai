@@ -418,6 +418,15 @@ describe('renderText', () => {
     expect(text).toContain('Sources: Bank of Canada (May 14 2026)');
   });
 
+  test('no "Sources:" line for a piece whose angle.sourceFooter is null, non-null sibling keeps its own', () => {
+    const nullPiece = makeReelPiece({ id: 'p1', angle: makeAngle({ sourceFooter: null }) });
+    const srcPiece  = makeReelPiece({ id: 'p2', angle: makeAngle({ sourceFooter: 'Bank of Canada (May 14 2026)' }) });
+    const text = renderText(makeBatch({ pieces: [nullPiece, srcPiece] }), NOW);
+    expect(text).toContain('Sources: Bank of Canada (May 14 2026)');
+    expect((text.match(/Sources:/g) || []).length).toBe(1);
+    expect(text).not.toContain('Sources: null');
+  });
+
   test('arrow actions use the correct Unicode arrow character', () => {
     const text = renderText(makeBatch(), NOW);
     expect(text).toContain('→ Approve:');
@@ -471,6 +480,15 @@ describe('renderHtml', () => {
     const html = renderHtml(makeBatch({ pieces: [makeBlogPiece()] }), NOW);
     expect(html).toContain('new listings Toronto 2026');
     expect(html).toContain('New listings in Toronto hit a three-year high.');
+  });
+
+  test('no "Sources:" line for a piece whose angle.sourceFooter is null, non-null sibling keeps its own', () => {
+    const nullPiece = makeReelPiece({ id: 'p1', angle: makeAngle({ sourceFooter: null }) });
+    const srcPiece  = makeReelPiece({ id: 'p2', angle: makeAngle({ sourceFooter: 'Bank of Canada (May 14 2026)' }) });
+    const html = renderHtml(makeBatch({ pieces: [nullPiece, srcPiece] }), NOW);
+    expect((html.match(/<strong>Sources:<\/strong>/g) || []).length).toBe(1);
+    expect(html).not.toContain('Sources: null');
+    expect(html).not.toContain('Sources:</strong> </p>');
   });
 
   test('empty otherAngles omits the Other angles section', () => {

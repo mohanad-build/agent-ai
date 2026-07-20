@@ -68,6 +68,23 @@ const VALID_SECTIONS = {
   sources: 'Bank of Canada (May 14 2026)',
 };
 
+// Same as VALID_CLAUDE_RESPONSE but with the SOURCES header and its content
+// line removed entirely -- for null-footer (evergreen) tests.
+const VALID_CLAUDE_RESPONSE_NO_SOURCES = [
+  'HOOK (0-5s):',
+  'The bond market just moved, and your mortgage could follow.',
+  '',
+  'BODY (5s-60s):',
+  'Five-year government yields dropped twelve basis points in two weeks. The Bank of Canada held its overnight rate the whole time. That gap is significant. Fixed mortgage rates track bond yields more than the overnight rate. When yields fall, fixed rates tend to follow, and that can happen before the central bank makes any official announcement. We have not seen fixed rates move yet, but the signal is there. What does this mean for you? If you are watching the market and waiting for a rate change before you act, you may be watching the wrong number. The overnight rate gets the press coverage. Bond yields are where the actual movement shows up first. Pay attention to yields this month. If they hold or drop further, fixed rates could shift before the next Bank of Canada announcement.',
+  '',
+  'CTA (60-75s):',
+  'Follow me for weekly market updates. I track the numbers so you do not have to.',
+  '',
+  'B-ROLL SUGGESTIONS:',
+  '- Five-year yield chart showing two-week decline',
+  '- Agent reviewing rate comparison spreadsheet',
+].join('\n');
+
 // ── Input validation ──────────────────────────────────────────────────────────
 
 describe('Input validation', () => {
@@ -123,7 +140,14 @@ describe('Input validation', () => {
     })).rejects.toThrow(TypeError);
   });
 
-  test('accepts null angle.sourceFooter without throwing a TypeError', async () => {
+  test('accepts null angle.sourceFooter and produces a sourceless render', async () => {
+    const callRaw = jest.fn().mockResolvedValue(VALID_CLAUDE_RESPONSE_NO_SOURCES);
+    const angle   = makeAngle({ sourceFooter: null });
+    const result  = await renderReelScript({ angle, contentProfile: makeContentProfile(), opts: { callRaw } });
+    expect(result.sections.sources).toBe('');
+  });
+
+  test('null-footer angle still resolves if the model volunteers a SOURCES section anyway', async () => {
     const callRaw = jest.fn().mockResolvedValue(VALID_CLAUDE_RESPONSE);
     const angle   = makeAngle({ sourceFooter: null });
     await expect(

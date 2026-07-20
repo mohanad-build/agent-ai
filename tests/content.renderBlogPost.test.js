@@ -101,6 +101,39 @@ const VALID_SECTIONS = {
   targetKeyword:   'bond yields',
 };
 
+// Same as VALID_CLAUDE_RESPONSE but with the '**Sources:**' block removed
+// (keeping '---', META, and KEYWORD so those still parse) and the one Markdown
+// link in the body replaced with plain text -- for null-footer (evergreen) tests
+// where there is nothing to cite.
+const VALID_CLAUDE_RESPONSE_NO_SOURCES = [
+  '# Bond yields in Canada: what the latest data means for fixed-rate borrowers',
+  '',
+  'When bond yields fall and the central bank does not move, the gap between those two signals is worth paying attention to. Five-year Government of Canada yields dropped twelve basis points over two weeks while the Bank of Canada held its overnight rate target unchanged. That disconnect matters because fixed mortgage rates in Canada are priced off bond yields, not the overnight rate. By the time the Bank of Canada makes an official announcement, the bond market has often been moving for weeks.',
+  '',
+  '## How bond yields drive fixed mortgage rates',
+  '',
+  'Fixed mortgage rates in Canada are priced off the Government of Canada five-year bond yield, not the Bank of Canada overnight rate. When a lender sets a five-year fixed rate, they start with what the government bond is yielding and add a spread that reflects their cost of funds and margin. The Bank of Canada\'s overnight rate has a direct effect on prime-based variable rates, but for the fixed side of the market it is a secondary signal. Bond yields are the primary one.',
+  '',
+  'Bond yields move when investors adjust their expectations about future growth and inflation. When the market starts to collectively believe that rate cuts are coming, demand for government bonds increases, bond prices rise, and yields fall. This can happen well before any official announcement from the Bank of Canada. The two-week drop in five-year yields that the data shows is not a one-day blip. It is a signal that bond investors are repricing their expectations, and that repricing often shows up in fixed mortgage rates within a few weeks.',
+  '',
+  '## What a two-week yield drop actually signals',
+  '',
+  'A drop of twelve basis points over two weeks is not a dramatic number on its own, but context matters. It represents sustained directional movement, not noise. When yields decline steadily over multiple sessions while the overnight rate holds, bond investors are telling you something about where they think rates are heading. They are not reacting to a single data release. They are accumulating a position based on a broader view of the economic trajectory, and that view tends to have lead time on official policy decisions.',
+  '',
+  'For fixed-rate borrowers and prospective buyers, the implication is practical. If you are waiting for the Bank of Canada to announce a cut before you lock a fixed rate, you may be reacting to yesterday\'s news. Fixed rates at most lenders follow yields by days or weeks, not by announcement cycles. By the time the cut is official and in the headlines, lenders who were watching bond yields closely will have already repriced. Watching yields yourself gives you a timing advantage that waiting for news coverage does not.',
+  '',
+  '## What to do with this information if you are buying or renewing',
+  '',
+  'If your renewal window is opening in the next six months, or you are actively looking at a purchase, the current rate environment is worth monitoring weekly. This does not mean acting on every data point, and it does not mean trying to time the bottom of a rate cycle. It means knowing which numbers to watch and why. The five-year Government of Canada bond yield is publicly available and updated daily. Check it weekly alongside any conversation with your mortgage professional about locking versus floating.',
+  '',
+  'Understanding the relationship between bond yields and fixed mortgage rates is not about predicting where rates go. It is about knowing where to look for early signals. Most buyers and owners follow the Bank of Canada and nothing else, which means they are perpetually one cycle behind the data. If you want to make a more informed timing decision on your next purchase or renewal, start by tracking the five-year yield. If you want help translating that into a specific strategy, reach out and we can look at the numbers together.',
+  '',
+  '---',
+  '',
+  'META: Five-year Government of Canada yields fell twelve basis points while the overnight rate held. Here is what that divergence means for buyers and renewers.',
+  'KEYWORD: bond yields',
+].join('\n');
+
 // Helper: build VALID_SECTIONS with a specific body prose word count.
 // Distributes words across hook and two body sections, includes one Markdown link.
 function makeSectionsForWc(n) {
@@ -182,12 +215,11 @@ describe('Input validation', () => {
     })).rejects.toThrow(TypeError);
   });
 
-  test('accepts null angle.sourceFooter without throwing a TypeError', async () => {
-    const callRaw = jest.fn().mockResolvedValue(VALID_CLAUDE_RESPONSE);
+  test('accepts null angle.sourceFooter and produces a sourceless render', async () => {
+    const callRaw = jest.fn().mockResolvedValue(VALID_CLAUDE_RESPONSE_NO_SOURCES);
     const angle   = makeAngle({ sourceFooter: null });
-    await expect(
-      renderBlogPost({ angle, contentProfile: makeContentProfile(), opts: { callRaw } })
-    ).resolves.toBeDefined();
+    const result  = await renderBlogPost({ angle, contentProfile: makeContentProfile(), opts: { callRaw } });
+    expect(result.sections.sources).toEqual([]);
   });
 });
 
@@ -518,6 +550,20 @@ describe('validateBlogPost', () => {
     const result = validateBlogPost(sections, { angle, contentProfile });
     expect(result.valid).toBe(false);
     expect(result.errors.some(e => e.includes('sources block is empty'))).toBe(true);
+  });
+
+  test('does not require a Markdown link or a sources block when angle.sourceFooter is null', () => {
+    const noSourceAngle = makeAngle({ sourceFooter: null });
+    const sections = {
+      ...VALID_SECTIONS,
+      body: VALID_SECTIONS.body.map(s => ({
+        heading:    s.heading,
+        paragraphs: s.paragraphs.map(p => p.replace(/\[[^\]]+\]\(https?:\/\/[^)]+\)/g, 'the Bank of Canada rate')),
+      })),
+      sources: [],
+    };
+    const result = validateBlogPost(sections, { angle: noSourceAngle, contentProfile });
+    expect(result.valid).toBe(true);
   });
 
   test('rejects when title exceeds 80 characters', () => {

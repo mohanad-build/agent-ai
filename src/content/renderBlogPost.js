@@ -59,6 +59,7 @@ function validateInputs({ angle, contentProfile }) {
 function buildBlogPostPrompt({ angle, contentProfile }) {
   const forbiddenTermsList = contentProfile.forbiddenTerms.join(', ');
   const forbiddenTopicsList = contentProfile.forbiddenTopics.join(', ');
+  const hasSource = angle.sourceFooter !== null;
 
   const system = [
     'You are a real estate blog writer producing 600-800 word posts for a Canadian real estate agent. The post will be published on the agent\'s blog or newsletter (Substack, Beehiiv, WordPress, Ghost). It is informed by the agent\'s voice but written as publishable long-form prose, not a transcript.',
@@ -88,10 +89,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '',
     '---',
     '',
-    '**Sources:**',
-    '- [Source Name](URL) — as of YYYY-MM-DD',
-    '- [Source Name](URL) — as of YYYY-MM-DD',
-    '',
+    ...(hasSource ? ['**Sources:**', '- [Source Name](URL) — as of YYYY-MM-DD', '- [Source Name](URL) — as of YYYY-MM-DD', ''] : []),
     'META: <metaDescription, MUST be 100-160 characters total; Google truncates at 160, so >160 gets cut off; count characters before returning>',
     'KEYWORD: <targetKeyword phrase, 2-4 words; the SEO topic this post targets; does NOT need to appear in the title>',
     '',
@@ -105,15 +103,11 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '- Full sentences, comfortable cadence.',
     '- No semicolons.',
     '- No em-dashes or en-dashes anywhere. No double-hyphen `--` substitute either (renders as en-dash on Substack, Beehiiv, Ghost, WordPress). Use commas or periods only.',
-    '- At least one Markdown link in the body to a primary source for a major stat (inline citation, e.g., `the [Bank of Canada\'s overnight rate](https://www.bankofcanada.ca/...)`).',
+    ...(hasSource ? ['- At least one Markdown link in the body to a primary source for a major stat (inline citation, e.g., `the [Bank of Canada\'s overnight rate](https://www.bankofcanada.ca/...)`).'] : []),
     '- No tri-colon listicles ("X, Y, Z all matter").',
     '- Banned phrases: "in conclusion", "it\'s important to note that", "it\'s worth noting", "navigating the market", "navigating the [anything] market" (pattern), "in today\'s market", "ever-changing", "ever-evolving".',
     '',
-    'CITATIONS:',
-    '- Inline: prose attribution for flow, plus at least one Markdown link per major stat.',
-    '- Sources block (bottom): full attribution. Format each entry as: `- [Source Name](URL) — as of YYYY-MM-DD`.',
-    '- At least 1 sources entry required.',
-    '',
+    ...(hasSource ? ['CITATIONS:', '- Inline: prose attribution for flow, plus at least one Markdown link per major stat.', '- Sources block (bottom): full attribution. Format each entry as: `- [Source Name](URL) — as of YYYY-MM-DD`.', '- At least 1 sources entry required.', ''] : []),
     'CONSTRAINTS:',
     '- Every factual claim traces to a dataPoint in the source angle.',
     '- The thesis is ground truth -- restate in agent\'s voice, do not rewrite.',
@@ -149,9 +143,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     'Data points referenced:',
     dpLines,
     '',
-    'Source footer (use verbatim in the SOURCES block):',
-    angle.sourceFooter,
-    '',
+    ...(hasSource ? ['Source footer (use verbatim in the SOURCES block):', angle.sourceFooter, ''] : []),
     'Write the blog post.',
   ].join('\n');
 
@@ -160,7 +152,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
 
 // ── parseSections ─────────────────────────────────────────────────────────────
 
-function parseSections(rawText) {
+function parseSections(rawText, hasSource = true) {
   const lines = rawText.split('\n');
 
   // Find title: first line starting with '# '
@@ -230,7 +222,7 @@ function parseSections(rawText) {
       break;
     }
   }
-  if (sourcesIdx === -1) return null;
+  if (hasSource && sourcesIdx === -1) return null;
 
   // Parse source entries: - [Name](URL) -- as of YYYY-MM-DD
   const sources = [];
@@ -243,7 +235,7 @@ function parseSections(rawText) {
       sources.push({ name: m[1].trim(), url: m[2].trim(), asOfDate: m[3].trim() });
     }
   }
-  if (sources.length === 0) return null;
+  if (hasSource && sources.length === 0) return null;
 
   // Parse META and KEYWORD (anywhere after ---)
   let metaDescription = null;
@@ -282,6 +274,7 @@ const BANNED_REGEX = /navigating the [a-z]+ market/i;
 
 function validateBlogPost(sections, { angle, contentProfile }) {
   const errors = [];
+  const hasSource = angle.sourceFooter !== null;
 
   const allBodyParagraphs = sections.body.flatMap(s => s.paragraphs);
 
@@ -340,17 +333,19 @@ function validateBlogPost(sections, { angle, contentProfile }) {
   }
 
   // 8. At least one Markdown link in body prose
-  if (!/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(assembled)) {
+  if (hasSource && !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(assembled)) {
     errors.push('body contains no Markdown link');
   }
 
   // 9. Sources block: at least 1 entry, each parseable
-  if (!Array.isArray(sections.sources) || sections.sources.length === 0) {
-    errors.push('sources block is empty');
-  } else {
-    for (const src of sections.sources) {
-      if (!src.name || !src.url || !src.asOfDate) {
-        errors.push('source entry missing name, url, or asOfDate');
+  if (hasSource) {
+    if (!Array.isArray(sections.sources) || sections.sources.length === 0) {
+      errors.push('sources block is empty');
+    } else {
+      for (const src of sections.sources) {
+        if (!src.name || !src.url || !src.asOfDate) {
+          errors.push('source entry missing name, url, or asOfDate');
+        }
       }
     }
   }
@@ -433,7 +428,8 @@ async function renderBlogPost({ angle, contentProfile, opts = {} }) {
   async function attempt() {
     const raw = await callRawFn({ system, user, model: MODELS.SONNET, maxTokens });
     const cleaned = stripDashes(raw);
-    const sections = parseSections(cleaned);
+    const hasSource = angle.sourceFooter !== null;
+    const sections = parseSections(cleaned, hasSource);
     if (!sections) {
       return { sections: null, parseError: true, validationErrors: null };
     }
