@@ -30,8 +30,10 @@ function validateInputs({ angle, contentProfile, reelScript }) {
   if (!Array.isArray(angle.dataPoints)) {
     throw new TypeError('angle.dataPoints must be an array');
   }
-  if (typeof angle.sourceFooter !== 'string' || angle.sourceFooter.trim() === '') {
-    throw new TypeError('angle.sourceFooter must be a non-empty string');
+  if (angle.sourceFooter !== null) {
+    if (typeof angle.sourceFooter !== 'string' || angle.sourceFooter.trim() === '') {
+      throw new TypeError('angle.sourceFooter must be a non-empty string or null');
+    }
   }
   if (!('forbidsRateAdvice' in angle)) {
     throw new TypeError('angle.forbidsRateAdvice is required');

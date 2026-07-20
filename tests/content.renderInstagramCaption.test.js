@@ -142,6 +142,37 @@ describe('Input validation', () => {
       reelScript: '',
     })).rejects.toThrow(TypeError);
   });
+
+  test('throws TypeError when angle.sourceFooter is undefined', async () => {
+    const angle = makeAngle();
+    delete angle.sourceFooter;
+    await expect(renderInstagramCaption({
+      angle,
+      contentProfile: makeContentProfile(),
+      reelScript: makeReelScript(),
+    })).rejects.toThrow(TypeError);
+  });
+
+  test('throws TypeError when angle.sourceFooter is an empty string', async () => {
+    await expect(renderInstagramCaption({
+      angle: makeAngle({ sourceFooter: '' }),
+      contentProfile: makeContentProfile(),
+      reelScript: makeReelScript(),
+    })).rejects.toThrow(TypeError);
+  });
+
+  test('accepts null angle.sourceFooter without throwing a TypeError', async () => {
+    const callRaw = jest.fn().mockResolvedValue(VALID_CLAUDE_RESPONSE);
+    const angle   = makeAngle({ sourceFooter: null });
+    await expect(
+      renderInstagramCaption({
+        angle,
+        contentProfile: makeContentProfile(),
+        reelScript: makeReelScript(),
+        opts: { callRaw },
+      })
+    ).resolves.toBeDefined();
+  });
 });
 
 // ── parseSections ─────────────────────────────────────────────────────────────

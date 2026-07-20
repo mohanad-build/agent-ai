@@ -167,6 +167,28 @@ describe('Input validation', () => {
       contentProfile: makeContentProfile({ forbiddenTopics: 'rate predictions' }),
     })).rejects.toThrow(TypeError);
   });
+
+  test('throws TypeError when angle.sourceFooter is undefined', async () => {
+    const angle = makeAngle();
+    delete angle.sourceFooter;
+    await expect(renderBlogPost({ angle, contentProfile: makeContentProfile() }))
+      .rejects.toThrow(TypeError);
+  });
+
+  test('throws TypeError when angle.sourceFooter is an empty string', async () => {
+    await expect(renderBlogPost({
+      angle:          makeAngle({ sourceFooter: '' }),
+      contentProfile: makeContentProfile(),
+    })).rejects.toThrow(TypeError);
+  });
+
+  test('accepts null angle.sourceFooter without throwing a TypeError', async () => {
+    const callRaw = jest.fn().mockResolvedValue(VALID_CLAUDE_RESPONSE);
+    const angle   = makeAngle({ sourceFooter: null });
+    await expect(
+      renderBlogPost({ angle, contentProfile: makeContentProfile(), opts: { callRaw } })
+    ).resolves.toBeDefined();
+  });
 });
 
 // ── parseSections ─────────────────────────────────────────────────────────────

@@ -34,8 +34,10 @@ function validateInputs({ angle, contentProfile }) {
   if (!Array.isArray(angle.dataPoints)) {
     throw new TypeError('angle.dataPoints must be an array');
   }
-  if (typeof angle.sourceFooter !== 'string' || angle.sourceFooter.trim() === '') {
-    throw new TypeError('angle.sourceFooter must be a non-empty string');
+  if (angle.sourceFooter !== null) {
+    if (typeof angle.sourceFooter !== 'string' || angle.sourceFooter.trim() === '') {
+      throw new TypeError('angle.sourceFooter must be a non-empty string or null');
+    }
   }
 
   if (contentProfile == null || typeof contentProfile !== 'object') {
