@@ -8,7 +8,15 @@ const router = express.Router();
 const { loadAgent } = require('../agentConfig');
 const agentState = require('../agentState');
 const email = require('../email');
-const { readContentProfile, setContentEngineEnabled } = require('../content/profile');
+const {
+  readContentProfile,
+  writeContentProfile,
+  updateContentProfile,
+  setContentEngineEnabled,
+  buildDefaultContentProfile,
+  SchemaValidationError,
+} = require('../content/profile');
+const { extractVoiceForAgent } = require('../content/voiceExtract');
 const { getStorageRoot } = require('../storagePaths');
 const {
   ROOT_TOKENS,
@@ -416,6 +424,9 @@ router.get('/agent/:agentId/edit', (req, res) => {
     const saved = req.query.saved === '1';
     const deleteError = req.query.delete_error === '1';
     const importErrorEmpty = req.query.import_error === 'empty';
+    const ceProvisioned = req.query.ce_provisioned === '1';
+    const ceSaved = req.query.ce_saved === '1';
+    const ceError = typeof req.query.ce_error === 'string' ? req.query.ce_error : null;
     const cadence = Array.isArray(agent.followUpCadence)
       ? agent.followUpCadence.join(', ')
       : (agent.followUpCadence || '3, 7, 14');
@@ -424,12 +435,35 @@ router.get('/agent/:agentId/edit', (req, res) => {
       : (agent.avoidPhrases || '');
 
     const contentProfile = readContentProfile(agentId);
-    const contentEngineFieldHtml = contentProfile === null
-      ? `<div class="form-row"><label>Content Engine</label><span class="readonly-field">Not provisioned. Run <code>node scripts/enable-content-engine.js ${escHtml(agentId)}</code> to provision.</span></div>`
-      : field('Content Engine Enabled', 'contentEngineEnabled', select('contentEngineEnabled', ['false', 'true'], String(contentProfile.contentEngineEnabled)));
+    const contentEngineCardHtml = contentProfile === null
+      ? `<div class="edit-card" style="margin-top: 20px;">
+  <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Content Engine</h2>
+  <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">Not provisioned for this agent. Provisioning creates a live content profile with default settings.</p>
+  <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/content/provision">
+    <div class="form-actions">
+      <button type="submit" class="btn">Provision Content Engine</button>
+    </div>
+  </form>
+</div>`
+      : `<div class="edit-card" style="margin-top: 20px;">
+  <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Content Engine</h2>
+  <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/content/save">
+    ${field('Enabled', 'contentEngineEnabled', select('contentEngineEnabled', ['false', 'true'], String(contentProfile.contentEngineEnabled)))}
+    ${field('Primary focus', 'primaryFocus', select('primaryFocus', ['buyers', 'sellers', 'both'], contentProfile.primaryFocus))}
+    ${field('Content volume', 'contentVolume', select('contentVolume', ['max', 'balanced', 'minimum'], contentProfile.contentVolume))}
+    ${field('Forbidden terms', 'forbiddenTerms', `<textarea name="forbiddenTerms" rows="4">${escHtml((contentProfile.forbiddenTerms || []).join('\n'))}</textarea><small>One per line, or comma-separated</small>`)}
+    ${field('Forbidden topics', 'forbiddenTopics', `<textarea name="forbiddenTopics" rows="4">${escHtml((contentProfile.forbiddenTopics || []).join('\n'))}</textarea><small>One per line, or comma-separated</small>`)}
+    <div class="form-actions">
+      <button type="submit" class="btn">Save Content Engine settings</button>
+    </div>
+  </form>
+</div>`;
 
     res.send(pageWrap(`Edit: ${agentId}`, `
 ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
+${ceProvisioned ? '<div class="banner-ok">Content Engine provisioned.</div>' : ''}
+${ceSaved ? '<div class="banner-ok">Content Engine settings saved.</div>' : ''}
+${ceError ? `<p class="err-banner">Content Engine error: ${escHtml(ceError)}</p>` : ''}
 <div class="page-header">
   <h2>Edit Agent: ${escHtml(agentId)}</h2>
   <div class="page-actions">
@@ -452,7 +486,6 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
     ${field('Uses Emojis', 'usesEmojis', select('usesEmojis', ['false', 'true'], String(agent.usesEmojis)))}
     ${field('Avoid Phrases', 'avoidPhrases', `<textarea name="avoidPhrases" rows="4">${escHtml(avoidPhrases)}</textarea>`)}
     ${field('Agent Signature', 'agentSignature', `<input type="text" name="agentSignature" value="${escHtml(agent.agentSignature || '')}" />`)}
-    ${contentEngineFieldHtml}
 
     <div class="form-actions">
       <button type="submit" class="btn">Save changes</button>
@@ -460,6 +493,7 @@ ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
     </div>
   </form>
 </div>
+${contentEngineCardHtml}
 <div class="edit-card" style="margin-top: 20px;">
   <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Import Leads</h2>
   <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">Imported rows land inert (AI disabled) in the Sheet -- enable them from the leads table before the agent will work them.</p>
@@ -579,17 +613,103 @@ router.post('/agent/:agentId/edit', (req, res) => {
     fs.writeFileSync(tmpPath, JSON.stringify(agent, null, 2), 'utf8');
     fs.renameSync(tmpPath, filePath);
 
-    const profileForCE = readContentProfile(agentId);
-    if (profileForCE !== null && (b.contentEngineEnabled === 'true' || b.contentEngineEnabled === 'false')) {
-      const desired = b.contentEngineEnabled === 'true';
-      if (profileForCE.contentEngineEnabled !== desired) {
-        setContentEngineEnabled(agentId, desired);
-      }
-    }
-
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?saved=1`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/edit:', err.message);
+    res.status(500).send(err.message);
+  }
+});
+
+// ---- Content Engine helpers ----
+
+function parseListField(raw) {
+  return (raw || '')
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+async function provisionContentEngine(agentId, opts = {}) {
+  const baseDirOpts = opts.baseDir ? { baseDir: opts.baseDir } : {};
+  if (readContentProfile(agentId, baseDirOpts) !== null) {
+    return { ok: false, reason: 'already_provisioned' };
+  }
+
+  const newProfile = buildDefaultContentProfile(agentId, {
+    contentEngineEnabled: true,
+    contentEngineMode: 'live',
+  });
+  writeContentProfile(agentId, newProfile, baseDirOpts);
+  await extractVoiceForAgent(agentId, baseDirOpts);
+  return { ok: true };
+}
+
+function saveContentEngineConfig(agentId, body, opts = {}) {
+  const baseDirOpts = opts.baseDir ? { baseDir: opts.baseDir } : {};
+  const existing = readContentProfile(agentId, baseDirOpts);
+  if (existing === null) return { ok: false, reason: 'not_provisioned' };
+
+  let updated;
+  try {
+    updated = updateContentProfile(agentId, {
+      primaryFocus:    body.primaryFocus,
+      contentVolume:   body.contentVolume,
+      forbiddenTerms:  parseListField(body.forbiddenTerms),
+      forbiddenTopics: parseListField(body.forbiddenTopics),
+    }, baseDirOpts);
+  } catch (err) {
+    if (err instanceof SchemaValidationError) return { ok: false, reason: 'invalid' };
+    throw err;
+  }
+
+  const desired = body.contentEngineEnabled === 'true';
+  if (updated.contentEngineEnabled !== desired) {
+    setContentEngineEnabled(agentId, desired, baseDirOpts);
+  }
+
+  return { ok: true };
+}
+
+// ---- Content Engine provisioning and config ----
+
+router.post('/agent/:agentId/content/provision', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
+
+    const result = await provisionContentEngine(agentId);
+    if (!result.ok) {
+      return res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_error=${encodeURIComponent(result.reason)}`);
+    }
+
+    res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_provisioned=1`);
+  } catch (err) {
+    console.error('[dashboard] POST /agent/:id/content/provision:', err.message);
+    res.status(500).send(err.message);
+  }
+});
+
+router.post('/agent/:agentId/content/save', (req, res) => {
+  try {
+    const { agentId } = req.params;
+    try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
+
+    const result = saveContentEngineConfig(agentId, req.body);
+    if (!result.ok) {
+      return res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_error=${encodeURIComponent(result.reason)}`);
+    }
+
+    res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_saved=1`);
+  } catch (err) {
+    console.error('[dashboard] POST /agent/:id/content/save:', err.message);
     res.status(500).send(err.message);
   }
 });
@@ -908,3 +1028,6 @@ module.exports.parseSelectedEmails = parseSelectedEmails;
 module.exports.renderEnableResult = renderEnableResult;
 module.exports.parseImportBody = parseImportBody;
 module.exports.renderImportResult = renderImportResult;
+module.exports.parseListField = parseListField;
+module.exports.provisionContentEngine = provisionContentEngine;
+module.exports.saveContentEngineConfig = saveContentEngineConfig;
