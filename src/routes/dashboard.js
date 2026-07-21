@@ -426,6 +426,7 @@ router.get('/agent/:agentId/edit', (req, res) => {
     const importErrorEmpty = req.query.import_error === 'empty';
     const ceProvisioned = req.query.ce_provisioned === '1';
     const ceSaved = req.query.ce_saved === '1';
+    const ceVoiceExtracted = req.query.ce_voice === 'extracted';
     const ceError = typeof req.query.ce_error === 'string' ? req.query.ce_error : null;
     const cadence = Array.isArray(agent.followUpCadence)
       ? agent.followUpCadence.join(', ')
@@ -457,12 +458,25 @@ router.get('/agent/:agentId/edit', (req, res) => {
       <button type="submit" class="btn">Save Content Engine settings</button>
     </div>
   </form>
+  <hr style="margin: 24px 0; border: none; border-top: 1px solid var(--border);" />
+  <h3 style="margin: 0 0 6px; font-size: 15px; font-weight: 700;">Voice</h3>
+  ${contentProfile.voiceDescriptor
+    ? `<div class="form-row"><label>Current voice (tier: ${escHtml(contentProfile.voiceDescriptorTier)})</label><div class="readonly-field" style="color: var(--muted); white-space: pre-wrap;">${escHtml(contentProfile.voiceDescriptor)}</div></div>`
+    : '<p style="color: var(--muted); font-size: 14px;">No voice descriptor yet.</p>'}
+  <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/content/voice">
+    ${field('Self description', 'selfDescription', `<textarea name="selfDescription" maxlength="1000" rows="4">${escHtml(contentProfile.selfDescription || '')}</textarea><small>2 to 3 sentences describing this agent's voice. Leave blank to keep the default voice.</small>`)}
+    <div class="form-actions">
+      <button type="submit" class="btn">Extract / refresh voice</button>
+    </div>
+    <p style="color: var(--muted); font-size: 13px; margin: 8px 0 0;">This runs an AI extraction and may take a few seconds.</p>
+  </form>
 </div>`;
 
     res.send(pageWrap(`Edit: ${agentId}`, `
 ${saved ? '<div class="banner-ok">Changes saved.</div>' : ''}
 ${ceProvisioned ? '<div class="banner-ok">Content Engine provisioned.</div>' : ''}
 ${ceSaved ? '<div class="banner-ok">Content Engine settings saved.</div>' : ''}
+${ceVoiceExtracted ? '<div class="banner-ok">Voice descriptor updated.</div>' : ''}
 ${ceError ? `<p class="err-banner">Content Engine error: ${escHtml(ceError)}</p>` : ''}
 <div class="page-header">
   <h2>Edit Agent: ${escHtml(agentId)}</h2>
@@ -670,6 +684,34 @@ function saveContentEngineConfig(agentId, body, opts = {}) {
   return { ok: true };
 }
 
+async function extractVoiceConfig(agentId, body, opts = {}) {
+  const baseDirOpts = opts.baseDir ? { baseDir: opts.baseDir } : {};
+  if (readContentProfile(agentId, baseDirOpts) === null) {
+    return { ok: false, reason: 'not_provisioned' };
+  }
+
+  const selfDescription = ((body && body.selfDescription) || '').trim();
+  if (selfDescription.length > 1000) {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  try {
+    updateContentProfile(agentId, { selfDescription }, baseDirOpts);
+  } catch (err) {
+    if (err instanceof SchemaValidationError) return { ok: false, reason: 'invalid' };
+    throw err;
+  }
+
+  let result;
+  try {
+    result = await extractVoiceForAgent(agentId, { ...opts, force: true });
+  } catch {
+    return { ok: false, reason: 'extract_failed' };
+  }
+
+  return { ok: true, extracted: result.extracted, tier: result.descriptor && result.descriptor.tier };
+}
+
 // ---- Content Engine provisioning and config ----
 
 router.post('/agent/:agentId/content/provision', async (req, res) => {
@@ -710,6 +752,27 @@ router.post('/agent/:agentId/content/save', (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_saved=1`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/content/save:', err.message);
+    res.status(500).send(err.message);
+  }
+});
+
+router.post('/agent/:agentId/content/voice', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
+      'Agent not found',
+      'No agent matches that ID. It may have been removed or the URL is incorrect.',
+      { href: '/dashboard', label: 'Back to dashboard' }
+    )); }
+
+    const result = await extractVoiceConfig(agentId, req.body);
+    if (!result.ok) {
+      return res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_error=${encodeURIComponent(result.reason)}`);
+    }
+
+    res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_voice=extracted`);
+  } catch (err) {
+    console.error('[dashboard] POST /agent/:id/content/voice:', err.message);
     res.status(500).send(err.message);
   }
 });
@@ -1031,3 +1094,4 @@ module.exports.renderImportResult = renderImportResult;
 module.exports.parseListField = parseListField;
 module.exports.provisionContentEngine = provisionContentEngine;
 module.exports.saveContentEngineConfig = saveContentEngineConfig;
+module.exports.extractVoiceConfig = extractVoiceConfig;

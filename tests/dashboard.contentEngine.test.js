@@ -1,19 +1,45 @@
 'use strict';
 
+jest.mock('../src/claude');
+
 const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
+
+const claude = require('../src/claude');
 
 const {
   parseListField,
   provisionContentEngine,
   saveContentEngineConfig,
+  extractVoiceConfig,
 } = require('../src/routes/dashboard');
 
 const {
   readContentProfile,
   writeContentProfile,
 } = require('../src/content/profile');
+
+const { DESCRIPTOR_SCHEMA_VERSION } = require('../src/content/voiceExtract');
+
+function validDescriptorJson(overrides = {}) {
+  return JSON.stringify({
+    version:           DESCRIPTOR_SCHEMA_VERSION,
+    extractedAt:       '2026-05-15T10:00:00.000Z',
+    modelUsed:         'claude-sonnet-4-6',
+    samplesUsedCount:  0,
+    tier:              'self_described',
+    tone:              'Warm and direct.',
+    sentenceRhythm:    'Short sentences. Clear paragraphs.',
+    signaturePhrases:  ['lets talk'],
+    vocabularyNotes:   'Plain English, avoids jargon.',
+    ctaPattern:        'Invites a call.',
+    hookPattern:       'Opens with a question.',
+    extractedRefusals: ['hustle'],
+    rawSummary:        'A clear and direct communicator.',
+    ...overrides,
+  });
+}
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'dashboard-ce-test-'));
@@ -181,5 +207,73 @@ describe('saveContentEngineConfig', () => {
     }, { baseDir });
 
     expect(result).toEqual({ ok: false, reason: 'invalid' });
+  });
+});
+
+describe('extractVoiceConfig', () => {
+  let baseDir;
+
+  beforeEach(() => {
+    baseDir = makeTmpDir();
+    jest.clearAllMocks();
+    claude.callRaw.mockResolvedValue(validDescriptorJson());
+  });
+
+  afterEach(() => {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it('returns not_provisioned when no profile exists', async () => {
+    const result = await extractVoiceConfig('ghost-agent', { selfDescription: 'I write short emails.' }, { baseDir });
+
+    expect(result).toEqual({ ok: false, reason: 'not_provisioned' });
+    expect(claude.callRaw).not.toHaveBeenCalled();
+  });
+
+  it('persists the self-description and produces a self_described voice descriptor', async () => {
+    writeContentProfile('test-agent', makeProfile(), { baseDir });
+
+    const result = await extractVoiceConfig('test-agent', {
+      selfDescription: 'I write short, punchy emails and avoid jargon.',
+    }, { baseDir });
+
+    const saved = readContentProfile('test-agent', { baseDir });
+    expect(typeof saved.voiceDescriptor).toBe('string');
+    expect(saved.voiceDescriptor.length).toBeGreaterThan(0);
+    expect(saved.voiceDescriptorTier).toBe('self_described');
+    expect(saved.selfDescription).toBe('I write short, punchy emails and avoid jargon.');
+    expect(result).toEqual({ ok: true, extracted: true, tier: 'self_described' });
+    expect(claude.callRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a self-description over 1000 characters without persisting it', async () => {
+    writeContentProfile('test-agent', makeProfile({ selfDescription: 'original' }), { baseDir });
+
+    const result = await extractVoiceConfig('test-agent', {
+      selfDescription: 'x'.repeat(1001),
+    }, { baseDir });
+
+    const saved = readContentProfile('test-agent', { baseDir });
+    expect(saved.selfDescription).toBe('original');
+    expect(saved.voiceDescriptor).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'invalid' });
+    expect(claude.callRaw).not.toHaveBeenCalled();
+  });
+
+  it('forces re-extraction instead of short-circuiting to already_present', async () => {
+    writeContentProfile('test-agent', makeProfile({
+      voiceDescriptor:        'stale descriptor',
+      voiceDescriptorVersion: DESCRIPTOR_SCHEMA_VERSION,
+      voiceDescriptorTier:    'self_described',
+    }), { baseDir });
+
+    const result = await extractVoiceConfig('test-agent', {
+      selfDescription: 'I write short, punchy emails and avoid jargon.',
+    }, { baseDir });
+
+    const saved = readContentProfile('test-agent', { baseDir });
+    expect(saved.voiceDescriptor).not.toBe('stale descriptor');
+    expect(result).toEqual({ ok: true, extracted: true, tier: 'self_described' });
+    expect(claude.callRaw).toHaveBeenCalledTimes(1);
   });
 });
