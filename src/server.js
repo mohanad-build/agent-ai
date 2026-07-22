@@ -10,6 +10,11 @@ const dashboardRouter = require('./routes/dashboard');
 
 const app = express();
 
+// Trust the Cloudflare/Railway proxy layer so req.protocol honours
+// X-Forwarded-Proto and resolves to https behind the proxy, instead of
+// falling back to the plain-http socket scheme.
+app.set('trust proxy', true);
+
 // Body parsing
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 app.use(express.json());

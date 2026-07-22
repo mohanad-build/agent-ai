@@ -429,12 +429,25 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
 
 function createApp() {
   const app = express();
+  // req.protocol is evaluated on whichever app instance handles the
+  // request; set this here too (not just on the mounting parent app in
+  // server.js) so X-Forwarded-Proto is honoured even if this app is ever
+  // run standalone.
+  app.set('trust proxy', true);
   app.use(express.urlencoded({ extended: false }));
 
   app.post('/sms-incoming', (req, res) => {
     const host = req.get('host') || '';
     const signature = req.get('X-Twilio-Signature') || '';
-    const url = req.protocol + '://' + req.get('host') + req.originalUrl;
+    // Prefer an explicit configured public URL over reconstructing the
+    // scheme from req.protocol: Twilio signs the request against the exact
+    // public URL it was told to call, and req.protocol can still land on
+    // 'http' behind some proxy configurations even with trust proxy set.
+    // PUBLIC_APP_URL, when set, removes that ambiguity entirely.
+    const publicAppUrl = process.env.PUBLIC_APP_URL;
+    const url = publicAppUrl
+      ? publicAppUrl + req.originalUrl
+      : req.protocol + '://' + req.get('host') + req.originalUrl;
     const params = req.body;
 
     // Signature verification (bypassable for localhost/ngrok in dev only).
