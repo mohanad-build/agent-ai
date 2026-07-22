@@ -13,6 +13,10 @@ const { getStorageRoot } = require('./storagePaths');
 const oauthClientCache = new Map();
 const signatureCache = new Map();
 const SIGNATURE_TTL_MS = 15 * 60 * 1000;
+// Map<agentId, Map<labelName, labelId>>. Accumulates across ensureLabels calls
+// so different callers (leadIntake, followUp, outboundTracking) share one
+// list-once-then-cache path instead of each re-listing Gmail's label set.
+const labelCache = new Map();
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -721,6 +725,41 @@ async function createLabel(agentConfig, name) {
   });
 }
 
+// Resolves label ids for `names`, creating any that do not exist yet.
+// Backed by the module-level labelCache, keyed per agentId, which accumulates
+// across calls so a second call with a different name set reuses whatever it
+// already knows and only lists/creates the names it has not resolved before.
+// Returns a Map containing exactly the requested names, never the full
+// accumulated per-agent cache.
+async function ensureLabels(agentConfig, names) {
+  const agentId = agentConfig.agentId;
+  const cached = labelCache.get(agentId);
+  if (cached && names.every((name) => cached.has(name))) {
+    return new Map(names.map((name) => [name, cached.get(name)]));
+  }
+
+  let perAgent = labelCache.get(agentId);
+  if (!perAgent) {
+    perAgent = new Map();
+    labelCache.set(agentId, perAgent);
+  }
+
+  const existingLabels = await listLabels(agentConfig);
+  const existingMap = new Map(existingLabels.map((l) => [l.name, l.id]));
+
+  for (const name of names) {
+    if (perAgent.has(name)) continue;
+    if (existingMap.has(name)) {
+      perAgent.set(name, existingMap.get(name));
+    } else {
+      const created = await createLabel(agentConfig, name);
+      perAgent.set(name, created.id);
+    }
+  }
+
+  return new Map(names.map((name) => [name, perAgent.get(name)]));
+}
+
 async function applyMessageLabels(agentConfig, messageId, addLabelIds, removeLabelIds) {
   const auth = getOAuthClient(agentConfig);
   const gmail = google.gmail({ version: 'v1', auth });
@@ -761,6 +800,7 @@ module.exports = {
   fetchUnreadInboxEmails,
   listLabels,
   createLabel,
+  ensureLabels,
   applyMessageLabels,
   AuthFailureError,
   _internal: {
@@ -770,5 +810,7 @@ module.exports = {
     parseGmailMessage,
     COLUMN_MAP,
     formatFromHeader,
+    labelCache,
+    _clearLabelCache: () => labelCache.clear(),
   },
 };

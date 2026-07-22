@@ -34,11 +34,11 @@ const {
     LABEL_NOISE,
     LABEL_FIRST_TOUCH_PENDING,
     CALENDAR_DOMAINS,
-    labelIdCache,
     transitionToIntaken,
   },
   LEAD_INTAKE_MAX_PER_CYCLE,
 } = leadIntake;
+const { labelCache } = gmail._internal;
 
 const fixtures = require('./test-leadIntake-fixtures.json');
 
@@ -80,8 +80,8 @@ const MOCK_AGENT = { agentId: 'test-agent', googleSheetId: 'sheet-id', googleRef
 
 // Pre-populate the label cache so processClassification does not call listLabels.
 function setupLabelMocks() {
-  labelIdCache.clear();
-  labelIdCache.set(MOCK_AGENT.agentId, MOCK_LABEL_MAP);
+  labelCache.clear();
+  labelCache.set(MOCK_AGENT.agentId, MOCK_LABEL_MAP);
 }
 
 // Side-effect tracking

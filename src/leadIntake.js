@@ -24,9 +24,6 @@ const LABEL_NOISE = 'agent-ai/noise';
 const LABEL_FIRST_TOUCH_PENDING = 'agent-ai/first-touch-pending';
 const CALENDAR_DOMAINS = new Set(['google.com', 'calendly.com', 'googleusercontent.com']);
 
-// Map<agentId, Map<labelName, labelId>>, persists across runLeadIntake cycles
-const labelIdCache = new Map();
-
 // ---------------------------------------------------------------------------
 // JSON parsing helpers
 // ---------------------------------------------------------------------------
@@ -135,25 +132,7 @@ function determineAiEnabledDefault(classification) {
 // ---------------------------------------------------------------------------
 
 async function ensureLabelsExist(agentConfig) {
-  const agentId = agentConfig.agentId;
-  if (labelIdCache.has(agentId)) return labelIdCache.get(agentId);
-
-  const labelNames = [LABEL_PROCESSING, LABEL_INTAKEN, LABEL_NOISE, LABEL_FIRST_TOUCH_PENDING];
-  const existingLabels = await gmail.listLabels(agentConfig);
-  const existingMap = new Map(existingLabels.map((l) => [l.name, l.id]));
-
-  const result = new Map();
-  for (const name of labelNames) {
-    if (existingMap.has(name)) {
-      result.set(name, existingMap.get(name));
-    } else {
-      const created = await gmail.createLabel(agentConfig, name);
-      result.set(name, created.id);
-    }
-  }
-
-  labelIdCache.set(agentId, result);
-  return result;
+  return gmail.ensureLabels(agentConfig, [LABEL_PROCESSING, LABEL_INTAKEN, LABEL_NOISE, LABEL_FIRST_TOUCH_PENDING]);
 }
 
 async function transitionToIntaken(agentConfig, messageId) {
@@ -482,7 +461,6 @@ module.exports = {
     LABEL_NOISE,
     LABEL_FIRST_TOUCH_PENDING,
     CALENDAR_DOMAINS,
-    labelIdCache,
     transitionToIntaken,
   },
 };
