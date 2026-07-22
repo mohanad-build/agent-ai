@@ -17,6 +17,7 @@
 // Cold flip: after the final touch fires, status is set to 'cold' immediately.
 
 const email = require('./email');
+const gmail = require('./gmail');
 const claude = require('./claude');
 const prompts = require('./prompts');
 const { buildShadowDraftWrapper } = require('./paths');
@@ -25,6 +26,7 @@ const { getNow, getNowIso } = require('./time');
 const agentState = require('./agentState');
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const LABEL_SYSTEM_FOLLOWUP = 'agent-ai/system-followup';
 
 function isAiEnabled(row) {
   const v = row.aiEnabled;
@@ -164,8 +166,9 @@ async function runFollowUps(agentConfig) {
         continue;
       }
     } else {
+      let sent;
       try {
-        await email.sendReply(agentConfig, {
+        sent = await email.sendReply(agentConfig, {
           to: row.leadId,
           subject: 'Re: ' + (row.originalMessage || 'Your inquiry').slice(0, 80),
           body: draftBody,
@@ -175,6 +178,16 @@ async function runFollowUps(agentConfig) {
         console.error(`[${agentId}] Follow-up: row ${row.rowIndex} sendReply failed: ${err.message}`);
         stats.errors++;
         continue;
+      }
+
+      try {
+        const labels = await gmail.ensureLabels(agentConfig, [LABEL_SYSTEM_FOLLOWUP]);
+        const labelId = labels.get(LABEL_SYSTEM_FOLLOWUP);
+        if (sent && sent.id && labelId) {
+          await gmail.applyMessageLabels(agentConfig, sent.id, [labelId], []);
+        }
+      } catch (err) {
+        console.warn(`[${agentId}] Follow-up: row ${row.rowIndex} system-followup label failed: ${err.message}`);
       }
     }
 
