@@ -18,6 +18,7 @@ const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
 const { runLeadIntake, transitionToIntaken } = require('./leadIntake');
 const { getNow, getNowIso, getNowDate } = require('./time');
 const followUp = require('./followUp');
+const outboundTracking = require('./outboundTracking');
 const agentState = require('./agentState');
 const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator } = require('./digest');
 const { runContentEngineForAgent, shouldRunContentEngine } = require('./content/engine');
@@ -762,6 +763,13 @@ async function main() {
       if (!hasSheet) {
         console.log(`[${id}] skipped Sheet-dependent processing: no googleSheetId`);
         continue;
+      }
+
+      try {
+        const outboundResult = await outboundTracking.trackOutbound(agent);
+        console.log(`[${id}] outbound tracking: scanned=${outboundResult.scanned} matched=${outboundResult.matched} reset=${outboundResult.reset} errors=${outboundResult.errors}`);
+      } catch (otErr) {
+        console.error(`[${id}] outbound tracking run failed: ${otErr.message}`);
       }
 
       const staleResult = await checkStaleQuestions(agent);

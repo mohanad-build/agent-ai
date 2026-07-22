@@ -392,6 +392,7 @@ async function fetchMessage(agentConfig, messageId) {
       subject: getHeader(headers, 'Subject'),
       body: extractTextBody(msg.payload),
       internalDate: msg.internalDate ? parseInt(msg.internalDate, 10) : 0,
+      labelIds: msg.labelIds || [],
     };
   });
 }

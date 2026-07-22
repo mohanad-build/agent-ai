@@ -6,6 +6,7 @@ jest.mock('dotenv', () => ({ config: jest.fn() }));
 jest.mock('../src/agentConfig',   () => ({ loadAgent: jest.fn(), isLeadCategoryActionable: jest.fn() }));
 jest.mock('../src/leadIntake',    () => ({ runLeadIntake: jest.fn(), transitionToIntaken: jest.fn() }));
 jest.mock('../src/followUp',      () => ({ runFollowUps: jest.fn() }));
+jest.mock('../src/outboundTracking', () => ({ trackOutbound: jest.fn() }));
 jest.mock('../src/agentState',    () => ({
   getState: jest.fn(),
   setState: jest.fn(),
@@ -75,6 +76,7 @@ const { runCycle } = require('../src/index');
 const { loadAgent } = require('../src/agentConfig');
 const { runLeadIntake } = require('../src/leadIntake');
 const { runFollowUps } = require('../src/followUp');
+const { trackOutbound } = require('../src/outboundTracking');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -149,6 +151,9 @@ describe('runCycle: googleRefreshToken guard', () => {
     });
     runFollowUps.mockResolvedValue({
       eligible: 0, fired: 0, threadingMismatchSkipped: 0, errors: 0,
+    });
+    trackOutbound.mockResolvedValue({
+      scanned: 0, matched: 0, reset: 0, skippedLabeled: 0, skippedNoMatch: 0, errors: 0,
     });
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'error').mockImplementation(() => {});
