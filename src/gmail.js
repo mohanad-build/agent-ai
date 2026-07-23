@@ -683,9 +683,16 @@ async function fetchUnreadInboxEmails(agentConfig) {
     // inlined here (not imported) to avoid a circular require with
     // leadIntake.js, whose LABEL_NOISE constant is the source of truth for
     // this string; keep the two in sync by hand.
+    // newer_than:7d is defense in depth, not the primary guard: the primary
+    // guard against re-classification is the agent-ai/business label applied
+    // by leadIntake.js's business_correspondence branch, caught by Rule 4
+    // above. This date bound only covers the gap case of a message that ends
+    // a cycle unlabeled (label-application failure, or mail that arrived
+    // while the app was down), and it also stops a newly onboarded agent's
+    // months-old unread backlog from entering intake.
     const list = await gmail.users.messages.list({
       userId: 'me',
-      q: 'is:unread in:inbox -label:"agent-ai/noise"',
+      q: 'is:unread in:inbox -label:"agent-ai/noise" newer_than:7d',
       maxResults: 100,
     });
     const messages = list.data.messages || [];

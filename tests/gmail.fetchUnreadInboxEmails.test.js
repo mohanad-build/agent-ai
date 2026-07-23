@@ -38,12 +38,13 @@ beforeEach(() => {
   mockGet.mockReset();
 });
 
-test('query excludes agent-ai/noise so already-labeled noise does not re-enter the fetch', async () => {
+test('query excludes agent-ai/noise and bounds by date so already-labeled noise or a months-old backlog does not re-enter the fetch', async () => {
   await fetchUnreadInboxEmails(agentConfig);
 
   expect(mockList).toHaveBeenCalledTimes(1);
   const callArgs = mockList.mock.calls[0][0];
   expect(callArgs.q).toContain('is:unread in:inbox');
   expect(callArgs.q).toContain('-label:"agent-ai/noise"');
+  expect(callArgs.q).toContain('newer_than:7d');
   expect(callArgs.maxResults).toBe(100);
 });

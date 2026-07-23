@@ -36,6 +36,7 @@ const {
   LABEL_INTAKEN,
   LABEL_NOISE,
   LABEL_FIRST_TOUCH_PENDING,
+  LABEL_BUSINESS,
 } = leadIntake._internal;
 
 const MOCK_LABEL_MAP = new Map([
@@ -43,6 +44,7 @@ const MOCK_LABEL_MAP = new Map([
   [LABEL_INTAKEN, 'L_INTAKEN'],
   [LABEL_NOISE, 'L_NOISE'],
   [LABEL_FIRST_TOUCH_PENDING, 'L_FTP'],
+  [LABEL_BUSINESS, 'L_BIZ'],
 ]);
 
 const MOCK_AGENT = {
@@ -184,12 +186,81 @@ describe('processClassification branch-level: noise stays unread', () => {
     expect(stats.noise).toBe(1);
   });
 
-  test('business_correspondence still does not mark read (unchanged behavior)', async () => {
+  test('business_correspondence applies the business label and removes processing, still does not mark read', async () => {
     const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
     await processClassification(MOCK_AGENT, bizMsg, bizClassification, [], stats);
 
     expect(gmail.markRead).not.toHaveBeenCalled();
-    expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'biz-1', [], ['L_PROC']);
+    expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'biz-1', ['L_BIZ'], ['L_PROC']);
     expect(stats.businessCorrespondence).toBe(1);
+  });
+});
+
+describe('ensureLabelsExist requests all five intake label names', () => {
+  test('gmail.ensureLabels is called with the full five-label array', async () => {
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([]);
+    email.readSheetRows.mockResolvedValue([]);
+
+    await runLeadIntake(MOCK_AGENT);
+
+    expect(gmail.ensureLabels).toHaveBeenCalledWith(MOCK_AGENT, [
+      LABEL_PROCESSING,
+      LABEL_INTAKEN,
+      LABEL_NOISE,
+      LABEL_FIRST_TOUCH_PENDING,
+      LABEL_BUSINESS,
+    ]);
+  });
+});
+
+describe('loop-closed proof: business_correspondence is not re-classified across cycles', () => {
+  // LOAD-BEARING: this is the test that pins the fix. Cycle 1 fetches an
+  // unlabeled business_correspondence message; the business branch labels it
+  // agent-ai/business. Cycle 2 simulates what real Gmail returns next: the
+  // same message, still unread and in inbox, now carrying that label. If the
+  // fix regresses (label not applied, or Rule 4 stops checking it), cycle 2
+  // will call the classifier again and this test fails.
+  const bizMsgUnlabeled = {
+    messageId: 'biz-loop-1',
+    threadId: 'thread-biz-loop-1',
+    from: 'lawyer@example.com',
+    subject: 'Closing documents',
+    body: 'Please find the closing documents attached',
+    inReplyTo: '',
+    labelIds: [],
+  };
+
+  const bizClassifierResponse = JSON.stringify({
+    category: 'business_correspondence',
+    confidence: 0.8,
+    name: '',
+    email: '',
+    phone: '',
+    inquiryMessage: '',
+    propertyReference: '',
+    reasoning: 'from a professional',
+  });
+
+  test('cycle 1 classifies and labels; cycle 2 (message now carrying the business label) never reaches the classifier', async () => {
+    email.readSheetRows.mockResolvedValue([]);
+    claude.callRaw.mockResolvedValue(bizClassifierResponse);
+
+    // Cycle 1: Gmail has not applied any intake label yet.
+    gmail.fetchUnreadInboxEmails.mockResolvedValueOnce([bizMsgUnlabeled]);
+    const stats1 = await runLeadIntake(MOCK_AGENT);
+
+    expect(stats1.candidates).toBe(1);
+    expect(stats1.businessCorrespondence).toBe(1);
+    expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'biz-loop-1', ['L_BIZ'], ['L_PROC']);
+
+    // Cycle 2: real Gmail now returns the message carrying L_BIZ, since
+    // cycle 1's applyMessageLabels call added it. Message is still unread
+    // and in inbox, so it still matches the fetch query.
+    const bizMsgLabeled = Object.assign({}, bizMsgUnlabeled, { labelIds: ['L_BIZ'] });
+    gmail.fetchUnreadInboxEmails.mockResolvedValueOnce([bizMsgLabeled]);
+    const stats2 = await runLeadIntake(MOCK_AGENT);
+
+    expect(stats2.candidates).toBe(0);
+    expect(claude.callRaw).toHaveBeenCalledTimes(1);
   });
 });

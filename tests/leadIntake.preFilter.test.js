@@ -41,6 +41,7 @@ describe('applyPreFilter', () => {
     ['agent-ai/intaken', 'L_INTAKEN'],
     ['agent-ai/noise', 'L_NOISE'],
     ['agent-ai/first-touch-pending', 'L_FTP'],
+    ['agent-ai/business', 'L_BIZ'],
   ]);
 
   test('reply (In-Reply-To present) is blocked before noise checks run', () => {
@@ -71,6 +72,19 @@ describe('applyPreFilter', () => {
         subject: 'Interested in the property',
         body: 'Is this still available?',
         labelIds: ['L_NOISE'],
+      },
+      labelMap
+    );
+    expect(result).toEqual({ pass: false, reason: 'already has intake label' });
+  });
+
+  test('already has the business label is blocked (loop guard)', () => {
+    const result = applyPreFilter(
+      {
+        from: 'a@example.com',
+        subject: 'Interested in the property',
+        body: 'Is this still available?',
+        labelIds: ['L_BIZ'],
       },
       labelMap
     );

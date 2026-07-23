@@ -22,6 +22,7 @@ const LABEL_PROCESSING = 'agent-ai/processing';
 const LABEL_INTAKEN = 'agent-ai/intaken';
 const LABEL_NOISE = 'agent-ai/noise';
 const LABEL_FIRST_TOUCH_PENDING = 'agent-ai/first-touch-pending';
+const LABEL_BUSINESS = 'agent-ai/business';
 const CALENDAR_DOMAINS = new Set(['google.com', 'calendly.com', 'googleusercontent.com']);
 
 // ---------------------------------------------------------------------------
@@ -132,7 +133,7 @@ function determineAiEnabledDefault(classification) {
 // ---------------------------------------------------------------------------
 
 async function ensureLabelsExist(agentConfig) {
-  return gmail.ensureLabels(agentConfig, [LABEL_PROCESSING, LABEL_INTAKEN, LABEL_NOISE, LABEL_FIRST_TOUCH_PENDING]);
+  return gmail.ensureLabels(agentConfig, [LABEL_PROCESSING, LABEL_INTAKEN, LABEL_NOISE, LABEL_FIRST_TOUCH_PENDING, LABEL_BUSINESS]);
 }
 
 async function transitionToIntaken(agentConfig, messageId) {
@@ -225,12 +226,14 @@ function applyPreFilter(msg, labelMap, ctx) {
   const intakenId = labelMap && labelMap.get(LABEL_INTAKEN);
   const noiseId = labelMap && labelMap.get(LABEL_NOISE);
   const firstTouchPendingId = labelMap && labelMap.get(LABEL_FIRST_TOUCH_PENDING);
+  const businessId = labelMap && labelMap.get(LABEL_BUSINESS);
   for (const labelId of msgLabels) {
     if (
       (processingId && labelId === processingId) ||
       (intakenId && labelId === intakenId) ||
       (noiseId && labelId === noiseId) ||
-      (firstTouchPendingId && labelId === firstTouchPendingId)
+      (firstTouchPendingId && labelId === firstTouchPendingId) ||
+      (businessId && labelId === businessId)
     ) {
       return { pass: false, reason: 'already has intake label' };
     }
@@ -253,6 +256,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
   const intakenId = labelMap.get(LABEL_INTAKEN);
   const noiseId = labelMap.get(LABEL_NOISE);
   const firstTouchPendingId = labelMap.get(LABEL_FIRST_TOUCH_PENDING);
+  const businessId = labelMap.get(LABEL_BUSINESS);
 
   // Lead branch: confidence threshold 0.6
   if (category === 'lead' && confidence >= 0.6) {
@@ -339,12 +343,23 @@ async function processClassification(agentConfig, msg, classification, rows, sta
   }
 
   // business_correspondence (or low-confidence lead/noise):
-  // Remove the processing label so the email appears untouched in the agent's inbox.
-  // Do NOT mark read: the agent must see it as a normal unread message.
-  if (processingId) {
-    await gmail.applyMessageLabels(agentConfig, msg.messageId, [], [processingId]);
+  // The message stays unread and in inbox so the agent sees it normally, but
+  // now carries a marker label (agent-ai/business) so it is not re-classified
+  // every cycle. Without this label, the message keeps matching the unread
+  // inbox fetch and passing Rule 4 (no intake label present) forever.
+  console.log(
+    '[' + (agentConfig.agentId || 'unknown') + '] Lead Intake: business_correspondence classification for ' + msg.messageId
+  );
+  if (businessId) {
+    await gmail.applyMessageLabels(
+      agentConfig,
+      msg.messageId,
+      [businessId],
+      processingId ? [processingId] : []
+    );
   }
   stats.businessCorrespondence++;
+  return;
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +506,7 @@ module.exports = {
     LABEL_INTAKEN,
     LABEL_NOISE,
     LABEL_FIRST_TOUCH_PENDING,
+    LABEL_BUSINESS,
     CALENDAR_DOMAINS,
     transitionToIntaken,
   },
