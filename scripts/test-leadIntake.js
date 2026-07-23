@@ -320,14 +320,16 @@ async function main() {
   check('Lead (low confidence): stats.businessCorrespondence incremented', statsB.businessCorrespondence === 1);
   check('Lead (low confidence): markRead NOT called', markReadCalled === false);
 
-  // Test C: noise with confidence >= 0.85 -> noise label + mark read, no sheet row
+  // Test C: noise with confidence >= 0.85 -> noise label applied, left unread, no sheet row
+  // LOAD-BEARING: noise label applied AND markRead NOT called, asserted together
+  // so this cannot pass by the branch simply not running.
   resetTracking();
   setupLabelMocks();
   const statsC = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
   await processClassification(MOCK_AGENT, noiseMsg, noiseClassification, [], statsC);
   check('Noise: appendSheetRow NOT called', appendSheetRowCalled === false);
-  check('Noise: applyMessageLabels called', applyLabelsCalled === true);
-  check('Noise: markRead called', markReadCalled === true);
+  check('Noise: applyMessageLabels called with noise label', applyLabelsCalled === true && capturedAddLabelIds !== null && capturedAddLabelIds.includes('Label_NOISE'));
+  check('Noise: markRead NOT called (classifier noise stays unread)', markReadCalled === false);
   check('Noise: stats.noise incremented to 1', statsC.noise === 1);
 
   // Test D: noise with confidence < 0.85 -> treated as business_correspondence

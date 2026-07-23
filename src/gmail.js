@@ -674,9 +674,18 @@ async function fetchUnreadInboxEmails(agentConfig) {
   const gmail = google.gmail({ version: 'v1', auth });
 
   return withRetry(agentConfig, async () => {
+    // Noise is no longer marked read (leadIntake.js's noise branch leaves it
+    // unread), so without this exclusion already-labeled noise would
+    // re-enter this fetch every cycle and accumulate against maxResults 100,
+    // crowding out genuine new mail. This is an OPTIMIZATION only; the
+    // correctness backstop is applyPreFilter Rule 4 (already-has-intake-label),
+    // which must stay in place regardless of this query. Label name is
+    // inlined here (not imported) to avoid a circular require with
+    // leadIntake.js, whose LABEL_NOISE constant is the source of truth for
+    // this string; keep the two in sync by hand.
     const list = await gmail.users.messages.list({
       userId: 'me',
-      q: 'is:unread in:inbox',
+      q: 'is:unread in:inbox -label:"agent-ai/noise"',
       maxResults: 100,
     });
     const messages = list.data.messages || [];

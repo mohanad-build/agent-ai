@@ -98,7 +98,7 @@ test('race guard: known lead misclassified as noise never reaches classification
   expect(stats.candidates).toBe(0);
 });
 
-test('control: same message with an unknown sender does reach classification and gets marked read', async () => {
+test('control: same message with an unknown sender does reach classification and gets noise-labeled (left unread)', async () => {
   const unknownSenderMsg = Object.assign({}, knownLeadMsg, { from: 'Stranger <stranger@example.com>' });
   gmail.fetchUnreadInboxEmails.mockResolvedValue([unknownSenderMsg]);
   email.readSheetRows.mockResolvedValue([{ rowIndex: 5, leadId: 'lead@example.com' }]);
@@ -107,7 +107,8 @@ test('control: same message with an unknown sender does reach classification and
   const stats = await runLeadIntake(MOCK_AGENT);
 
   expect(claude.callRaw).toHaveBeenCalledTimes(1);
-  expect(gmail.markRead).toHaveBeenCalledWith(MOCK_AGENT, 'm1');
+  expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'm1', ['L_NOISE'], ['L_PROC']);
+  expect(gmail.markRead).not.toHaveBeenCalled();
   expect(stats.candidates).toBe(1);
   expect(stats.noise).toBe(1);
 });
@@ -123,4 +124,72 @@ test('own address: a message from the agent itself never reaches classification'
   expect(claude.callRaw).not.toHaveBeenCalled();
   expect(gmail.markRead).not.toHaveBeenCalled();
   expect(stats.candidates).toBe(0);
+});
+
+describe('processClassification branch-level: noise stays unread', () => {
+  const { processClassification } = leadIntake._internal;
+
+  const noiseMsg = {
+    messageId: 'noise-1',
+    threadId: 'thread-noise-1',
+    from: 'promo@example.com',
+    subject: 'Weekly newsletter',
+    body: 'Check out this week deals',
+  };
+
+  const noiseClassification = {
+    category: 'noise',
+    confidence: 0.9,
+    name: '',
+    email: '',
+    phone: '',
+    inquiryMessage: '',
+    propertyReference: '',
+    reasoning: 'looks automated',
+  };
+
+  const bizMsg = {
+    messageId: 'biz-1',
+    threadId: 'thread-biz-1',
+    from: 'lawyer@example.com',
+    subject: 'Closing documents',
+    body: 'Please find the closing documents attached',
+  };
+
+  const bizClassification = {
+    category: 'business_correspondence',
+    confidence: 0.8,
+    name: '',
+    email: '',
+    phone: '',
+    inquiryMessage: '',
+    propertyReference: '',
+    reasoning: 'from a professional',
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    gmail.ensureLabels.mockResolvedValue(MOCK_LABEL_MAP);
+    gmail.applyMessageLabels.mockResolvedValue(undefined);
+  });
+
+  // LOAD-BEARING: label applied AND markRead not called, asserted together
+  // so this cannot pass by the branch simply not running.
+  test('noise at confidence >= 0.85 gets the noise label applied but markRead is NOT called', async () => {
+    const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+    await processClassification(MOCK_AGENT, noiseMsg, noiseClassification, [], stats);
+
+    expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'noise-1', ['L_NOISE'], ['L_PROC']);
+    expect(gmail.markRead).not.toHaveBeenCalled();
+    expect(stats.noise).toBe(1);
+  });
+
+  test('business_correspondence still does not mark read (unchanged behavior)', async () => {
+    const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+    await processClassification(MOCK_AGENT, bizMsg, bizClassification, [], stats);
+
+    expect(gmail.markRead).not.toHaveBeenCalled();
+    expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'biz-1', [], ['L_PROC']);
+    expect(stats.businessCorrespondence).toBe(1);
+  });
 });

@@ -331,7 +331,9 @@ async function processClassification(agentConfig, msg, classification, rows, sta
         processingId ? [processingId] : []
       );
     }
-    await gmail.markRead(agentConfig, msg.messageId);
+    // Classifier noise stays unread so the agent still sees it. Idempotency
+    // is label-based (applyPreFilter Rule 4), not read-state-based, so
+    // skipping markRead here does not risk re-processing.
     stats.noise++;
     return;
   }
