@@ -25,9 +25,14 @@ jest.mock('../src/claude', () => ({
   callRaw: jest.fn(),
 }));
 
+jest.mock('../src/agentState', () => ({
+  incrementNoiseFiltered: jest.fn(),
+}));
+
 const gmail = require('../src/gmail');
 const email = require('../src/email');
 const claude = require('../src/claude');
+const agentState = require('../src/agentState');
 
 const leadIntake = require('../src/leadIntake');
 const { runLeadIntake } = leadIntake;
@@ -113,6 +118,7 @@ test('control: same message with an unknown sender does reach classification and
   expect(gmail.markRead).not.toHaveBeenCalled();
   expect(stats.candidates).toBe(1);
   expect(stats.noise).toBe(1);
+  expect(agentState.incrementNoiseFiltered).toHaveBeenCalledWith(MOCK_AGENT.agentId);
 });
 
 test('own address: a message from the agent itself never reaches classification', async () => {
@@ -183,6 +189,24 @@ describe('processClassification branch-level: noise stays unread', () => {
 
     expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'noise-1', ['L_NOISE'], ['L_PROC']);
     expect(gmail.markRead).not.toHaveBeenCalled();
+    expect(stats.noise).toBe(1);
+    expect(agentState.incrementNoiseFiltered).toHaveBeenCalledWith(MOCK_AGENT.agentId);
+  });
+
+  test('noise branch increments the noise-filtered counter even when noiseId is absent from the label map', async () => {
+    const labelMapNoNoise = new Map([
+      [LABEL_PROCESSING, 'L_PROC'],
+      [LABEL_INTAKEN, 'L_INTAKEN'],
+      [LABEL_FIRST_TOUCH_PENDING, 'L_FTP'],
+      [LABEL_BUSINESS, 'L_BIZ'],
+    ]);
+    gmail.ensureLabels.mockResolvedValue(labelMapNoNoise);
+
+    const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+    await processClassification(MOCK_AGENT, noiseMsg, noiseClassification, [], stats);
+
+    expect(gmail.applyMessageLabels).not.toHaveBeenCalled();
+    expect(agentState.incrementNoiseFiltered).toHaveBeenCalledWith(MOCK_AGENT.agentId);
     expect(stats.noise).toBe(1);
   });
 

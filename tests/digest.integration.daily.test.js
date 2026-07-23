@@ -318,4 +318,19 @@ describe('runDailyDigestForAgent integration', () => {
     expect(capturedEmailArgs).toHaveProperty('html');
     expect(capturedEmailArgs.body).not.toContain('<!DOCTYPE');
   });
+
+  test('reports the DAILY noise-filtered count, not the weekly one', async () => {
+    // Distinct, large values so this assertion can't pass by colliding with
+    // an unrelated count (row indexes, hour offsets, etc.) elsewhere in the body.
+    agentStateMod.getState.mockReturnValue({
+      weeklyPreflightSkips: 0,
+      dailyNoiseFiltered: 37,
+      weeklyNoiseFiltered: 99,
+    });
+
+    await runDailyDigestForAgent(AGENT);
+
+    expect(capturedEmailArgs.body).toContain('Noise filtered: 37');
+    expect(capturedEmailArgs.body).not.toContain('99');
+  });
 });

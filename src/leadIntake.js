@@ -15,6 +15,7 @@ const claude = require('./claude');
 const gmail = require('./gmail');
 const email = require('./email');
 const prompts = require('./prompts');
+const agentState = require('./agentState');
 const { getNowDate, getNowIso } = require('./time');
 
 const LEAD_INTAKE_MAX_PER_CYCLE = 20;
@@ -338,6 +339,7 @@ async function processClassification(agentConfig, msg, classification, rows, sta
     // Classifier noise stays unread so the agent still sees it. Idempotency
     // is label-based (applyPreFilter Rule 4), not read-state-based, so
     // skipping markRead here does not risk re-processing.
+    agentState.incrementNoiseFiltered(agentConfig.agentId);
     stats.noise++;
     return;
   }

@@ -182,6 +182,7 @@ const WEEKLY_AGGREGATE_LABELS = {
 // Only keys present in the data object will produce a line (absent keys are silently skipped).
 const SYSTEM_HANDLED_LABELS = {
   intaken: 'Leads intaken',
+  noiseFiltered: 'Noise filtered',
   followUpsFired: 'Follow-ups fired',
   preflightSkips: 'Pre-flight skips this week',
   soiFiltered: 'SOI rows excluded',
@@ -387,7 +388,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
   const endMs    = new Date(endIso).getTime();
   const startIso = new Date(endMs - 24 * 60 * 60 * 1000).toISOString();
 
-  const gathered = await gatherWindowData(agentConfig, startIso, endIso);
+  const gathered = await gatherWindowData(agentConfig, startIso, endIso, { digestCadence: 'daily' });
   const { rows, stateCounters, reliability } = gathered;
 
   const now        = getNowDate();
@@ -687,6 +688,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     for (const agentCfg of activeAgents) {
       try {
         agentState.resetWeeklyPreflightSkips(agentCfg.agentId);
+        agentState.resetWeeklyNoiseFiltered(agentCfg.agentId);
       } catch (err) {
         console.warn(`[operator:${operatorConfig.operatorId}] preflight reset failed for ${agentCfg.agentId}: ${err.message}`);
       }
@@ -727,9 +729,13 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
  * @param {string} endIso    exclusive upper bound
  * @returns {Promise<{rows: object[], stateCounters: object, reliability: object}>}
  */
-async function gatherWindowData(agentConfig, startIso, endIso) {
+async function gatherWindowData(agentConfig, startIso, endIso, opts = {}) {
   const rawRows = await email.readSheetRows(agentConfig);
   const cadence = getFollowUpCadence(agentConfig);
+  // Named digestCadence, not cadence, because `cadence` throughout this
+  // codebase means the follow-up touch-day array. This one is the digest
+  // window, 'daily' or 'weekly'.
+  const digestCadence = opts.digestCadence || 'weekly';
   const mode = agentConfig.mode || 'live';
   const startMs = new Date(startIso).getTime();
   const endMs = new Date(endIso).getTime();
@@ -741,6 +747,9 @@ async function gatherWindowData(agentConfig, startIso, endIso) {
   const intaken = rows.filter(r => r.createdInWindow === true).length;
   const followUpsFired = rows.filter(r => r.lastFollowUpFire !== null).length;
   const systemHandled = { intaken, followUpsFired, preflightSkips };
+  systemHandled.noiseFiltered = digestCadence === 'daily'
+    ? (state.dailyNoiseFiltered || 0)
+    : (state.weeklyNoiseFiltered || 0);
   if (soiCount > 0) systemHandled.soiFiltered = soiCount;
   return {
     rows,

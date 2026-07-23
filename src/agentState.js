@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { getStorageRoot } = require('./storagePaths');
 
-const DEFAULT_STATE = { lastTokenIssued: 0, weeklyPreflightSkips: 0, lastDailyDigestRun: null, deactivatedAt: null };
+const DEFAULT_STATE = { lastTokenIssued: 0, weeklyPreflightSkips: 0, lastDailyDigestRun: null, deactivatedAt: null, dailyNoiseFiltered: 0, weeklyNoiseFiltered: 0 };
 
 function statePath(agentId) {
   return path.join(getStorageRoot(), `${agentId}.state.json`);
@@ -64,9 +64,36 @@ function resetWeeklyPreflightSkips(agentId) {
   setState(agentId, { ...state, weeklyPreflightSkips: 0 });
 }
 
+function incrementNoiseFiltered(agentId) {
+  const state = getState(agentId);
+  const newDaily = (state.dailyNoiseFiltered || 0) + 1;
+  const newWeekly = (state.weeklyNoiseFiltered || 0) + 1;
+  setState(agentId, { ...state, dailyNoiseFiltered: newDaily, weeklyNoiseFiltered: newWeekly });
+}
+
+function resetDailyNoiseFiltered(agentId) {
+  const state = getState(agentId);
+  setState(agentId, { ...state, dailyNoiseFiltered: 0 });
+}
+
+function resetWeeklyNoiseFiltered(agentId) {
+  const state = getState(agentId);
+  setState(agentId, { ...state, weeklyNoiseFiltered: 0 });
+}
+
 function recordDailyDigestRun(agentId, iso) {
   const state = getState(agentId);
   setState(agentId, { ...state, lastDailyDigestRun: iso });
 }
 
-module.exports = { getState, setState, issueToken, incrementWeeklyPreflightSkips, resetWeeklyPreflightSkips, recordDailyDigestRun };
+module.exports = {
+  getState,
+  setState,
+  issueToken,
+  incrementWeeklyPreflightSkips,
+  resetWeeklyPreflightSkips,
+  incrementNoiseFiltered,
+  resetDailyNoiseFiltered,
+  resetWeeklyNoiseFiltered,
+  recordDailyDigestRun,
+};

@@ -185,3 +185,12 @@ test('systemHandled with all zero counts renders exactly the three Path B lines'
   expect(result.body).not.toContain('Business correspondence ignored:');
   expect(result.body).not.toContain('HOT alerts sent:');
 });
+
+test('systemHandled section renders the Noise filtered line when the field is present', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseFiltered = 4;
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain('— What the system handled —');
+  expect(result.body).toContain('Noise filtered: 4');
+});

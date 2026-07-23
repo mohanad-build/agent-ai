@@ -60,8 +60,29 @@ beforeEach(() => {
 test('gatherWindowData: empty sheet → correct return shape with all counters zero', async () => {
   const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
   expect(result.rows).toEqual([]);
-  expect(result.stateCounters.systemHandled).toEqual({ intaken: 0, followUpsFired: 0, preflightSkips: 0 });
+  expect(result.stateCounters.systemHandled).toEqual({ intaken: 0, followUpsFired: 0, preflightSkips: 0, noiseFiltered: 0 });
   expect(result.reliability).toEqual({ errors: 0, retries: 0, threadingSkipped: 0 });
+});
+
+// ── noiseFiltered / digestCadence ─────────────────────────────────────────────
+
+test('gatherWindowData: no opts → reads weeklyNoiseFiltered from state', async () => {
+  agentStateMod.getState.mockReturnValue({ weeklyPreflightSkips: 0, dailyNoiseFiltered: 5, weeklyNoiseFiltered: 12 });
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
+  expect(result.stateCounters.systemHandled.noiseFiltered).toBe(12);
+});
+
+test('gatherWindowData: { digestCadence: "daily" } → reads dailyNoiseFiltered from state', async () => {
+  agentStateMod.getState.mockReturnValue({ weeklyPreflightSkips: 0, dailyNoiseFiltered: 5, weeklyNoiseFiltered: 12 });
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO, { digestCadence: 'daily' });
+  expect(result.stateCounters.systemHandled.noiseFiltered).toBe(5);
+});
+
+test('gatherWindowData: systemHandled.noiseFiltered is present (0) when state has no counters, not omitted', async () => {
+  agentStateMod.getState.mockReturnValue({});
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
+  expect('noiseFiltered' in result.stateCounters.systemHandled).toBe(true);
+  expect(result.stateCounters.systemHandled.noiseFiltered).toBe(0);
 });
 
 test('gatherWindowData: row created in window via column L timestamp → intaken=1', async () => {

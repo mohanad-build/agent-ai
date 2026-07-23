@@ -522,6 +522,11 @@ async function maybeRunDailyDigest(agent, opts = {}) {
     const result = await runDailyDigestForAgent(agent);
     if (result.skipped !== 'inactive' && (result.smsResult === 'sent' || result.emailResult === 'sent')) {
       agentState.recordDailyDigestRun(agent.agentId, getNowIso());
+      // Safe to zero here only because intake and digest run sequentially in the
+      // same processAgent cycle, so no increment can land between the digest's
+      // state read and this reset. Revisit if intake ever runs in parallel or
+      // moves to Gmail Push.
+      agentState.resetDailyNoiseFiltered(agent.agentId);
     }
     const smsLabel   = result.smsResult   || 'n/a';
     const emailLabel = result.emailResult || 'n/a';
