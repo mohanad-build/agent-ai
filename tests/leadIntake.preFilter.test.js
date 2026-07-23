@@ -90,3 +90,98 @@ describe('applyPreFilter', () => {
     expect(result).toEqual({ pass: true, reason: '' });
   });
 });
+
+describe('applyPreFilter with ctx (own address / known lead)', () => {
+  const labelMap = new Map([
+    ['agent-ai/processing', 'L_PROC'],
+    ['agent-ai/intaken', 'L_INTAKEN'],
+    ['agent-ai/noise', 'L_NOISE'],
+    ['agent-ai/first-touch-pending', 'L_FTP'],
+  ]);
+
+  const cleanMsg = {
+    from: 'Jane Doe <jane@example.com>',
+    subject: 'Question about 45 Maple',
+    body: 'Is this still available?',
+  };
+
+  test('sender equal to ctx.ownAddress is skipped', () => {
+    const result = applyPreFilter(cleanMsg, labelMap, { ownAddress: 'jane@example.com' });
+    expect(result).toEqual({ pass: false, reason: 'own address (self-sent)' });
+  });
+
+  test('sender already present in ctx.rows column A is skipped', () => {
+    const rows = [{ rowIndex: 5, leadId: 'jane@example.com' }];
+    const result = applyPreFilter(cleanMsg, labelMap, { rows });
+    expect(result.pass).toBe(false);
+    expect(result.reason).toMatch(/known lead/);
+  });
+
+  test('sender not in column A and not the own address still passes (guard the guard)', () => {
+    const rows = [{ rowIndex: 5, leadId: 'someone-else@example.com' }];
+    const result = applyPreFilter(cleanMsg, labelMap, { ownAddress: 'agent@example.com', rows });
+    expect(result).toEqual({ pass: true, reason: '' });
+  });
+
+  test('ctx omitted entirely: legacy two-arg call still works', () => {
+    const result = applyPreFilter(cleanMsg, labelMap);
+    expect(result).toEqual({ pass: true, reason: '' });
+  });
+
+  test('ctx omitted entirely: In-Reply-To rule still blocks', () => {
+    const result = applyPreFilter(
+      Object.assign({}, cleanMsg, { inReplyTo: '<abc@mail.gmail.com>' }),
+      labelMap
+    );
+    expect(result).toEqual({ pass: false, reason: 'reply (In-Reply-To present)' });
+  });
+
+  test('ctx omitted entirely: calendar domain rule still blocks', () => {
+    const result = applyPreFilter({ from: 'invite@calendly.com', subject: 'New booking', body: 'details' }, labelMap);
+    expect(result).toEqual({ pass: false, reason: 'calendar domain: calendly.com' });
+  });
+
+  test('ctx omitted entirely: empty body/short subject rule still blocks', () => {
+    const result = applyPreFilter({ from: 'a@example.com', subject: 'Hi', body: '' }, labelMap);
+    expect(result).toEqual({ pass: false, reason: 'empty body and short subject' });
+  });
+
+  test('ctx omitted entirely: existing intake label rule still blocks', () => {
+    const result = applyPreFilter(
+      Object.assign({}, cleanMsg, { labelIds: ['L_NOISE'] }),
+      labelMap
+    );
+    expect(result).toEqual({ pass: false, reason: 'already has intake label' });
+  });
+
+  test('ctx.ownAddress absent but ctx.rows present: known-lead rule still fires', () => {
+    const rows = [{ rowIndex: 5, leadId: 'jane@example.com' }];
+    const result = applyPreFilter(cleanMsg, labelMap, { rows });
+    expect(result.pass).toBe(false);
+    expect(result.reason).toMatch(/known lead/);
+  });
+
+  test('ctx.ownAddress absent but ctx.rows present: own-address rule does not throw or false-match', () => {
+    const rows = [{ rowIndex: 5, leadId: 'someone-else@example.com' }];
+    const result = applyPreFilter(cleanMsg, labelMap, { rows });
+    expect(result).toEqual({ pass: true, reason: '' });
+  });
+
+  test('case-insensitivity: column A holding mixed-case email matches an upper-case sender header', () => {
+    const rows = [{ rowIndex: 5, leadId: 'Jane@Example.com' }];
+    const msg = {
+      from: 'Jane Lead <JANE@EXAMPLE.COM>',
+      subject: 'Question about 45 Maple',
+      body: 'Is this still available?',
+    };
+    const result = applyPreFilter(msg, labelMap, { rows });
+    expect(result.pass).toBe(false);
+    expect(result.reason).toMatch(/known lead/);
+  });
+
+  test('own-address compare is case-insensitive against a mixed-case sender header', () => {
+    const msg = { from: 'Agent Self <AGENT@EXAMPLE.COM>', subject: 'Test', body: 'test body here' };
+    const result = applyPreFilter(msg, labelMap, { ownAddress: 'agent@example.com' });
+    expect(result).toEqual({ pass: false, reason: 'own address (self-sent)' });
+  });
+});

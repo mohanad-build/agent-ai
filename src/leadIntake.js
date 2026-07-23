@@ -185,10 +185,32 @@ function isNoiseSender(msg) {
 
 // Returns { pass: bool, reason: string }.
 // Applied per-message before classification. Fast-fail, checks in order.
-function applyPreFilter(msg, labelMap) {
+// ctx is optional and shaped { ownAddress, rows }. When ctx or a given field
+// is missing, the corresponding rule below is skipped and legacy behavior
+// (msg, labelMap only) is preserved exactly.
+function applyPreFilter(msg, labelMap, ctx) {
+  // Rule 0: Sender is the agent's own address (self-sent)
+  if (ctx && ctx.ownAddress) {
+    const senderAddr = getSenderEmail(msg.from || '');
+    if (senderAddr && senderAddr === ctx.ownAddress) {
+      return { pass: false, reason: 'own address (self-sent)' };
+    }
+  }
+
   // Rule 1: Is a reply (In-Reply-To header set)
   if (msg.inReplyTo && String(msg.inReplyTo).trim()) {
     return { pass: false, reason: 'reply (In-Reply-To present)' };
+  }
+
+  // Rule 1b: Sender already has a row in the Sheet (known lead). Reply
+  // Detection owns known-lead traffic; intake should not touch it, since a
+  // noise misclassification here would mark the message read and hide it
+  // from fetchUnreadReplies' is:unread query later in the same cycle.
+  if (ctx && ctx.rows) {
+    const senderAddr = getSenderEmail(msg.from || '');
+    if (senderAddr && gmail.findRowByEmail(ctx.rows, senderAddr)) {
+      return { pass: false, reason: 'known lead (already in column A), reply detection handles this' };
+    }
   }
 
   // Rules 2-3: sender/body noise, delegated
@@ -349,13 +371,29 @@ async function runLeadIntake(agentConfig) {
     throw err;
   }
 
+  // Read Sheet once, before the pre-filter loop, so applyPreFilter can skip
+  // known leads (column A) and processClassification can still use the same
+  // rows for its own dedup check.
+  let rows;
+  try {
+    rows = await email.readSheetRows(agentConfig);
+  } catch (err) {
+    console.error('[' + agentId + '] Lead Intake: readSheetRows failed: ' + err.message);
+    throw err;
+  }
+
+  const preFilterCtx = {
+    ownAddress: String(agentConfig.gmailAddress || '').trim().toLowerCase(),
+    rows,
+  };
+
   // Pre-filter with per-cycle thread and sender dedup
   const candidates = [];
   const seenThreads = new Set();
   const seenSenders = new Set();
 
   for (const msg of messages) {
-    const filterResult = applyPreFilter(msg, labelMap);
+    const filterResult = applyPreFilter(msg, labelMap, preFilterCtx);
     if (!filterResult.pass) {
       console.log(
         '[' + agentId + '] Lead Intake: pre-filter blocked ' + msg.messageId + ': ' + filterResult.reason
@@ -382,15 +420,6 @@ async function runLeadIntake(agentConfig) {
 
   stats.candidates = candidates.length;
   if (candidates.length === 0) return stats;
-
-  // Read Sheet once for dedup checks inside processClassification
-  let rows;
-  try {
-    rows = await email.readSheetRows(agentConfig);
-  } catch (err) {
-    console.error('[' + agentId + '] Lead Intake: readSheetRows failed: ' + err.message);
-    throw err;
-  }
 
   // Label all candidates as agent-ai/processing (idempotency marker)
   const processingId = labelMap.get(LABEL_PROCESSING);
