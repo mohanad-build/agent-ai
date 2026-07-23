@@ -95,6 +95,26 @@ test('operatorEscalated set 10 days ago → does NOT appear in urgent (outside 7
   expect(urgent).toHaveLength(0);
 });
 
+// ── ageHours ─────────────────────────────────────────────────────────────────
+
+test('HOT row → ageHours computed from lastActionTimestamp', () => {
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: hoursAgo(74 * 24) });
+  const { urgent } = categorizeRowsForDigest([row], NOW);
+  expect(urgent[0].ageHours).toBe(74 * 24);
+});
+
+test('operatorEscalated row → ageHours computed from operatorEscalated timestamp', () => {
+  const row = makeRow({ operatorEscalated: daysAgo(2) });
+  const { urgent } = categorizeRowsForDigest([row], NOW);
+  expect(urgent[0].ageHours).toBe(48);
+});
+
+test('unparseable trigger timestamp → ageHours is null', () => {
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: 'not-a-date' });
+  const { urgent } = categorizeRowsForDigest([row], NOW);
+  expect(urgent[0].ageHours).toBeNull();
+});
+
 test('HOT + awaiting_agent 26h → appears once in urgent with category HOT (priority wins)', () => {
   const row = makeRow({ status: 'HOT', lastActionTimestamp: hoursAgo(26) });
   const { urgent } = categorizeRowsForDigest([row], NOW);

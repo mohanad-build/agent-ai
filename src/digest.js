@@ -28,14 +28,36 @@ const { getStorageRoot } = require('./storagePaths');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
+// These are category descriptions, not extracted intent. Nothing here may
+// assert what the lead said or wants. The prior HOT phrasing claimed the
+// lead wanted a call today, which the system has no way to know and which
+// was rendered against signals months old.
 function urgentVerbPhrase(category) {
   const map = {
-    HOT: 'wants to call you today',
+    HOT: 'flagged hot',
     path1b: 'is waiting on you',
     needs_review: 'needs review',
     operatorEscalated: 'escalated to you',
   };
   return map[category] || 'needs you';
+}
+
+// HOT and needs_review are the only urgent categories with no age bound on
+// selection, so they are the only ones that can surface a months-old row as
+// though it were today's news. path1b already prints its hours in context
+// and operatorEscalated is bounded to seven days.
+function urgentVerbWithAge(urgent) {
+  const base = urgentVerbPhrase(urgent.category);
+  if (
+    (urgent.category === 'HOT' || urgent.category === 'needs_review') &&
+    Number.isFinite(urgent.ageHours)
+  ) {
+    const suffix = urgent.ageHours < 24
+      ? ` ${Math.floor(urgent.ageHours)}h ago`
+      : ` ${Math.floor(urgent.ageHours / 24)}d ago`;
+    return base + suffix;
+  }
+  return base;
 }
 
 // Short context with surrounding parens, for SMS line 2.
@@ -222,6 +244,11 @@ function parseISO(s) {
 
 function hoursBetween(later, earlier) {
   return Math.floor((later.getTime() - earlier.getTime()) / (1000 * 60 * 60));
+}
+
+function hoursBetweenSafe(later, isoString) {
+  const earlier = parseISO(isoString);
+  return earlier ? hoursBetween(later, earlier) : null;
 }
 
 function daysBetween(later, earlier) {
@@ -860,6 +887,7 @@ function categorizeRowsForDigest(rows, now) {
         hoursAwaiting: urgentCategory === 'path1b' && lastActionDate
           ? hoursBetween(now, lastActionDate)
           : null,
+        ageHours: urgentTrigger ? hoursBetweenSafe(now, urgentTrigger) : null,
         rowIndex: row.rowIndex,
         phone: row.phone || null,
         gmailThreadId: row.gmailThreadId || null,
@@ -986,7 +1014,7 @@ function renderSMS(stats, urgent) {
   }
 
   const ctx = urgentShortContext(urgent);
-  const verb = urgentVerbPhrase(urgent.category);
+  const verb = urgentVerbWithAge(urgent);
   const line2base = `🔥 ${urgent.firstName} ${urgent.lastInitial} ${ctx} ${verb}`;
   const line2 = stats.urgentCount > 1
     ? `${line2base} + ${stats.urgentCount - 1} more.`
@@ -1023,7 +1051,7 @@ function renderEmail(sections, agentConfig, now) {
   const CONTEXT_FALLBACKS = new Set(['HOT signal', 'needs review', 'escalated']);
   if (urgent.length > 0) {
     const rows = urgent.map(u => {
-      const verb = urgentVerbPhrase(u.category);
+      const verb = urgentVerbWithAge(u);
       const ctx = urgentDisplayContext(u);
       const dropCtx = u.propertyReference == null && CONTEXT_FALLBACKS.has(ctx);
       let line = dropCtx
@@ -1031,6 +1059,9 @@ function renderEmail(sections, agentConfig, now) {
         : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
       const link = buildActionLink(u, agentConfig);
       if (link) line += `\n→ ${link.label}: ${link.url}`;
+      if (u.category === 'HOT' && u.leadId) {
+        line += `\nCalled them? Text CALLED ${u.leadId} to clear this.`;
+      }
       return line;
     });
     parts.push(`— Needs you today —\n\n${rows.join('\n')}`);
@@ -1171,17 +1202,21 @@ function renderEmailHtml(sections, agentConfig, now) {
   if (urgent.length > 0) {
     parts.push(sectionHeader('Needs you today'));
     for (const u of urgent) {
-      const verb = urgentVerbPhrase(u.category);
+      const verb = urgentVerbWithAge(u);
       const ctx  = urgentDisplayContext(u);
       const dropCtx = u.propertyReference == null && CONTEXT_FALLBACKS_HTML.has(ctx);
       const rowText = dropCtx
         ? `${u.firstName} ${u.lastInitial} — ${verb}`
         : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
       const link = buildActionLink(u, agentConfig);
+      const calledLine = (u.category === 'HOT' && u.leadId)
+        ? `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">${esc(`Called them? Text CALLED ${u.leadId} to clear this.`)}</div>`
+        : '';
       parts.push(
         `<div style="margin-bottom:16px;">` +
         `<div>${esc(rowText)}</div>` +
         button(link) +
+        calledLine +
         `</div>`
       );
     }
@@ -1838,6 +1873,7 @@ module.exports = {
   shouldRunWeeklyDigest,
   _internal: {
     splitName,
+    urgentVerbWithAge,
     parseColumnLFirstLineTimestamp,
     parseColumnLPropertyReference,
     computeNextTouch,

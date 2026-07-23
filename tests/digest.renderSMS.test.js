@@ -16,7 +16,7 @@ test('active morning, one HOT urgent with property reference — correct three-l
   const urgent = makeHotUrgent('Sarah', 'K', '45 Maple');
   const expected = [
     'Handled 6 leads overnight: 3 new, 2 follow-ups, 1 filtered.',
-    '🔥 Sarah K (45 Maple) wants to call you today.',
+    '🔥 Sarah K (45 Maple) flagged hot.',
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, urgent)).toBe(expected);
@@ -27,7 +27,7 @@ test('active morning, multiple urgent items — appends correct "+ N more" suffi
   const urgent = makeHotUrgent('Sarah', 'K', '45 Maple');
   const expected = [
     'Handled 12 leads overnight: 4 new, 5 follow-ups, 3 filtered.',
-    '🔥 Sarah K (45 Maple) wants to call you today + 2 more.',
+    '🔥 Sarah K (45 Maple) flagged hot + 2 more.',
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, urgent)).toBe(expected);
@@ -69,7 +69,7 @@ test('HOT urgent with no property reference — falls back to (HOT signal) conte
   const urgent = makeHotUrgent('Sarah', 'K', null);
   const expected = [
     'Handled 2 leads overnight: 1 new, 0 follow-ups, 1 filtered.',
-    '🔥 Sarah K (HOT signal) wants to call you today.',
+    '🔥 Sarah K (HOT signal) flagged hot.',
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, urgent)).toBe(expected);
@@ -80,7 +80,7 @@ test('quiet automation but urgent leads present — SMS opener counts urgent lea
   const urgent = makeHotUrgent('Sarah', 'K', '45 Maple');
   const expected = [
     '2 leads need you this morning.',
-    '🔥 Sarah K (45 Maple) wants to call you today + 1 more.',
+    '🔥 Sarah K (45 Maple) flagged hot + 1 more.',
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, urgent)).toBe(expected);
@@ -93,4 +93,10 @@ test('all stats zero and no urgent — totals to 0, two-line output', () => {
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, null)).toBe(expected);
+});
+
+test('SMS output never contains the CALLED affordance, even for a HOT urgent row with a leadId', () => {
+  const stats = makeStats(1, 0, 0, 1);
+  const urgent = { ...makeHotUrgent('Sarah', 'K', '45 Maple'), leadId: 'sarah@example.com' };
+  expect(renderSMS(stats, urgent)).not.toContain('CALLED');
 });

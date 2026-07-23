@@ -294,10 +294,43 @@ test('urgent row text and button both appear in output for HOT with property ref
     phone: '+16475551234', gmailThreadId: 'thread-abc', leadId: 'lead@example.com',
   }];
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  // Row text: "Sarah K — wants to call you today — 45 Maple"
+  // Row text: "Sarah K — flagged hot — 45 Maple"
   expect(html).toContain('Sarah K');
-  expect(html).toContain('wants to call you today');
+  expect(html).toContain('flagged hot');
   expect(html).toContain('45 Maple');
   // Button
   expect(html).toContain('Call Sarah');
+});
+
+test('CALLED affordance renders for a HOT row with a leadId', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
+    propertyReference: '45 Maple', hoursAwaiting: null, ageHours: null, rowIndex: 3,
+    phone: '+16475551234', gmailThreadId: 'thread-abc', leadId: 'sarah@example.com',
+  }];
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).toContain('Called them? Text CALLED sarah@example.com to clear this.');
+});
+
+test('CALLED affordance is absent for a HOT row with an empty leadId', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
+    propertyReference: '45 Maple', hoursAwaiting: null, ageHours: null, rowIndex: 3,
+    phone: '+16475551234', gmailThreadId: 'thread-abc', leadId: '',
+  }];
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).not.toContain('CALLED');
+});
+
+test('CALLED affordance is absent for a needs_review row, even with a leadId', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'John', lastInitial: 'D', category: 'needs_review',
+    propertyReference: null, hoursAwaiting: null, ageHours: null, rowIndex: 5,
+    phone: null, gmailThreadId: 'thread-xyz', leadId: 'john@example.com',
+  }];
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).not.toContain('CALLED');
 });

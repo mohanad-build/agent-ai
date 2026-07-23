@@ -146,6 +146,39 @@ test('urgent needs_review with thread — body contains mail.google.com action l
   expect(result.body).toContain('→ Open thread: https://mail.google.com/mail/u/0/#inbox/thread-xyz');
 });
 
+test('CALLED affordance renders for a HOT row with a leadId', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
+    propertyReference: '45 Maple', hoursAwaiting: null, rowIndex: 3,
+    phone: '+16475551234', gmailThreadId: '', leadId: 'sarah@example.com',
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).toContain('Called them? Text CALLED sarah@example.com to clear this.');
+});
+
+test('CALLED affordance is absent for a HOT row with an empty leadId', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
+    propertyReference: '45 Maple', hoursAwaiting: null, rowIndex: 3,
+    phone: '+16475551234', gmailThreadId: '', leadId: '',
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).not.toContain('CALLED');
+});
+
+test('CALLED affordance is absent for a needs_review row, even with a leadId', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'John', lastInitial: 'D', category: 'needs_review',
+    propertyReference: null, hoursAwaiting: null, rowIndex: 4,
+    phone: '', gmailThreadId: 'thread-xyz', leadId: 'jd@example.com',
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).not.toContain('CALLED');
+});
+
 test('hot lead with no phone or thread — body contains docs.google.com action line', () => {
   const sections = makeEmptySections();
   sections.hotLeads = [{
