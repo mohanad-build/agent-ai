@@ -37,3 +37,4 @@ calibration-archive/
 
 # HARD GATE follow-up/path1a prompt iteration baselines (local working evidence, recreated via scripts/iterate-prompts.js)
 prompt-iteration-archive/
+agents/
