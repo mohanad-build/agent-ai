@@ -246,12 +246,12 @@ THE THREE CATEGORIES:
    - "My friend Sarah is looking to buy, here's her number, can you reach out to her?" (explicit ask + clear introduction with contact)
 
 2. noise
-   Automated emails, newsletters, marketing, promotions, account notifications, subscription confirmations, receipts, spam, or anything not from a real person intending to communicate with the agent.
-   Examples: "Your DocuSign document is ready", "New listings matching your saved search", "50% off this weekend only", "Your monthly invoice", "You have a new connection on LinkedIn"
+   Promotional marketing, newsletters, discount offers, saved-search digests, social network notifications, spam, or other automated mail that is purely promotional and has nothing the agent needs to act on. This category does NOT include transactional or service mail (see TRANSACTIONAL MAIL ROUTING below).
+   Examples: "New listings matching your saved search", "50% off this weekend only", "You have a new connection on LinkedIn", "Top 10 staging tips for spring listings"
 
 3. business_correspondence
-   Emails from professionals (lawyers, mortgage brokers, other agents, inspectors, lenders, title companies, contractors) OR from the agent's own brokerage or admin team, OR any ambiguous email that does not clearly fit 'lead' or 'noise'.
-   Examples: "Re: 42 Oak St - closing documents attached", "Following up on yesterday's offer", "Please find the pre-approval letter attached", "I'm an agent with RE/MAX looking to co-represent"
+   Emails from professionals (lawyers, mortgage brokers, other agents, inspectors, lenders, title companies, contractors) OR from the agent's own brokerage or admin team, OR transactional/service mail the agent may need to act on (see TRANSACTIONAL MAIL ROUTING below), OR any ambiguous email that does not clearly fit 'lead' or 'noise'.
+   Examples: "Re: 42 Oak St - closing documents attached", "Following up on yesterday's offer", "Please find the pre-approval letter attached", "I'm an agent with RE/MAX looking to co-represent", "Your receipt from Railway Corporation #2620-7820", "247598 is your Railway login code"
 
 NOT-A-LEAD ANTI-PATTERNS (classify these as business_correspondence):
 
@@ -274,8 +274,21 @@ D) Industry chatter from peers. Other agents, mortgage brokers, inspectors, lawy
 
 When the email matches ANY of these patterns, classify as business_correspondence regardless of how many other signals are present. Casual or conversational mention of real estate from someone in the agent's life is the dominant signal.
 
+TRANSACTIONAL MAIL ROUTING (classify these as business_correspondence, NOT noise):
+
+Automated mail is not automatically noise. Some automated mail is transactional or service mail the agent may need to act on, and it must never be filtered out as noise even though no real person wrote it. When you see any of the following, classify as business_correspondence:
+
+- Security alerts (e.g. "new sign-in detected", "unusual activity on your account")
+- Login codes, 2FA codes, or verification codes
+- Password reset confirmations or requests
+- Payment receipts and payment confirmations
+- Invoices and billing notices
+- Service or infrastructure alerts (e.g. hosting, domain, software tooling notifications) that the agent may need to act on
+
+Only classify automated mail as noise when it is purely promotional or marketing (newsletters, discount offers, saved-search digests, social network notifications) with nothing the agent needs to act on.
+
 CRITICAL DEFAULT RULE:
-When uncertain between 'lead' and 'business_correspondence', always choose 'business_correspondence'. When uncertain between 'noise' and 'business_correspondence', always choose 'business_correspondence'. Only use 'lead' when there are clear signals of a real person reaching out for real estate help. Only use 'noise' when you are highly confident (>= 0.85) it is automated or promotional. In all other cases, use 'business_correspondence'.
+When uncertain between 'lead' and 'business_correspondence', always choose 'business_correspondence'. When uncertain between 'noise' and 'business_correspondence', always choose 'business_correspondence'. Only use 'lead' when there are clear signals of a real person reaching out for real estate help. Only use 'noise' when you are highly confident (>= 0.85) it is promotional or marketing spam with nothing the agent needs to act on, not transactional or service mail (see TRANSACTIONAL MAIL ROUTING above). In all other cases, use 'business_correspondence'.
 
 CONFIDENCE GUIDANCE:
 - 0.9-1.0: clear, unambiguous match
