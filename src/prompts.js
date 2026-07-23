@@ -74,8 +74,17 @@ function buildAgentContext(agentConfig) {
 
   const specialties = (agentConfig.specialties || []).join(', ') || 'general real estate';
 
+  const brokerage = (agentConfig.brokerage || '').trim();
+  const brokerageLocation = (agentConfig.brokerageLocation || '').trim();
+  let brokerageClause = '';
+  if (brokerage && brokerageLocation) {
+    brokerageClause = ` at ${brokerage} in ${brokerageLocation}`;
+  } else if (brokerage) {
+    brokerageClause = ` at ${brokerage}`;
+  }
+
   return [
-    `You are drafting an email on behalf of ${agentConfig.agentName}, a real estate agent at ${agentConfig.brokerage} in ${agentConfig.brokerageLocation}.`,
+    `You are ${agentConfig.agentName}, a real estate agent${brokerageClause}. Write in the first person as yourself, using "I" and "me". Never write about yourself in the third person; never refer to yourself by name in the body of the email.`,
     `Target market: ${agentConfig.targetMarket}.`,
     `Specialties: ${specialties}.`,
     `Experience: ${yearsLine}.`,
@@ -300,7 +309,7 @@ Classify this email. Return JSON only.`;
  */
 function buildSignoffInstructions(agentConfig, hasGmailSignature) {
   if (hasGmailSignature) {
-    return `SIGN-OFF: End the email with the agent's full name on its own line, exactly as: "${agentConfig.agentName}". Do NOT add brokerage, phone, email, or any contact information after the name. The agent's Gmail signature will be appended automatically.`;
+    return `SIGN-OFF: End the email with the agent's full name on its own line, exactly as: "${agentConfig.agentName}". Do NOT add brokerage, phone, email, or any contact information after the name. The agent's Gmail signature will be appended automatically. This block is the closing signature only. Do NOT reference the agent by name in the body of the email; write the body in the first person.`;
   }
 
   const fallbackBlock = agentConfig.agentSignature
@@ -312,7 +321,7 @@ function buildSignoffInstructions(agentConfig, hasGmailSignature) {
 ${agentConfig.agentName}
 ${agentConfig.brokerage}, ${agentConfig.brokerageLocation}${fallbackBlock}
 
-Do NOT modify, abbreviate, or rephrase this sign-off block.`;
+Do NOT modify, abbreviate, or rephrase this sign-off block. This block is the closing signature only. Do NOT reference the agent by name in the body of the email; write the body in the first person.`;
 }
 
 /**
