@@ -85,6 +85,20 @@ test('gatherWindowData: systemHandled.noiseFiltered is present (0) when state ha
   expect(result.stateCounters.systemHandled.noiseFiltered).toBe(0);
 });
 
+// ── noiseArchived / isInboxCleaningEnabled ────────────────────────────────────
+
+test('gatherWindowData: noiseArchived key omitted entirely when inboxCleaningEnabled is off', async () => {
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
+  expect('noiseArchived' in result.stateCounters.systemHandled).toBe(false);
+});
+
+test('gatherWindowData: noiseArchived present at 0 when inboxCleaningEnabled is on and state has no counters', async () => {
+  agentStateMod.getState.mockReturnValue({});
+  const result = await gatherWindowData({ ...BASE_AGENT_CONFIG, inboxCleaningEnabled: true }, START_ISO, END_ISO);
+  expect('noiseArchived' in result.stateCounters.systemHandled).toBe(true);
+  expect(result.stateCounters.systemHandled.noiseArchived).toBe(0);
+});
+
 test('gatherWindowData: row created in window via column L timestamp → intaken=1', async () => {
   const history = '[2026-05-12T08:00:00Z] Heuristic intake (confidence 0.90): inquiry';
   emailMod.readSheetRows.mockResolvedValue([makeRawRow({ conversationHistory: history, dateAdded: '' })]);

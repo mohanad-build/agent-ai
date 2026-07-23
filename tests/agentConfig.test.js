@@ -9,6 +9,7 @@ const {
   findAgentByPhone,
   isLeadCategoryActionable,
   getFollowUpCadence,
+  isInboxCleaningEnabled,
 } = require('../src/agentConfig');
 
 let tmpDir;
@@ -138,5 +139,29 @@ describe('getFollowUpCadence', () => {
     expect(result).toEqual([3, 7, 14]);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+// ── isInboxCleaningEnabled ───────────────────────────────────────────────────
+
+describe('isInboxCleaningEnabled', () => {
+  test.each([
+    ['undefined field', undefined, false],
+    ['null field', null, false],
+    ['empty string field', '', false],
+    ['boolean true', true, true],
+    ["string 'true'", 'true', true],
+    ["string 'yes'", 'yes', true],
+    ["string '1'", '1', true],
+    ['boolean false', false, false],
+    ["string 'false'", 'false', false],
+    ["string 'no'", 'no', false],
+    ["string 'anything'", 'anything', false],
+  ])('%s → %s', (_label, value, expected) => {
+    expect(isInboxCleaningEnabled({ agentId: 'x', inboxCleaningEnabled: value })).toBe(expected);
+  });
+
+  test('field entirely absent from agentConfig → false', () => {
+    expect(isInboxCleaningEnabled({ agentId: 'x' })).toBe(false);
   });
 });

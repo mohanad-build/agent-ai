@@ -194,3 +194,21 @@ test('systemHandled section renders the Noise filtered line when the field is pr
   expect(result.body).toContain('— What the system handled —');
   expect(result.body).toContain('Noise filtered: 4');
 });
+
+test('noiseArchived > 0 renders the archived-noise link line', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseArchived = 3;
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain('Noise archived: 3');
+  expect(result.body).toContain('Review archived noise: https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise');
+});
+
+test('noiseArchived = 0 renders the count but not the archived-noise link', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseArchived = 0;
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain('Noise archived: 0');
+  expect(result.body).not.toContain('Review archived noise:');
+});

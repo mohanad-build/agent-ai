@@ -527,6 +527,7 @@ async function maybeRunDailyDigest(agent, opts = {}) {
       // state read and this reset. Revisit if intake ever runs in parallel or
       // moves to Gmail Push.
       agentState.resetDailyNoiseFiltered(agent.agentId);
+      agentState.resetDailyNoiseArchived(agent.agentId);
     }
     const smsLabel   = result.smsResult   || 'n/a';
     const emailLabel = result.emailResult || 'n/a';

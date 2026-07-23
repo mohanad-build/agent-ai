@@ -240,6 +240,26 @@ test('systemHandled section always present, shows Leads intaken count', () => {
   expect(html).toContain('Leads intaken: 0');
 });
 
+test('noiseArchived > 0 renders the archived-noise anchor with muted styling', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseArchived = 3;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+
+  expect(html).toContain('Noise archived: 3');
+  expect(html).toContain('href="https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise"');
+  expect(html).toContain('Review archived noise');
+  expect(html).toContain(`color:${T.mutedTextColor}`);
+});
+
+test('noiseArchived = 0 renders the count but no archived-noise anchor', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseArchived = 0;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+
+  expect(html).toContain('Noise archived: 0');
+  expect(html).not.toContain('agent-ai%2Fnoise');
+});
+
 // ── Reliability ───────────────────────────────────────────────────────────────
 
 test('reliability section renders when errors > 0', () => {

@@ -277,6 +277,7 @@ router.post('/', (req, res) => {
       tone: (b.tone || '').trim(),
       emailLength: b.emailLength || 'short',
       usesEmojis: (b.usesEmojis || 'no').toLowerCase() === 'yes',
+      inboxCleaningEnabled: false,
       avoidPhrases: splitArr(b.avoidPhrases),
       targetMarket: (b.targetMarket || '').trim(),
       specialties: splitArr(b.specialties),

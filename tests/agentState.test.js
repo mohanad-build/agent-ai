@@ -13,6 +13,9 @@ const {
   incrementNoiseFiltered,
   resetDailyNoiseFiltered,
   resetWeeklyNoiseFiltered,
+  incrementNoiseArchived,
+  resetDailyNoiseArchived,
+  resetWeeklyNoiseArchived,
   recordDailyDigestRun,
 } = require('../src/agentState');
 
@@ -46,6 +49,8 @@ describe('getState', () => {
       deactivatedAt: null,
       dailyNoiseFiltered: 0,
       weeklyNoiseFiltered: 0,
+      dailyNoiseArchived: 0,
+      weeklyNoiseArchived: 0,
     });
   });
 
@@ -191,6 +196,64 @@ describe('resetWeeklyNoiseFiltered', () => {
   test('on fresh agent creates file with weeklyNoiseFiltered: 0', () => {
     resetWeeklyNoiseFiltered(AGENT_ID);
     expect(getState(AGENT_ID).weeklyNoiseFiltered).toBe(0);
+  });
+});
+
+// ── incrementNoiseArchived / resetDailyNoiseArchived / resetWeeklyNoiseArchived ─
+
+describe('incrementNoiseArchived', () => {
+  test('bumps both dailyNoiseArchived and weeklyNoiseArchived from 0 on fresh agent', () => {
+    incrementNoiseArchived(AGENT_ID);
+    const state = getState(AGENT_ID);
+    expect(state.dailyNoiseArchived).toBe(1);
+    expect(state.weeklyNoiseArchived).toBe(1);
+  });
+
+  test('successive calls increment both fields together', () => {
+    incrementNoiseArchived(AGENT_ID);
+    incrementNoiseArchived(AGENT_ID);
+    incrementNoiseArchived(AGENT_ID);
+    const state = getState(AGENT_ID);
+    expect(state.dailyNoiseArchived).toBe(3);
+    expect(state.weeklyNoiseArchived).toBe(3);
+  });
+
+  test('does not touch lastTokenIssued', () => {
+    setState(AGENT_ID, { lastTokenIssued: 7, weeklyPreflightSkips: 0, lastDailyDigestRun: null, deactivatedAt: null, dailyNoiseArchived: 0, weeklyNoiseArchived: 0 });
+    incrementNoiseArchived(AGENT_ID);
+    expect(getState(AGENT_ID).lastTokenIssued).toBe(7);
+  });
+});
+
+describe('resetDailyNoiseArchived', () => {
+  test('zeroes dailyNoiseArchived and leaves weeklyNoiseArchived intact', () => {
+    incrementNoiseArchived(AGENT_ID);
+    incrementNoiseArchived(AGENT_ID);
+    resetDailyNoiseArchived(AGENT_ID);
+    const state = getState(AGENT_ID);
+    expect(state.dailyNoiseArchived).toBe(0);
+    expect(state.weeklyNoiseArchived).toBe(2);
+  });
+
+  test('on fresh agent creates file with dailyNoiseArchived: 0', () => {
+    resetDailyNoiseArchived(AGENT_ID);
+    expect(getState(AGENT_ID).dailyNoiseArchived).toBe(0);
+  });
+});
+
+describe('resetWeeklyNoiseArchived', () => {
+  test('zeroes weeklyNoiseArchived and leaves dailyNoiseArchived intact', () => {
+    incrementNoiseArchived(AGENT_ID);
+    incrementNoiseArchived(AGENT_ID);
+    resetWeeklyNoiseArchived(AGENT_ID);
+    const state = getState(AGENT_ID);
+    expect(state.weeklyNoiseArchived).toBe(0);
+    expect(state.dailyNoiseArchived).toBe(2);
+  });
+
+  test('on fresh agent creates file with weeklyNoiseArchived: 0', () => {
+    resetWeeklyNoiseArchived(AGENT_ID);
+    expect(getState(AGENT_ID).weeklyNoiseArchived).toBe(0);
   });
 });
 

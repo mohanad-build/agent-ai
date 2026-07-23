@@ -16,6 +16,7 @@ const gmail = require('./gmail');
 const email = require('./email');
 const prompts = require('./prompts');
 const agentState = require('./agentState');
+const { isInboxCleaningEnabled } = require('./agentConfig');
 const { getNowDate, getNowIso } = require('./time');
 
 const LEAD_INTAKE_MAX_PER_CYCLE = 20;
@@ -25,6 +26,10 @@ const LABEL_NOISE = 'agent-ai/noise';
 const LABEL_FIRST_TOUCH_PENDING = 'agent-ai/first-touch-pending';
 const LABEL_BUSINESS = 'agent-ai/business';
 const CALENDAR_DOMAINS = new Set(['google.com', 'calendly.com', 'googleusercontent.com']);
+// The 0.85 at determineAiEnabledDefault is a different policy that happens
+// to share this number. Do not collapse them into one constant.
+const NOISE_CONFIDENCE = 0.85;
+const NOISE_ARCHIVE_CONFIDENCE = 0.95;
 
 // ---------------------------------------------------------------------------
 // JSON parsing helpers
@@ -326,8 +331,8 @@ async function processClassification(agentConfig, msg, classification, rows, sta
     return;
   }
 
-  // Noise branch: confidence threshold 0.85
-  if (category === 'noise' && confidence >= 0.85) {
+  // Noise branch: confidence threshold NOISE_CONFIDENCE
+  if (category === 'noise' && confidence >= NOISE_CONFIDENCE) {
     if (noiseId) {
       await gmail.applyMessageLabels(
         agentConfig,
@@ -335,6 +340,14 @@ async function processClassification(agentConfig, msg, classification, rows, sta
         [noiseId],
         processingId ? [processingId] : []
       );
+      if (isInboxCleaningEnabled(agentConfig) && confidence >= NOISE_ARCHIVE_CONFIDENCE) {
+        try {
+          await gmail.applyMessageLabels(agentConfig, msg.messageId, [], ['INBOX']);
+          agentState.incrementNoiseArchived(agentConfig.agentId);
+        } catch (err) {
+          console.error(`[${agentConfig.agentId}] noise archive failed for message ${msg.messageId}: ${err.message}`);
+        }
+      }
     }
     // Classifier noise stays unread so the agent still sees it. Idempotency
     // is label-based (applyPreFilter Rule 4), not read-state-based, so

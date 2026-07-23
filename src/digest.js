@@ -21,7 +21,7 @@ const email = require('./email');
 const gmail = require('./gmail');
 const agentState = require('./agentState');
 const twilio = require('./twilio');
-const { getFollowUpCadence, loadAgent } = require('./agentConfig');
+const { getFollowUpCadence, loadAgent, isInboxCleaningEnabled } = require('./agentConfig');
 const { getNowIso, getNowDate } = require('./time');
 const { checkAllSourcesFreshness } = require('./content/sources');
 const { getStorageRoot } = require('./storagePaths');
@@ -183,6 +183,7 @@ const WEEKLY_AGGREGATE_LABELS = {
 const SYSTEM_HANDLED_LABELS = {
   intaken: 'Leads intaken',
   noiseFiltered: 'Noise filtered',
+  noiseArchived: 'Noise archived',
   followUpsFired: 'Follow-ups fired',
   preflightSkips: 'Pre-flight skips this week',
   soiFiltered: 'SOI rows excluded',
@@ -206,6 +207,10 @@ const STYLE_TOKENS = {
   fontSize:           '16px',
   lineHeight:         '1.5',
 };
+
+// Eighth agent-ai/ string site. A grep for LABEL_ will not find it. See
+// the pending agent-ai/ to GetKlosed/ label rename.
+const NOISE_LABEL_URL = 'https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise';
 
 // ── Categorization helpers ────────────────────────────────────────────────────
 
@@ -689,6 +694,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
       try {
         agentState.resetWeeklyPreflightSkips(agentCfg.agentId);
         agentState.resetWeeklyNoiseFiltered(agentCfg.agentId);
+        agentState.resetWeeklyNoiseArchived(agentCfg.agentId);
       } catch (err) {
         console.warn(`[operator:${operatorConfig.operatorId}] preflight reset failed for ${agentCfg.agentId}: ${err.message}`);
       }
@@ -750,6 +756,14 @@ async function gatherWindowData(agentConfig, startIso, endIso, opts = {}) {
   systemHandled.noiseFiltered = digestCadence === 'daily'
     ? (state.dailyNoiseFiltered || 0)
     : (state.weeklyNoiseFiltered || 0);
+  // Omitted entirely when cleaning is off, so an agent who never opted in
+  // does not get a permanent zero line. When cleaning is on it renders even
+  // at 0, which honestly means checked and archived nothing.
+  if (isInboxCleaningEnabled(agentConfig)) {
+    systemHandled.noiseArchived = digestCadence === 'daily'
+      ? (state.dailyNoiseArchived || 0)
+      : (state.weeklyNoiseArchived || 0);
+  }
   if (soiCount > 0) systemHandled.soiFiltered = soiCount;
   return {
     rows,
@@ -1066,6 +1080,9 @@ function renderEmail(sections, agentConfig, now) {
     const lines = Object.entries(SYSTEM_HANDLED_LABELS)
       .filter(([key]) => key in sh)
       .map(([key, label]) => `${label}: ${sh[key]}`);
+    if (sh.noiseArchived > 0) {
+      lines.push(`Review archived noise: ${NOISE_LABEL_URL}`);
+    }
     parts.push(`— What the system handled —\n\n${lines.join('\n')}`);
   }
 
@@ -1228,9 +1245,12 @@ function renderEmailHtml(sections, agentConfig, now) {
       .filter(([key]) => key in sh)
       .map(([key, label]) => `<div>${esc(`${label}: ${sh[key]}`)}</div>`)
       .join('');
+    const noiseArchivedLink = sh.noiseArchived > 0
+      ? `<div><a href="${esc(NOISE_LABEL_URL)}" style="color:${T.mutedTextColor};font-size:${T.fontSize};font-family:${T.fontStack};">Review archived noise</a></div>`
+      : '';
     parts.push(
       sectionHeader('What the system handled') +
-      `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};">${lines}</div>`
+      `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};">${lines}${noiseArchivedLink}</div>`
     );
   }
 

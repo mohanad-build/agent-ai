@@ -27,6 +27,11 @@ jest.mock('../src/claude', () => ({
 
 jest.mock('../src/agentState', () => ({
   incrementNoiseFiltered: jest.fn(),
+  incrementNoiseArchived: jest.fn(),
+}));
+
+jest.mock('../src/agentConfig', () => ({
+  isInboxCleaningEnabled: jest.requireActual('../src/agentConfig').isInboxCleaningEnabled,
 }));
 
 const gmail = require('../src/gmail');
@@ -217,6 +222,83 @@ describe('processClassification branch-level: noise stays unread', () => {
     expect(gmail.markRead).not.toHaveBeenCalled();
     expect(gmail.applyMessageLabels).toHaveBeenCalledWith(MOCK_AGENT, 'biz-1', ['L_BIZ'], ['L_PROC']);
     expect(stats.businessCorrespondence).toBe(1);
+  });
+});
+
+describe('processClassification branch-level: noise archiving (opt-in)', () => {
+  const { processClassification } = leadIntake._internal;
+
+  const noiseMsg = {
+    messageId: 'noise-archive-1',
+    threadId: 'thread-noise-archive-1',
+    from: 'promo@example.com',
+    subject: 'Weekly newsletter',
+    body: 'Check out this week deals',
+  };
+
+  function makeClassification(confidence) {
+    return {
+      category: 'noise',
+      confidence,
+      name: '',
+      email: '',
+      phone: '',
+      inquiryMessage: '',
+      propertyReference: '',
+      reasoning: 'looks automated',
+    };
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    gmail.ensureLabels.mockResolvedValue(MOCK_LABEL_MAP);
+    gmail.applyMessageLabels.mockResolvedValue(undefined);
+  });
+
+  test('archive fires when cleaning is on and confidence is at or above 0.95', async () => {
+    const agent = { ...MOCK_AGENT, inboxCleaningEnabled: true };
+    const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+    await processClassification(agent, noiseMsg, makeClassification(0.95), [], stats);
+
+    expect(gmail.applyMessageLabels.mock.calls[0]).toEqual([agent, 'noise-archive-1', ['L_NOISE'], ['L_PROC']]);
+    expect(gmail.applyMessageLabels.mock.calls[1]).toEqual([agent, 'noise-archive-1', [], ['INBOX']]);
+    expect(agentState.incrementNoiseArchived).toHaveBeenCalledWith(agent.agentId);
+  });
+
+  test('archive does NOT fire when cleaning is off, at the same confidence', async () => {
+    const agent = { ...MOCK_AGENT, inboxCleaningEnabled: false };
+    const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+    await processClassification(agent, noiseMsg, makeClassification(0.95), [], stats);
+
+    expect(gmail.applyMessageLabels).toHaveBeenCalledTimes(1);
+    expect(gmail.applyMessageLabels).not.toHaveBeenCalledWith(agent, 'noise-archive-1', [], ['INBOX']);
+    expect(agentState.incrementNoiseArchived).not.toHaveBeenCalled();
+  });
+
+  test('archive does NOT fire at 0.90 with cleaning on', async () => {
+    const agent = { ...MOCK_AGENT, inboxCleaningEnabled: true };
+    const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+    await processClassification(agent, noiseMsg, makeClassification(0.90), [], stats);
+
+    expect(gmail.applyMessageLabels).toHaveBeenCalledTimes(1);
+    expect(agentState.incrementNoiseArchived).not.toHaveBeenCalled();
+  });
+
+  test('a throwing applyMessageLabels on the archive call does not increment the counter and does not prevent processClassification from returning normally', async () => {
+    const agent = { ...MOCK_AGENT, inboxCleaningEnabled: true };
+    gmail.applyMessageLabels
+      .mockResolvedValueOnce(undefined) // the noise-label call succeeds
+      .mockRejectedValueOnce(new Error('archive boom')); // the archive call fails
+    const stats = { leads: 0, noise: 0, businessCorrespondence: 0, errors: 0 };
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      processClassification(agent, noiseMsg, makeClassification(0.95), [], stats)
+    ).resolves.toBeUndefined();
+
+    expect(agentState.incrementNoiseArchived).not.toHaveBeenCalled();
+    expect(stats.noise).toBe(1);
+    errorSpy.mockRestore();
   });
 });
 

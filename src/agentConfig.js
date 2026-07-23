@@ -63,4 +63,20 @@ function getFollowUpCadence(agent) {
   return raw;
 }
 
-module.exports = { loadAgent, findAgentByPhone, isLeadCategoryActionable, getFollowUpCadence };
+// Absent-as-FALSE, deliberately inverse to isAiEnabled and
+// digestSmsEnabled, which are absent-as-true. Archiving moves an agent's
+// mail out of their inbox, so it must never be on by omission. String
+// handling is explicit because agent JSON is hand-authored and a bare
+// truthy check reads the string 'false' as true.
+function isInboxCleaningEnabled(agentConfig) {
+  const v = agentConfig.inboxCleaningEnabled;
+  if (v === undefined || v === null || v === '') return false;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    return s === 'true' || s === 'yes' || s === '1';
+  }
+  return false;
+}
+
+module.exports = { loadAgent, findAgentByPhone, isLeadCategoryActionable, getFollowUpCadence, isInboxCleaningEnabled };

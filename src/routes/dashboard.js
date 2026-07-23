@@ -498,6 +498,7 @@ ${ceError ? `<p class="err-banner">Content Engine error: ${escHtml(ceError)}</p>
     ${field('Tone', 'tone', `<input type="text" name="tone" value="${escHtml(agent.tone || '')}" />`)}
     ${field('Email Length', 'emailLength', select('emailLength', ['short', 'medium', 'long'], agent.emailLength))}
     ${field('Uses Emojis', 'usesEmojis', select('usesEmojis', ['false', 'true'], String(agent.usesEmojis)))}
+    ${field('Inbox Cleaning', 'inboxCleaningEnabled', select('inboxCleaningEnabled', ['false', 'true'], String(agent.inboxCleaningEnabled === true)))}
     ${field('Avoid Phrases', 'avoidPhrases', `<textarea name="avoidPhrases" rows="4">${escHtml(avoidPhrases)}</textarea>`)}
     ${field('Agent Signature', 'agentSignature', `<input type="text" name="agentSignature" value="${escHtml(agent.agentSignature || '')}" />`)}
 
@@ -615,6 +616,9 @@ router.post('/agent/:agentId/edit', (req, res) => {
 
     const emojisVal = (b.usesEmojis || '').toLowerCase();
     agent.usesEmojis = emojisVal === 'yes' || emojisVal === 'true';
+
+    const cleanVal = (b.inboxCleaningEnabled || '').toLowerCase();
+    agent.inboxCleaningEnabled = cleanVal === 'yes' || cleanVal === 'true';
 
     agent.avoidPhrases = (b.avoidPhrases || '')
       .split(/[\n,]/)
