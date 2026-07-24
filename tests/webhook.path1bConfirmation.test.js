@@ -236,4 +236,25 @@ describe('handleAgentReply Path 1B confirmation SMS', () => {
     );
     expect(email.updateSheetRow).not.toHaveBeenCalled();
   });
+
+  it('shadow mode writes "Path 1B draft prepared for" to column L, not "reply sent"', async () => {
+    const agent = baseAgent('shadow');
+    email.readSheetRows.mockResolvedValue([makeRow({ pendingQuestion: '[Q1] What is the price?' })]);
+
+    await handleAgentReply(agent, 'Q1 $500k', 'SMx1', 'single', 'Q1');
+
+    const call = email.appendToConversationHistory.mock.calls.find(([, , msg]) => msg.startsWith('Path 1B'));
+    expect(call[2]).toBe('Path 1B draft prepared for Q1: $500k');
+    expect(call[2]).not.toContain('reply sent');
+  });
+
+  it('live mode still writes "Path 1B reply sent for" to column L', async () => {
+    const agent = baseAgent('live');
+    email.readSheetRows.mockResolvedValue([makeRow({ pendingQuestion: '[Q1] What is the price?' })]);
+
+    await handleAgentReply(agent, 'Q1 $500k', 'SMx2', 'single', 'Q1');
+
+    const call = email.appendToConversationHistory.mock.calls.find(([, , msg]) => msg.startsWith('Path 1B'));
+    expect(call[2]).toBe('Path 1B reply sent for Q1: $500k');
+  });
 });

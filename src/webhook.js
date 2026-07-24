@@ -104,7 +104,7 @@ async function lookupRowByCommandToken(agent, parsed) {
 // Handles "CALLED <token>" from the agent. Sets the lead to manual_handling.
 // Never throws.
 async function handleCalledCommand(agent, body) {
-  const match = body.match(/^CALLED\s+(\S+)/i);
+  const match = body.match(/^CALLED\s+(\S+)(?:\s+([\s\S]*))?$/i);
   if (!match) {
     await twilioModule.sendSMS(agent, 'Format: CALLED <Q-token or lead email>').catch(() => {});
     return;
@@ -114,6 +114,8 @@ async function handleCalledCommand(agent, body) {
     await twilioModule.sendSMS(agent, 'Could not parse token: ' + match[1]).catch(() => {});
     return;
   }
+
+  const note = sanitiseNote(match[2]);
 
   let matchedRow;
   try {
@@ -149,9 +151,21 @@ async function handleCalledCommand(agent, body) {
     console.warn('webhook: handleCalledCommand appendToConversationHistory failed: ' + err.message);
   }
 
+  if (note) {
+    try {
+      await emailModule.appendToConversationHistory(
+        agent,
+        matchedRow.rowIndex,
+        'Agent note from call: ' + note
+      );
+    } catch (err) {
+      console.warn('webhook: handleCalledCommand note appendToConversationHistory failed: ' + err.message);
+    }
+  }
+
   await twilioModule.sendSMS(
     agent,
-    matchedRow.name + ' (' + matchedRow.leadId + ') set to manual_handling.'
+    matchedRow.name + ' (' + matchedRow.leadId + ') set to manual_handling.' + (note ? ' Note saved.' : '')
   ).catch(() => {});
 
   console.log('webhook: CALLED command processed for agent ' + agent.agentId + ', lead ' + matchedRow.leadId);
@@ -273,6 +287,19 @@ async function notifySafely(agent, message, prefix) {
   } catch (err) {
     console.error(prefix + ' confirmation SMS failed: ' + err.message);
   }
+}
+
+// Column L is newline-delimited and every reader splits on \n and indexes
+// the first or last line, so a multi-line note would silently break that
+// invariant. It also feeds the drafting prompts untruncated, which is why
+// there is a hard cap here and not just a formatting pass.
+function sanitiseNote(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  const flattened = raw.replace(/\s+/g, ' ').trim();
+  if (flattened.length > 500) {
+    return flattened.slice(0, 500) + '…';
+  }
+  return flattened;
 }
 
 // Core handler for an inbound agent SMS reply. Runs after HTTP 200 is sent.
@@ -444,10 +471,16 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
 
   try {
     const snippet = agentAnswer.slice(0, 60);
+    // Shadow mode never contacted the lead. This line is read back into the
+    // Path 1A and follow-up drafting prompts, so claiming a reply was sent
+    // would have the drafter build on an event that did not happen.
+    const columnLEntry = agent.mode === 'shadow'
+      ? 'Path 1B draft prepared for ' + token + ': ' + snippet
+      : 'Path 1B reply sent for ' + token + ': ' + snippet;
     await emailModule.appendToConversationHistory(
       agent,
       matchedRow.rowIndex,
-      'Path 1B reply sent for ' + token + ': ' + snippet
+      columnLEntry
     );
   } catch (err) {
     console.error(prefix + ' appendToConversationHistory failed: ' + err.message);
