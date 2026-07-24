@@ -34,6 +34,17 @@ class AuthFailureError extends Error {
   }
 }
 
+class SheetAccessError extends Error {
+  constructor(status, agentId) {
+    const kind = status === 404 ? 'not_found' : 'permission';
+    super(`Sheet ${kind === 'not_found' ? 'not found' : 'access denied'} (HTTP ${status})`);
+    this.name = 'SheetAccessError';
+    this.status = status;
+    this.kind = kind;
+    this.agentId = agentId;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Auth + retry
 // ---------------------------------------------------------------------------
@@ -54,6 +65,18 @@ function getOAuthClient(agentConfig) {
 function isAuthFailure(err) {
   const code = err?.response?.data?.error || err?.message || '';
   return String(code).includes('invalid_grant');
+}
+
+// googleapis shape is inconsistent across versions; read all three.
+function sheetAccessStatus(err) {
+  const numeric = (typeof err?.code === 'number' && err.code)
+    || (typeof err?.response?.status === 'number' && err.response.status)
+    || null;
+  if (numeric === 403 || numeric === 404) return numeric;
+  const enumStatus = err?.response?.data?.error?.status;
+  if (enumStatus === 'PERMISSION_DENIED') return 403;
+  if (enumStatus === 'NOT_FOUND') return 404;
+  return null;
 }
 
 function handleAuthFailure(agentConfig, originalError) {
@@ -538,24 +561,34 @@ function getSheetsClient(agentConfig) {
 
 async function readSheetRows(agentConfig) {
   const sheets = getSheetsClient(agentConfig);
-  return withRetry(agentConfig, async () => {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: agentConfig.googleSheetId,
-      range: 'A2:T',
+  try {
+    return await withRetry(agentConfig, async () => {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: agentConfig.googleSheetId,
+        range: 'A2:T',
+      });
+      const rows = res.data.values || [];
+      return rows.map((row, i) => {
+        const obj = { rowIndex: i + 2 };
+        for (let col = 0; col < row.length; col++) {
+          const name = COLUMN_NAMES_BY_INDEX[col];
+          if (name) obj[name] = row[col];
+        }
+        for (const name of Object.keys(COLUMN_MAP)) {
+          if (!(name in obj)) obj[name] = '';
+        }
+        return obj;
+      });
     });
-    const rows = res.data.values || [];
-    return rows.map((row, i) => {
-      const obj = { rowIndex: i + 2 };
-      for (let col = 0; col < row.length; col++) {
-        const name = COLUMN_NAMES_BY_INDEX[col];
-        if (name) obj[name] = row[col];
-      }
-      for (const name of Object.keys(COLUMN_MAP)) {
-        if (!(name in obj)) obj[name] = '';
-      }
-      return obj;
-    });
-  });
+  } catch (err) {
+    const sheetId = agentConfig.googleSheetId;
+    const populated = sheetId && String(sheetId).trim();
+    const status = sheetAccessStatus(err);
+    if (populated && status) {
+      throw new SheetAccessError(status, agentConfig.agentId);
+    }
+    throw err;
+  }
 }
 
 // Column-A (leadId/email) lookup against rows returned by readSheetRows.
@@ -820,6 +853,7 @@ module.exports = {
   ensureLabels,
   applyMessageLabels,
   AuthFailureError,
+  SheetAccessError,
   _internal: {
     normalizeSubject,
     encodeHeaderValue,
@@ -829,5 +863,6 @@ module.exports = {
     formatFromHeader,
     labelCache,
     _clearLabelCache: () => labelCache.clear(),
+    sheetAccessStatus,
   },
 };
