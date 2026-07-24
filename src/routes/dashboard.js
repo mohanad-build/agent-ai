@@ -8,6 +8,7 @@ const router = express.Router();
 const { loadAgent } = require('../agentConfig');
 const agentState = require('../agentState');
 const email = require('../email');
+const { SheetAccessError } = require('../gmail');
 const {
   readContentProfile,
   writeContentProfile,
@@ -289,7 +290,15 @@ router.get('/', async (req, res) => {
         let state = {};
         try { state = agentState.getState(agentId); } catch { /* use default */ }
         let rows = [];
-        try { rows = await email.readSheetRows(agent); } catch { /* show zeros */ }
+        let sheetError = null;
+        try {
+          rows = await email.readSheetRows(agent);
+        } catch (err) {
+          if (err instanceof SheetAccessError) {
+            sheetError = { status: err.status, kind: err.kind };
+          }
+          // any error (typed or not): rows stays [], card still renders
+        }
 
         const leadCounts = { total: rows.length };
         for (const s of STATUS_KEYS) leadCounts[s] = 0;
@@ -330,6 +339,7 @@ router.get('/', async (req, res) => {
           followUpPipeline,
           lastCycleRun: state.lastDailyDigestRun || null,
           oauthHealthy: !!(agent.googleRefreshToken),
+          sheetError,
         };
       })
     );
@@ -338,7 +348,7 @@ router.get('/', async (req, res) => {
       if (result.status === 'rejected') {
         return `<div class="agent-card error"><h3>${escHtml(agentIds[i])}</h3><p class="err">Error loading agent: ${escHtml(result.reason.message)}</p></div>`;
       }
-      const { agentId, agent, leadCounts, recentActivity, followUpPipeline, lastCycleRun, oauthHealthy } = result.value;
+      const { agentId, agent, leadCounts, recentActivity, followUpPipeline, lastCycleRun, oauthHealthy, sheetError } = result.value;
 
       const modeBadge = agent.mode === 'live'
         ? '<span class="pill pill-live">Live</span>'
@@ -349,6 +359,9 @@ router.get('/', async (req, res) => {
       const oauthBadge = oauthHealthy
         ? '<span class="pill pill-ok">Token OK</span>'
         : '<span class="pill pill-err">No Token</span>';
+      const sheetBadge = sheetError
+        ? `<span class="pill pill-err">${sheetError.kind === 'not_found' ? 'Sheet not found' : 'Sheet access denied'}</span>`
+        : '';
 
       const hotClass = leadCounts.HOT > 0 ? ' hot' : '';
 
@@ -363,7 +376,7 @@ router.get('/', async (req, res) => {
       return `<div class="agent-card">
   <div class="card-top">
     <h3>${escHtml(agentId)}</h3>
-    <div class="badge-row">${modeBadge} ${activeBadge} ${oauthBadge}</div>
+    <div class="badge-row">${modeBadge} ${activeBadge} ${oauthBadge} ${sheetBadge}</div>
   </div>
   ${lastCycleRun ? `<p class="meta">Last cycle: ${escHtml(lastCycleRun)}</p>` : ''}
   <div class="stat-row">
@@ -945,7 +958,12 @@ router.get('/agent/:agentId/leads', async (req, res) => {
     const enableError = req.query.enable_error === 'empty';
 
     let rows = [];
-    try { rows = await email.readSheetRows(agent); } catch { /* render empty */ }
+    let sheetError = null;
+    try {
+      rows = await email.readSheetRows(agent);
+    } catch (err) {
+      if (err instanceof SheetAccessError) sheetError = { status: err.status, kind: err.kind };
+    }
 
     let anyEligible = false;
     const rowsHtml = rows.map((row) => {
@@ -982,6 +1000,12 @@ router.get('/agent/:agentId/leads', async (req, res) => {
 </form>`
       : '';
 
+    const sheetErrorBlock = sheetError
+      ? `<p class="err-banner">${sheetError.kind === 'not_found'
+          ? 'This agent\'s Google Sheet could not be found (HTTP 404). It may have been moved, deleted, or access revoked.'
+          : 'Access to this agent\'s Google Sheet was denied (HTTP 403). Check the OAuth grant and sheet permissions.'}</p>`
+      : '';
+
     res.send(pageWrap(`Leads: ${agentId}`, `
 <div class="page-header">
   <h2>Leads: ${escHtml(agentId)}</h2>
@@ -990,6 +1014,7 @@ router.get('/agent/:agentId/leads', async (req, res) => {
     <a href="/dashboard/agent/${encodeURIComponent(agentId)}/edit">Edit settings</a>
   </div>
 </div>
+${sheetErrorBlock}
 <div style="overflow-x: auto;">
   <table class="leads-table">
     <thead><tr>
