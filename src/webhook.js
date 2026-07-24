@@ -264,6 +264,17 @@ async function sendOpenQuestionsSuggestion(agent, body, reason, badToken) {
   }
 }
 
+// A notification failure must never break the handler that produced the
+// thing being notified about. The lead email has already gone out by the
+// time most of these fire.
+async function notifySafely(agent, message, prefix) {
+  try {
+    await twilioModule.sendSMS(agent, message);
+  } catch (err) {
+    console.error(prefix + ' confirmation SMS failed: ' + err.message);
+  }
+}
+
 // Core handler for an inbound agent SMS reply. Runs after HTTP 200 is sent.
 // Never throws: all errors are caught and logged.
 async function handleAgentReply(agent, body, messageSid, tokenType, token) {
@@ -307,6 +318,7 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
   const agentAnswer = extractAgentAnswer(body, token);
   const leadQuestion = matchedEntry.question;
   const leadEmail = matchedRow.leadId;
+  const leadDisplayName = matchedRow.name || leadEmail;
   const prefix = '[webhook] agent=' + agent.agentId + ' token=' + token + ':';
 
   let hasGmailSignature;
@@ -349,6 +361,7 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
     draftBody = result.text;
   } catch (err) {
     console.error(prefix + ' claude.draft failed: ' + err.message);
+    await notifySafely(agent, 'Could not draft a reply for ' + token + '. The question stays in your queue.', prefix);
     return;
   }
 
@@ -363,6 +376,7 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
       console.log(prefix + ' shadow draft sent to agent (' + agent.gmailAddress + ')');
     } catch (err) {
       console.error(prefix + ' sendNewEmail (shadow) failed: ' + err.message);
+      await notifySafely(agent, 'Could not deliver the draft for ' + token + '. The question stays in your queue, try again.', prefix);
       return;
     }
   } else {
@@ -386,9 +400,18 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
       console.log(prefix + ' live reply sent to ' + leadEmail);
     } catch (err) {
       console.error(prefix + ' sendReply failed: ' + err.message);
+      await notifySafely(agent, 'Could not send your answer to ' + leadDisplayName + '. The question stays in your queue, try again.', prefix);
       return;
     }
   }
+
+  // Shadow mode emails the agent, not the lead. Saying "sent" here would
+  // assert contact that did not happen.
+  // Computed once at the point delivery actually succeeded, so every
+  // downstream notification describes the same event the same way.
+  const deliveredBase = agent.mode === 'shadow'
+    ? 'Draft for ' + leadDisplayName + ' is in your inbox. Lead not contacted yet.'
+    : 'Answer sent to ' + leadDisplayName + '.';
 
   // Re-read the row defensively in case the queue changed during the draft.
   let existingEntries;
@@ -405,6 +428,8 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
 
   const newStatus = remainingEntries.length === 0 ? 'warm' : 'awaiting_agent';
 
+  let sheetUpdateFailed = false;
+
   try {
     await emailModule.updateSheetRow(agent, matchedRow.rowIndex, {
       pendingQuestion: updatedQueue,
@@ -413,6 +438,8 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
     });
   } catch (err) {
     console.error(prefix + ' updateSheetRow failed: ' + err.message);
+    sheetUpdateFailed = true;
+    await notifySafely(agent, deliveredBase + ' The sheet did not update, so you may see this question again.', prefix);
   }
 
   try {
@@ -424,6 +451,14 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
     );
   } catch (err) {
     console.error(prefix + ' appendToConversationHistory failed: ' + err.message);
+  }
+
+  const remainingSuffix = remainingEntries.length > 0
+    ? ' ' + remainingEntries.length + ' more open for this lead.'
+    : '';
+
+  if (!sheetUpdateFailed) {
+    await notifySafely(agent, deliveredBase + remainingSuffix, prefix);
   }
 }
 
