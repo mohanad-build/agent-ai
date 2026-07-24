@@ -1020,7 +1020,11 @@ function renderSMS(stats, urgent) {
     ? `${line2base} + ${stats.urgentCount - 1} more.`
     : `${line2base}.`;
 
-  return `${line1base}\n${line2}\nFull brief in your inbox.`;
+  const calledLine = (urgent.category === 'HOT' && urgent.leadId)
+    ? `\nReply CALLED ${urgent.leadId} to clear it.`
+    : '';
+
+  return `${line1base}\n${line2}${calledLine}\nFull brief in your inbox.`;
 }
 
 /**
