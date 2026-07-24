@@ -1021,7 +1021,7 @@ function renderSMS(stats, urgent) {
     : `${line2base}.`;
 
   const calledLine = (urgent.category === 'HOT' && urgent.leadId)
-    ? `\nReply CALLED ${urgent.leadId} to clear it.`
+    ? `\nReply CALLED ${urgent.leadId} to clear it. Add a note after with anything from the call.`
     : '';
 
   return `${line1base}\n${line2}${calledLine}\nFull brief in your inbox.`;
@@ -1221,7 +1221,7 @@ function renderEmailHtml(sections, agentConfig, now) {
         if (fromNumber) {
           const smsHref = `sms:${fromNumber}?&body=${encodeURIComponent('CALLED ' + u.leadId)}`;
           calledLine = `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">` +
-            `<a href="${esc(smsHref)}" style="color:${T.mutedTextColor};">${esc(`Called ${u.firstName}? Tap to clear`)}</a>` +
+            `<a href="${esc(smsHref)}" style="color:${T.mutedTextColor};">${esc(`Called ${u.firstName}? Tap to clear and add a note`)}</a>` +
             `</div>`;
         } else {
           calledLine = `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">${esc(`Called them? Text CALLED ${u.leadId} to clear this.`)}</div>`;
@@ -1238,7 +1238,7 @@ function renderEmailHtml(sections, agentConfig, now) {
     if (fromNumber && sawHotCalledRow) {
       parts.push(
         `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-bottom:16px;">` +
-        `${esc(`Tip: you can also text CALLED <their email> to ${fromNumber} anytime.`)}</div>`
+        `${esc(`Tip: text CALLED <their email> to ${fromNumber} anytime, and add anything from the call after it to keep their record updated.`)}</div>`
       );
     }
   }
