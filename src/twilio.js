@@ -80,6 +80,13 @@ function getClient() {
   return _client;
 }
 
+// Reads TWILIO_FROM_NUMBER without throwing, so a caller building a display
+// artifact (e.g. a digest link) can degrade instead of crashing when unset.
+function getFromNumber() {
+  const from = process.env.TWILIO_FROM_NUMBER;
+  return from && from.trim() ? from.trim() : null;
+}
+
 // Twilio error categorization. Returns true if the error is worth retrying.
 // Permanent errors: 401 (auth), 400 (bad request), 404 (not found), and the
 // 21xxx range of Twilio validation codes (invalid number, unverified-trial-recipient, etc.).
@@ -203,6 +210,7 @@ async function sendSMSTo(toNumber, message) {
 module.exports = {
   sendSMS,
   sendSMSTo,
+  getFromNumber,
   TEMPLATES,
   _internal: {
     truncate,
