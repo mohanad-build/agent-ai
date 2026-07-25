@@ -101,6 +101,63 @@ async function lookupRowByCommandToken(agent, parsed) {
   return null;
 }
 
+// Surface-agnostic core for the CALLED command: resolves the token to a
+// Sheet row, sets it to manual_handling, and logs the call plus optional
+// note to column L. Never throws. sourceLabel is folded into the first
+// log line (e.g. 'SMS command', 'email command') so callers can tell which
+// surface triggered the clear.
+// Returns:
+//   { ok: false, reason: 'lookup_error' | 'update_error' | 'not_found' }
+//   { ok: true, matchedRow }
+async function clearLeadAndLogNote(agent, parsed, note, sourceLabel) {
+  let matchedRow;
+  try {
+    matchedRow = await lookupRowByCommandToken(agent, parsed);
+  } catch (err) {
+    console.error('webhook: clearLeadAndLogNote readSheetRows failed for agent ' + agent.agentId + ': ' + err.message);
+    return { ok: false, reason: 'lookup_error' };
+  }
+
+  if (!matchedRow) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  const nowIso = new Date().toISOString();
+  try {
+    await emailModule.updateSheetRow(agent, matchedRow.rowIndex, {
+      status: 'manual_handling',
+      lastActionTimestamp: nowIso,
+    });
+  } catch (err) {
+    console.error('webhook: clearLeadAndLogNote updateSheetRow failed: ' + err.message);
+    return { ok: false, reason: 'update_error' };
+  }
+
+  try {
+    await emailModule.appendToConversationHistory(
+      agent,
+      matchedRow.rowIndex,
+      'Agent called lead, status set to manual_handling via ' + sourceLabel
+    );
+  } catch (err) {
+    console.warn('webhook: clearLeadAndLogNote appendToConversationHistory failed: ' + err.message);
+  }
+
+  if (note) {
+    try {
+      await emailModule.appendToConversationHistory(
+        agent,
+        matchedRow.rowIndex,
+        'Agent note from call: ' + note
+      );
+    } catch (err) {
+      console.warn('webhook: clearLeadAndLogNote note appendToConversationHistory failed: ' + err.message);
+    }
+  }
+
+  return { ok: true, matchedRow };
+}
+
 // Handles "CALLED <token>" from the agent. Sets the lead to manual_handling.
 // Never throws.
 async function handleCalledCommand(agent, body) {
@@ -117,51 +174,16 @@ async function handleCalledCommand(agent, body) {
 
   const note = sanitiseNote(match[2]);
 
-  let matchedRow;
-  try {
-    matchedRow = await lookupRowByCommandToken(agent, parsed);
-  } catch (err) {
-    console.error('webhook: handleCalledCommand readSheetRows failed for agent ' + agent.agentId + ': ' + err.message);
-    return;
-  }
+  const result = await clearLeadAndLogNote(agent, parsed, note, 'SMS command');
 
-  if (!matchedRow) {
-    await twilioModule.sendSMS(agent, 'Lead not found for: ' + match[1]).catch(() => {});
-    return;
-  }
-
-  const nowIso = new Date().toISOString();
-  try {
-    await emailModule.updateSheetRow(agent, matchedRow.rowIndex, {
-      status: 'manual_handling',
-      lastActionTimestamp: nowIso,
-    });
-  } catch (err) {
-    console.error('webhook: handleCalledCommand updateSheetRow failed: ' + err.message);
-    return;
-  }
-
-  try {
-    await emailModule.appendToConversationHistory(
-      agent,
-      matchedRow.rowIndex,
-      'Agent called lead, status set to manual_handling via SMS command'
-    );
-  } catch (err) {
-    console.warn('webhook: handleCalledCommand appendToConversationHistory failed: ' + err.message);
-  }
-
-  if (note) {
-    try {
-      await emailModule.appendToConversationHistory(
-        agent,
-        matchedRow.rowIndex,
-        'Agent note from call: ' + note
-      );
-    } catch (err) {
-      console.warn('webhook: handleCalledCommand note appendToConversationHistory failed: ' + err.message);
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      await twilioModule.sendSMS(agent, 'Lead not found for: ' + match[1]).catch(() => {});
     }
+    return;
   }
+
+  const matchedRow = result.matchedRow;
 
   await twilioModule.sendSMS(
     agent,
@@ -607,4 +629,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, handleAgentReply, sendOpenQuestionsSuggestion, handleCalledCommand, handleResumeCommand };
+module.exports = { createApp, handleAgentReply, sendOpenQuestionsSuggestion, handleCalledCommand, handleResumeCommand, clearLeadAndLogNote, sanitiseNote };
