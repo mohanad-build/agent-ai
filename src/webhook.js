@@ -629,4 +629,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, handleAgentReply, sendOpenQuestionsSuggestion, handleCalledCommand, handleResumeCommand, clearLeadAndLogNote, sanitiseNote };
+module.exports = { createApp, handleAgentReply, sendOpenQuestionsSuggestion, handleCalledCommand, handleResumeCommand, clearLeadAndLogNote, sanitiseNote, parseCommandToken };
