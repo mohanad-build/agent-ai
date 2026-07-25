@@ -30,6 +30,12 @@ jest.mock('../src/email', () => ({
   updateSheetRow: jest.fn(),
 }));
 
+jest.mock('../src/webhook', () => ({
+  ...jest.requireActual('../src/webhook'),
+  clearLeadAndLogNote: jest.fn(),
+  parseCommandToken:   jest.fn(),
+}));
+
 jest.mock('../src/content/profile', () => ({ readContentProfile: jest.fn() }));
 jest.mock('../src/content/renderReelScript',       () => ({ renderReelScript:        jest.fn() }));
 jest.mock('../src/content/renderInstagramCaption', () => ({ renderInstagramCaption:  jest.fn() }));
@@ -44,6 +50,7 @@ const gmail                           = require('../src/gmail');
 const { callRaw }                     = require('../src/claude');
 const { readContentState, approveVersion, recordRegen, recordSwap } = require('../src/content/state');
 const { readSheetRows, updateSheetRow }    = require('../src/email');
+const { clearLeadAndLogNote, parseCommandToken } = require('../src/webhook');
 const { readContentProfile }              = require('../src/content/profile');
 const { renderReelScript }                = require('../src/content/renderReelScript');
 const { renderInstagramCaption }          = require('../src/content/renderInstagramCaption');
@@ -164,6 +171,39 @@ describe('runActionHandler', () => {
       expect.objectContaining({ agentId: 'assistant' }),
       'msg-1'
     );
+  });
+
+  test('CALLED by email resolves via clearLeadAndLogNote and skips Haiku classification', async () => {
+    parseCommandToken.mockReturnValue({ type: 'email', value: 'lead@x.com' });
+    clearLeadAndLogNote.mockResolvedValue({
+      ok: true,
+      matchedRow: { name: 'Lead X', leadId: 'lead@x.com' },
+    });
+    const msg = makeMsg({ subject: 'CALLED lead@x.com', body: 'Notes from the call: wants 2pm' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(parseCommandToken).toHaveBeenCalledWith('lead@x.com');
+    expect(clearLeadAndLogNote).toHaveBeenCalledWith(
+      AGENT_CONFIG,
+      { type: 'email', value: 'lead@x.com' },
+      'wants 2pm',
+      'email command'
+    );
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        body: expect.stringContaining('Cleared Lead X'),
+      })
+    );
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        body: expect.stringContaining('Note saved.'),
+      })
+    );
+    expect(callRaw).not.toHaveBeenCalled();
   });
 
   test('APPROVE calls approveVersion with latest versionId and sends reply', async () => {

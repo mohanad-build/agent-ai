@@ -14,6 +14,8 @@ const { callRaw, MODELS, stripCodeFences } = require('../claude');
 const gmail                       = require('../gmail');
 const email                       = require('../email');
 const { getStorageRoot }          = require('../storagePaths');
+const { clearLeadAndLogNote, parseCommandToken } = require('../webhook');
+const { CALL_NOTE_LABEL, stripCallNote }         = require('../callNote');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
 const ASSISTANT_EMAIL      = 'assistant@getklosed.ca';
@@ -373,12 +375,33 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
     return;
   }
 
-  const subject  = (msg.subject || '').trim();
-  const isTrack1 = /^(APPROVE|REGEN|SWAP)\b/i.test(subject);
-  const replyTo  = agentConfig.gmailAddress;
+  const subject     = (msg.subject || '').trim();
+  const isTrack1    = /^(APPROVE|REGEN|SWAP)\b/i.test(subject);
+  const replyTo     = agentConfig.gmailAddress;
+  const calledMatch = subject.match(/^\s*CALLED\s+(\S+)/i);
 
   try {
-    if (isTrack1) {
+    if (calledMatch) {
+      const parsed = parseCommandToken(calledMatch[1]);
+      if (!parsed) {
+        await sendConfirmation(assistantConfig, {
+          to: replyTo, subject: 'Re: ' + subject,
+          body: 'Could not read the lead for that CALLED command. Reply CALLED <lead email>.',
+        });
+      } else {
+        const note = stripCallNote(msg.body || '');
+        const result = await clearLeadAndLogNote(agentConfig, parsed, note, 'email command');
+        let body;
+        if (result.ok) {
+          body = 'Cleared ' + result.matchedRow.name + ' (' + result.matchedRow.leadId + ').' + (note ? ' Note saved.' : '');
+        } else if (result.reason === 'not_found') {
+          body = 'Could not find a lead for ' + calledMatch[1] + '.';
+        } else {
+          body = 'Something went wrong clearing that lead. Try again in a minute.';
+        }
+        await sendConfirmation(assistantConfig, { to: replyTo, subject: 'Re: ' + subject, body });
+      }
+    } else if (isTrack1) {
       await handleTrack1(agentConfig, subject, assistantConfig, replyTo);
     } else {
       const body = msg.body || msg.snippet || '';
