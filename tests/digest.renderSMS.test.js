@@ -95,8 +95,8 @@ test('all stats zero and no urgent — totals to 0, two-line output', () => {
   expect(renderSMS(stats, null)).toBe(expected);
 });
 
-test('SMS output never contains the CALLED affordance, even for a HOT urgent row with a leadId', () => {
+test('SMS output includes the CALLED affordance for a HOT urgent row with a leadId', () => {
   const stats = makeStats(1, 0, 0, 1);
   const urgent = { ...makeHotUrgent('Sarah', 'K', '45 Maple'), leadId: 'sarah@example.com' };
-  expect(renderSMS(stats, urgent)).not.toContain('CALLED');
+  expect(renderSMS(stats, urgent)).toContain('Reply CALLED sarah@example.com');
 });
