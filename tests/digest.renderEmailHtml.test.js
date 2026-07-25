@@ -302,7 +302,7 @@ test('urgent row text and button both appear in output for HOT with property ref
   expect(html).toContain('Call Sarah');
 });
 
-test('CALLED affordance renders for a HOT row with a leadId', () => {
+test('CALLED affordance renders a mailto link for a HOT row with a leadId', () => {
   const sections = makeEmptySections();
   sections.urgent = [{
     firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
@@ -310,7 +310,11 @@ test('CALLED affordance renders for a HOT row with a leadId', () => {
     phone: '+16475551234', gmailThreadId: 'thread-abc', leadId: 'sarah@example.com',
   }];
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  expect(html).toContain('Called them? Text CALLED sarah@example.com to clear this.');
+  expect(html).toContain('href="mailto:assistant@getklosed.ca?subject=CALLED%20sarah%40example.com');
+  expect(html).toContain('&amp;body=');
+  expect(html).toContain('Called Sarah? Tap to clear and add a note');
+  expect(html).not.toContain('sms:');
+  expect(html).not.toContain('Tip: text CALLED');
 });
 
 test('CALLED affordance is absent for a HOT row with an empty leadId', () => {

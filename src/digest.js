@@ -25,6 +25,7 @@ const { getFollowUpCadence, loadAgent, isInboxCleaningEnabled } = require('./age
 const { getNowIso, getNowDate } = require('./time');
 const { checkAllSourcesFreshness } = require('./content/sources');
 const { getStorageRoot } = require('./storagePaths');
+const { CALL_NOTE_LABEL } = require('./callNote');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -1203,8 +1204,6 @@ function renderEmailHtml(sections, agentConfig, now) {
 
   // Urgent section
   const CONTEXT_FALLBACKS_HTML = new Set(['HOT signal', 'needs review', 'escalated']);
-  const fromNumber = twilio.getFromNumber();
-  let sawHotCalledRow = false;
   if (urgent.length > 0) {
     parts.push(sectionHeader('Needs you today'));
     for (const u of urgent) {
@@ -1217,15 +1216,12 @@ function renderEmailHtml(sections, agentConfig, now) {
       const link = buildActionLink(u, agentConfig);
       let calledLine = '';
       if (u.category === 'HOT' && u.leadId) {
-        sawHotCalledRow = true;
-        if (fromNumber) {
-          const smsHref = `sms:${fromNumber}?&body=${encodeURIComponent('CALLED ' + u.leadId)}`;
-          calledLine = `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">` +
-            `<a href="${esc(smsHref)}" style="color:${T.mutedTextColor};">${esc(`Called ${u.firstName}? Tap to clear and add a note`)}</a>` +
-            `</div>`;
-        } else {
-          calledLine = `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">${esc(`Called them? Text CALLED ${u.leadId} to clear this.`)}</div>`;
-        }
+        const calledSubject = encodeURIComponent('CALLED ' + u.leadId);
+        const calledBody = encodeURIComponent(CALL_NOTE_LABEL + ' ');
+        const mailtoHref = 'mailto:assistant@getklosed.ca?subject=' + calledSubject + '&body=' + calledBody;
+        calledLine = `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">` +
+          `<a href="${esc(mailtoHref)}" style="color:${T.mutedTextColor};">${esc(`Called ${u.firstName}? Tap to clear and add a note`)}</a>` +
+          `</div>`;
       }
       parts.push(
         `<div style="margin-bottom:16px;">` +
@@ -1233,12 +1229,6 @@ function renderEmailHtml(sections, agentConfig, now) {
         button(link) +
         calledLine +
         `</div>`
-      );
-    }
-    if (fromNumber && sawHotCalledRow) {
-      parts.push(
-        `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-bottom:16px;">` +
-        `${esc(`Tip: text CALLED <their email> to ${fromNumber} anytime, and add anything from the call after it to keep their record updated.`)}</div>`
       );
     }
   }
