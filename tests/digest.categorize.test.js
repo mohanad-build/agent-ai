@@ -98,9 +98,9 @@ test('operatorEscalated set 10 days ago → does NOT appear in urgent (outside 7
 // ── ageHours ─────────────────────────────────────────────────────────────────
 
 test('HOT row → ageHours computed from lastActionTimestamp', () => {
-  const row = makeRow({ status: 'HOT', lastActionTimestamp: hoursAgo(74 * 24) });
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: hoursAgo(10) });
   const { urgent } = categorizeRowsForDigest([row], NOW);
-  expect(urgent[0].ageHours).toBe(74 * 24);
+  expect(urgent[0].ageHours).toBe(10);
 });
 
 test('operatorEscalated row → ageHours computed from operatorEscalated timestamp', () => {
@@ -161,6 +161,56 @@ test('non-HOT rows not in hotLeads', () => {
   ];
   const { hotLeads } = categorizeRowsForDigest(rows, NOW);
   expect(hotLeads).toHaveLength(0);
+});
+
+// ── convert-skip (transactionId) ───────────────────────────────────────────────
+
+test('HOT row with a transactionId is excluded from both urgent and hotLeads', () => {
+  const row = makeRow({ status: 'HOT', transactionId: 'TXN-1', lastActionTimestamp: hoursAgo(3) });
+  const { urgent, hotLeads } = categorizeRowsForDigest([row], NOW);
+  expect(urgent).toHaveLength(0);
+  expect(hotLeads).toHaveLength(0);
+});
+
+test('HOT row without a transactionId is unchanged (guards against over-broad exclusion)', () => {
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: hoursAgo(3) });
+  const { urgent, hotLeads } = categorizeRowsForDigest([row], NOW);
+  expect(urgent).toHaveLength(1);
+  expect(urgent[0].category).toBe('HOT');
+  expect(hotLeads).toHaveLength(1);
+});
+
+// ── cooling (HOT_COOLING_DAYS) ─────────────────────────────────────────────────
+
+test('HOT row aged 74 days is cooled out of urgent but stays in hotLeads as cooling', () => {
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: hoursAgo(74 * 24) });
+  const { urgent, hotLeads } = categorizeRowsForDigest([row], NOW);
+  expect(urgent).toHaveLength(0);
+  expect(hotLeads).toHaveLength(1);
+  expect(hotLeads[0].cooling).toBe(true);
+});
+
+test('HOT row aged exactly 21 days is cooling (boundary is inclusive)', () => {
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: daysAgo(21) });
+  const { urgent, hotLeads } = categorizeRowsForDigest([row], NOW);
+  expect(urgent).toHaveLength(0);
+  expect(hotLeads[0].cooling).toBe(true);
+});
+
+test('HOT row aged 20 days is unchanged: in urgent as HOT, not cooling', () => {
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: daysAgo(20) });
+  const { urgent, hotLeads } = categorizeRowsForDigest([row], NOW);
+  expect(urgent).toHaveLength(1);
+  expect(urgent[0].category).toBe('HOT');
+  expect(hotLeads[0].cooling).toBe(false);
+});
+
+test('cooling only strips the HOT reason: an aged HOT row with operatorEscalated set stays urgent via operatorEscalated', () => {
+  const row = makeRow({ status: 'HOT', lastActionTimestamp: daysAgo(25), operatorEscalated: daysAgo(2) });
+  const { urgent, hotLeads } = categorizeRowsForDigest([row], NOW);
+  expect(urgent).toHaveLength(1);
+  expect(urgent[0].category).toBe('operatorEscalated');
+  expect(hotLeads[0].cooling).toBe(true);
 });
 
 // ── newToReview ───────────────────────────────────────────────────────────────

@@ -212,6 +212,30 @@ test('hot leads with null propertyReference shows fallback text', () => {
   expect(html).toContain('(property not captured)');
 });
 
+test('hot leads row with cooling=true renders the cooling marker', () => {
+  const sections = makeEmptySections();
+  sections.hotLeads = [{
+    firstName: 'Bob', lastInitial: 'R', propertyReference: '77 Elm',
+    daysAgo: 25, whyHot: '', rowIndex: 6,
+    phone: '+16475559999', gmailThreadId: '', leadId: 'br@example.com',
+    cooling: true,
+  }];
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).toContain('last touch 25d ago (cooling, no activity 21d+)');
+});
+
+test('hot leads row with cooling=false does not render the cooling marker', () => {
+  const sections = makeEmptySections();
+  sections.hotLeads = [{
+    firstName: 'Bob', lastInitial: 'R', propertyReference: '77 Elm',
+    daysAgo: 2, whyHot: '', rowIndex: 6,
+    phone: '+16475559999', gmailThreadId: '', leadId: 'br@example.com',
+    cooling: false,
+  }];
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).not.toContain('cooling');
+});
+
 // ── Deduplication: urgent rowIndex excluded from hot leads ────────────────────
 
 test('HOT lead in urgent is not also shown in hot leads section', () => {

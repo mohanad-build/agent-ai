@@ -800,6 +800,11 @@ async function gatherWindowData(agentConfig, startIso, endIso, opts = {}) {
   };
 }
 
+// HOT rows with no activity on column P for this many days or more lose
+// their claim on urgent's HOT-category slot. They stay in hotLeads, marked
+// cooling, so the lead is not dropped, only demoted out of "needs you today".
+const HOT_COOLING_DAYS = 21;
+
 /**
  * Pure function. Takes annotated rows from gatherWindowData and bucketizes them
  * into the sections renderers consume. A row may appear in multiple sections
@@ -840,12 +845,17 @@ function categorizeRowsForDigest(rows, now) {
 
   for (const row of rows) {
     const lastActionDate = parseISO(row.lastActionTimestamp);
+    // transactionId has no Sheet column yet; reading it is a forward-compat,
+    // falsy-safe check for when a converted lead needs to drop out of HOT.
+    const isConverted = Boolean(row.transactionId);
+    const hotDaysAgo = lastActionDate ? daysBetween(now, lastActionDate) : 0;
+    const isCooling = row.status === 'HOT' && !isConverted && hotDaysAgo >= HOT_COOLING_DAYS;
 
     // ── urgent ────────────────────────────────────────────────────────────────
     let urgentCategory = null;
     let urgentTrigger = null;
 
-    if (row.status === 'HOT') {
+    if (row.status === 'HOT' && !isConverted && !isCooling) {
       urgentCategory = 'HOT';
       urgentTrigger = row.lastActionTimestamp;
     }
@@ -898,17 +908,18 @@ function categorizeRowsForDigest(rows, now) {
     }
 
     // ── hotLeads ──────────────────────────────────────────────────────────────
-    if (row.status === 'HOT') {
+    if (row.status === 'HOT' && !isConverted) {
       hotLeads.push({
         firstName: row.firstName,
         lastInitial: row.lastInitial,
         propertyReference: row.propertyReference || null,
-        daysAgo: lastActionDate ? daysBetween(now, lastActionDate) : 0,
+        daysAgo: hotDaysAgo,
         whyHot: '',
         rowIndex: row.rowIndex,
         phone: row.phone || null,
         gmailThreadId: row.gmailThreadId || null,
         leadId: row.leadId || null,
+        cooling: isCooling,
         _lastActionTimestamp: row.lastActionTimestamp,
       });
     }
@@ -1077,6 +1088,7 @@ function renderEmail(sections, agentConfig, now) {
   if (deduplicatedHotLeads.length > 0) {
     const rows = deduplicatedHotLeads.map(r => {
       let line = `${r.firstName} ${r.lastInitial} — ${r.propertyReference || '(property not captured)'} — last touch ${r.daysAgo}d ago`;
+      if (r.cooling) line += ` (cooling, no activity ${HOT_COOLING_DAYS}d+)`;
       const link = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
       if (link) line += `\n→ ${link.label}: ${link.url}`;
       return line;
@@ -1240,7 +1252,8 @@ function renderEmailHtml(sections, agentConfig, now) {
     parts.push(sectionHeader('Hot leads to call today'));
     for (const r of deduplicatedHotLeads) {
       const propRef  = r.propertyReference || '(property not captured)';
-      const rowText  = `${r.firstName} ${r.lastInitial} — ${propRef} — last touch ${r.daysAgo}d ago`;
+      const coolingSuffix = r.cooling ? ` (cooling, no activity ${HOT_COOLING_DAYS}d+)` : '';
+      const rowText  = `${r.firstName} ${r.lastInitial} — ${propRef} — last touch ${r.daysAgo}d ago${coolingSuffix}`;
       const link     = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
       parts.push(
         `<div style="margin-bottom:16px;">` +

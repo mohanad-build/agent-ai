@@ -245,3 +245,27 @@ test('noiseArchived = 0 renders the count but not the archived-noise link', () =
   expect(result.body).toContain('Noise archived: 0');
   expect(result.body).not.toContain('Review archived noise:');
 });
+
+test('hotLeads row with cooling=true renders the cooling marker', () => {
+  const sections = makeEmptySections();
+  sections.hotLeads = [{
+    firstName: 'John', lastInitial: 'D',
+    propertyReference: '45 Oak', daysAgo: 25, whyHot: '', rowIndex: 5,
+    cooling: true,
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain('last touch 25d ago (cooling, no activity 21d+)');
+});
+
+test('hotLeads row with cooling=false does not render the cooling marker', () => {
+  const sections = makeEmptySections();
+  sections.hotLeads = [{
+    firstName: 'John', lastInitial: 'D',
+    propertyReference: '45 Oak', daysAgo: 3, whyHot: '', rowIndex: 5,
+    cooling: false,
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).not.toContain('cooling');
+});
