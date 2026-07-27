@@ -235,6 +235,31 @@ const STYLE_TOKENS = {
 // the pending agent-ai/ to GetKlosed/ label rename.
 const NOISE_LABEL_URL = 'https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise';
 
+function esc(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Shared CALLED-clear affordance for HOT rows, used by both the urgent and
+// hot-leads sections so the two renders cannot drift.
+function calledAffordanceHtml(leadId, firstName, T) {
+  if (!leadId) return '';
+  const calledSubject = encodeURIComponent('CALLED ' + leadId);
+  const calledBody = encodeURIComponent(CALL_NOTE_LABEL + ' ');
+  const mailtoHref = 'mailto:assistant@getklosed.ca?subject=' + calledSubject + '&body=' + calledBody;
+  return `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">` +
+    `<a href="${esc(mailtoHref)}" style="color:${T.mutedTextColor};">${esc(`Called ${firstName}? Tap to clear and add a note`)}</a>` +
+    `</div>`;
+}
+
+function calledAffordanceText(leadId) {
+  if (!leadId) return '';
+  return `\nCalled them? Text CALLED ${leadId} to clear this.`;
+}
+
 // ── Categorization helpers ────────────────────────────────────────────────────
 
 function parseISO(s) {
@@ -1076,7 +1101,7 @@ function renderEmail(sections, agentConfig, now) {
       const link = buildActionLink(u, agentConfig);
       if (link) line += `\n→ ${link.label}: ${link.url}`;
       if (u.category === 'HOT' && u.leadId) {
-        line += `\nCalled them? Text CALLED ${u.leadId} to clear this.`;
+        line += calledAffordanceText(u.leadId);
       }
       return line;
     });
@@ -1091,6 +1116,7 @@ function renderEmail(sections, agentConfig, now) {
       if (r.cooling) line += ` (cooling, no activity ${HOT_COOLING_DAYS}d+)`;
       const link = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
       if (link) line += `\n→ ${link.label}: ${link.url}`;
+      line += calledAffordanceText(r.leadId);
       return line;
     });
     parts.push(`— Hot leads to call today —\n\n${rows.join('\n')}`);
@@ -1178,14 +1204,6 @@ function renderEmailHtml(sections, agentConfig, now) {
   const T = STYLE_TOKENS;
   const parts = [];
 
-  function esc(str) {
-    return String(str == null ? '' : str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
   function button(link) {
     if (!link) return '';
     return (
@@ -1226,15 +1244,7 @@ function renderEmailHtml(sections, agentConfig, now) {
         ? `${u.firstName} ${u.lastInitial} — ${verb}`
         : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
       const link = buildActionLink(u, agentConfig);
-      let calledLine = '';
-      if (u.category === 'HOT' && u.leadId) {
-        const calledSubject = encodeURIComponent('CALLED ' + u.leadId);
-        const calledBody = encodeURIComponent(CALL_NOTE_LABEL + ' ');
-        const mailtoHref = 'mailto:assistant@getklosed.ca?subject=' + calledSubject + '&body=' + calledBody;
-        calledLine = `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">` +
-          `<a href="${esc(mailtoHref)}" style="color:${T.mutedTextColor};">${esc(`Called ${u.firstName}? Tap to clear and add a note`)}</a>` +
-          `</div>`;
-      }
+      const calledLine = (u.category === 'HOT' && u.leadId) ? calledAffordanceHtml(u.leadId, u.firstName, T) : '';
       parts.push(
         `<div style="margin-bottom:16px;">` +
         `<div>${esc(rowText)}</div>` +
@@ -1255,10 +1265,12 @@ function renderEmailHtml(sections, agentConfig, now) {
       const coolingSuffix = r.cooling ? ` (cooling, no activity ${HOT_COOLING_DAYS}d+)` : '';
       const rowText  = `${r.firstName} ${r.lastInitial} — ${propRef} — last touch ${r.daysAgo}d ago${coolingSuffix}`;
       const link     = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
+      const calledLine = calledAffordanceHtml(r.leadId, r.firstName, T);
       parts.push(
         `<div style="margin-bottom:16px;">` +
         `<div>${esc(rowText)}</div>` +
         button(link) +
+        calledLine +
         `</div>`
       );
     }

@@ -251,11 +251,12 @@ test('hotLeads row with cooling=true renders the cooling marker', () => {
   sections.hotLeads = [{
     firstName: 'John', lastInitial: 'D',
     propertyReference: '45 Oak', daysAgo: 25, whyHot: '', rowIndex: 5,
-    cooling: true,
+    cooling: true, leadId: 'jd@example.com',
   }];
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).toContain('last touch 25d ago (cooling, no activity 21d+)');
+  expect(result.body).toContain('Called them? Text CALLED jd@example.com to clear this.');
 });
 
 test('hotLeads row with cooling=false does not render the cooling marker', () => {

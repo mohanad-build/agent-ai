@@ -222,6 +222,8 @@ test('hot leads row with cooling=true renders the cooling marker', () => {
   }];
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
   expect(html).toContain('last touch 25d ago (cooling, no activity 21d+)');
+  expect(html).toContain('href="mailto:assistant@getklosed.ca?subject=CALLED%20br%40example.com');
+  expect(html).toContain('Called Bob? Tap to clear and add a note');
 });
 
 test('hot leads row with cooling=false does not render the cooling marker', () => {
