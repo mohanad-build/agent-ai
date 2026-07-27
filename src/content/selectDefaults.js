@@ -1,5 +1,8 @@
 'use strict';
 
+const { _internal: topicBankInternal } = require('./topicBank');
+const { absWeekFromIso } = topicBankInternal;
+
 const VALID_PRIMARY_FOCUS  = new Set(['buyers', 'sellers', 'both']);
 const VALID_CONTENT_VOLUME = new Set(['max', 'balanced', 'minimum']);
 
@@ -137,8 +140,25 @@ function selectDefaults(angles, agentProfile, agentHistory, opts = {}) {
         || null;
 
       reelDefaults = [slot1, slot2].filter(a => a !== null);
+    } else if (opts.weekIso != null) {
+      // 'balanced' with weekIso available: single reel, origin alternates by
+      // ISO-week parity so it stops being perpetually the top-scoring market
+      // angle. Even weeks prefer market with evergreen fallback, odd weeks
+      // prefer evergreen with market fallback. Mirrors the 'max' slot idiom
+      // above but picks one winner instead of filling two slots, so a
+      // single-origin week still fills the slot.
+      const marketReels    = reelPool.filter(a => !isEvergreen(a));
+      const evergreenReels = reelPool.filter(a => isEvergreen(a));
+      const parity = absWeekFromIso(opts.weekIso) % 2;
+
+      const winner =
+        parity === 0
+          ? (marketReels[0] || evergreenReels[0] || null)
+          : (evergreenReels[0] || marketReels[0] || null);
+
+      reelDefaults = winner !== null ? [winner] : [];
     } else {
-      // 'balanced' (reelLimit === 1): unchanged, origin-blind top reel.
+      // 'balanced' without weekIso (opts omitted): unchanged, origin-blind top reel.
       reelDefaults = reelPool.slice(0, 1);
     }
 

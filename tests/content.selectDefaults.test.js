@@ -440,6 +440,60 @@ describe("selectDefaults -- 'balanced' mode", () => {
   });
 });
 
+// ── selectDefaults -- 'balanced' origin parity ────────────────────────────────
+
+describe("selectDefaults -- 'balanced' origin parity", () => {
+  // absWeekFromIso('2026-W20') = 2026*53+20 = 107398 (even) -> market preferred.
+  // absWeekFromIso('2026-W21') = 2026*53+21 = 107399 (odd)  -> evergreen preferred.
+  const EVEN_WEEK = '2026-W20';
+  const ODD_WEEK  = '2026-W21';
+
+  test('same pool, even weekIso: market reel wins, overriding evergreen\'s higher score', () => {
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.5, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([E1, M1], BOTH_BALANCED, EMPTY_HISTORY, { weekIso: EVEN_WEEK });
+
+    expect(result.reelDefaults).toEqual([M1]);
+  });
+
+  test('same pool, odd weekIso: evergreen reel wins, overriding market\'s higher score', () => {
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.5, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([M1, E1], BOTH_BALANCED, EMPTY_HISTORY, { weekIso: ODD_WEEK });
+
+    expect(result.reelDefaults).toEqual([E1]);
+  });
+
+  test('market-only pool on odd week: evergreen preferred but absent, market fills the slot', () => {
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const M2 = makeAngle({ id: 'm2', surpriseScore: 0.5, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([M1, M2], BOTH_BALANCED, EMPTY_HISTORY, { weekIso: ODD_WEEK });
+
+    expect(result.reelDefaults).toEqual([M1]);
+  });
+
+  test('evergreen-only pool on even week: market preferred but absent, evergreen fills the slot', () => {
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const E2 = makeEvergreenAngle({ id: 'e2', surpriseScore: 0.5, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([E1, E2], BOTH_BALANCED, EMPTY_HISTORY, { weekIso: EVEN_WEEK });
+
+    expect(result.reelDefaults).toEqual([E1]);
+  });
+
+  test('opts omitted: origin-blind top reel, unaffected by parity', () => {
+    const M1 = makeAngle({ id: 'm1', surpriseScore: 0.9, bestSuitedFor: ['reel'] });
+    const E1 = makeEvergreenAngle({ id: 'e1', surpriseScore: 0.5, bestSuitedFor: ['reel'] });
+
+    const result = selectDefaults([M1, E1], BOTH_BALANCED, EMPTY_HISTORY);
+
+    expect(result.reelDefaults).toEqual([M1]);
+  });
+});
+
 // ── selectDefaults -- 'minimum' mode ─────────────────────────────────────────
 
 describe("selectDefaults -- 'minimum' mode", () => {

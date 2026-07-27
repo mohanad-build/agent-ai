@@ -280,7 +280,7 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
 
   const { contentProfile, weekIso, weeklyAngles, agentHistory } = inputs;
 
-  const picks = selectDefaults(weeklyAngles.angles, contentProfile, agentHistory);
+  const picks = selectDefaults(weeklyAngles.angles, contentProfile, agentHistory, { weekIso });
 
   const pieceAssignments = assignPieceIds(picks);
   if (pieceAssignments.length === 0) {

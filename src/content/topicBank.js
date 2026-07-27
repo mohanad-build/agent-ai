@@ -998,6 +998,20 @@ function isoWeekThursdayMonth(weekIso) {
   return thursday.getUTCMonth() + 1;
 }
 
+// ── absWeekFromIso ────────────────────────────────────────────────────────────
+//
+// Monotonic-within-year week counter used to key the epoch/deck split. Not a
+// true absolute week count across years (year*53 leaves gaps versus a real
+// 52.18-week year), but stable and deterministic, which is all epoch/deck
+// windowing needs.
+
+function absWeekFromIso(weekIso) {
+  const [yearStr, weekStr] = weekIso.split('-W');
+  const year = parseInt(yearStr, 10);
+  const weekNumber = parseInt(weekStr, 10);
+  return year * 53 + weekNumber;
+}
+
 // ── epochDeck ─────────────────────────────────────────────────────────────────
 //
 // Deterministic hash shuffle of slots for one epoch. Sorts a COPY; the input
@@ -1043,12 +1057,9 @@ function selectWeeklyTopics(weekIso, count, opts = {}) {
   const slots = listSlots(entries);
   if (slots.length === 0 || count <= 0) return [];
 
-  const [yearStr, weekStr] = weekIso.split('-W');
-  const year = parseInt(yearStr, 10);
-  const weekNumber = parseInt(weekStr, 10);
   const month = isoWeekThursdayMonth(weekIso);
 
-  const absWeek = year * 53 + weekNumber;
+  const absWeek = absWeekFromIso(weekIso);
   const epochLength = Math.ceil(slots.length / count);
   const epoch = Math.floor(absWeek / epochLength);
   const offset = absWeek % epochLength;
@@ -1107,5 +1118,6 @@ module.exports = {
   _internal: {
     stableStringify,
     epochDeck,
+    absWeekFromIso,
   },
 };
