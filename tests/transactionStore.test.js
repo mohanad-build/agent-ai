@@ -11,10 +11,10 @@ const {
   readTransaction,
   writeTransaction,
   listTransactionIds,
-} = require('../src/transactionStore');
+} = require('../src/transactions/store');
 
 const { TRANSACTION_ID_RE, transactionsDir, transactionPath, validateEnvelope } =
-  require('../src/transactionStore')._internal;
+  require('../src/transactions/store')._internal;
 
 // -- Helpers ------------------------------------------------------------------
 

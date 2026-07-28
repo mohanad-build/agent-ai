@@ -4,7 +4,7 @@ const fs     = require('node:fs');
 const path   = require('node:path');
 const crypto = require('node:crypto');
 
-const { getStorageRoot } = require('./storagePaths');
+const { getStorageRoot } = require('../storagePaths');
 
 // -- Error classes -----------------------------------------------------------
 
