@@ -538,30 +538,6 @@ async function maybeRunDailyDigest(agent, opts = {}) {
 }
 
 // --------------------------------------------------------------------------
-// Angle generation (Sunday-gated, runs before the content engine)
-// --------------------------------------------------------------------------
-
-async function maybeRunAngleGeneration(agent, now = new Date()) {
-  try {
-    const enabled = await isContentEngineEnabled(agent.agentId);
-    if (!enabled) {
-      console.log(`[${agent.agentId}] angle generation: skipped (disabled)`);
-      return;
-    }
-    const tz = agent.timezone || 'America/Toronto';
-    const day = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now);
-    if (day !== 'Sunday') {
-      console.log(`[${agent.agentId}] angle generation: skipped (not Sunday in ${tz})`);
-      return;
-    }
-    const result = await generateWeeklyAngles({ now });
-    console.log(`[${agent.agentId}] angles ${result.regenerated ? 'generated' : 'unchanged'} for ${result.weekIso}`);
-  } catch (err) {
-    console.error(`[${agent.agentId}] angle generation failed: ${err.message}`);
-  }
-}
-
-// --------------------------------------------------------------------------
 // Content engine
 // --------------------------------------------------------------------------
 
@@ -787,7 +763,6 @@ async function main() {
         console.error(`[${id}] follow-up run failed: ${fuErr.message}`);
       }
       await maybeRunDailyDigest(agent);
-      await maybeRunAngleGeneration(agent);
       await maybeRunContentEngine(agent);
     } catch (err) {
       // One agent's failure must not stop others.
@@ -818,4 +793,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunAngleGeneration, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, maybeRunWeeklyEvergreenAngleGenerationJob, appendUpstreamErrorLog, runCycle: main, discoverAgentIds, AGENT_ID_REGEX };
+module.exports = { processAgent, checkStaleQuestions, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, maybeRunWeeklyEvergreenAngleGenerationJob, appendUpstreamErrorLog, runCycle: main, discoverAgentIds, AGENT_ID_REGEX };
