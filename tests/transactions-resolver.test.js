@@ -1,6 +1,6 @@
 'use strict';
 
-const { resolveChecklist } = require('../src/transactions/resolver');
+const { resolveChecklist, reResolve } = require('../src/transactions/resolver');
 const { CATALOG } = require('../src/transactions/rules');
 
 const TYPES = Object.keys(CATALOG);
@@ -217,5 +217,116 @@ describe('locked spec content', () => {
         expect(pattern.test(item.label)).toBe(false);
       });
     });
+  });
+});
+
+describe('reResolve', () => {
+  const previousItems = [
+    {
+      id: 'reco_information_guide',
+      label: 'RECO Information Guide',
+      source: 'TRESA',
+      scope: 'client',
+      clientScope: 'event',
+      evidence: 'attestation',
+      reads: [],
+      applicability: 'required',
+      completed: true,
+      completedAt: '2026-01-05T12:00:00Z',
+      documents: ['guide.pdf'],
+    },
+    {
+      id: 'representation_agreement',
+      label: 'Representation Agreement',
+      source: 'TRESA',
+      scope: 'client',
+      clientScope: 'dated',
+      evidence: 'document',
+      reads: [],
+      applicability: 'required',
+      completed: false,
+    },
+    {
+      id: 'srp_disclosure',
+      label: 'Self-Represented Party Disclosure',
+      source: 'TRESA',
+      scope: 'transaction',
+      evidence: 'document',
+      reads: ['hasSelfRepresentedParty'],
+      notApplicableReason: 'No self-represented party on this transaction',
+      applicability: 'not_applicable',
+      reason: 'stale reason from a previous resolution',
+    },
+    {
+      id: 'last_month_rent_deposit',
+      label: 'Last Month Rent Deposit',
+      source: 'RTA',
+      scope: 'transaction',
+      evidence: 'document',
+      reads: [],
+      applicability: 'required',
+      completed: true,
+      documents: ['lmr-receipt.pdf'],
+    },
+  ];
+
+  const facts = { entityType: 'individual', hasSelfRepresentedParty: true };
+
+  it('throws with the reResolve prefix when previousItems is not an array', () => {
+    expect(() => reResolve('nope', 'buyer_purchase', facts)).toThrow(/reResolve:/);
+  });
+
+  it('keeps completed, completedAt, and documents for an item present in both sets', () => {
+    const result = reResolve(previousItems, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.completed).toBe(true);
+    expect(item.completedAt).toBe('2026-01-05T12:00:00Z');
+    expect(item.documents).toEqual(['guide.pdf']);
+  });
+
+  it('takes applicability and reason from the new resolution, not the old one', () => {
+    const result = reResolve(previousItems, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'srp_disclosure');
+    expect(item.applicability).toBe('required');
+    expect(item).not.toHaveProperty('reason');
+  });
+
+  it('an item only in the new set carries no state fields', () => {
+    const result = reResolve(previousItems, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
+    expect(item).not.toHaveProperty('completed');
+    expect(item).not.toHaveProperty('completedAt');
+    expect(item).not.toHaveProperty('documents');
+  });
+
+  it('keeps a dropped item in the result as no_longer_applicable with its state intact', () => {
+    const result = reResolve(previousItems, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'last_month_rent_deposit');
+    expect(item).toBeDefined();
+    expect(item.applicability).toBe('no_longer_applicable');
+    expect(item.completed).toBe(true);
+    expect(item.documents).toEqual(['lmr-receipt.pdf']);
+    expect(item.reason).toMatch(/buyer_purchase/);
+  });
+
+  it('produces an identical result when re-resolved again, with no duplicated no_longer_applicable entries', () => {
+    const first = reResolve(previousItems, 'buyer_purchase', facts);
+    const second = reResolve(first, 'buyer_purchase', facts);
+    expect(second).toEqual(first);
+    const noLongerApplicable = second.filter((entry) => entry.applicability === 'no_longer_applicable');
+    expect(noLongerApplicable.length).toBe(1);
+  });
+
+  it('equals resolveChecklist when previousItems is empty', () => {
+    const result = reResolve([], 'buyer_purchase', facts);
+    expect(result).toEqual(resolveChecklist('buyer_purchase', facts));
+  });
+
+  it('orders the new set in catalog order first, then no_longer_applicable items in previousItems order', () => {
+    const result = reResolve(previousItems, 'buyer_purchase', facts);
+    const ids = result.map((entry) => entry.id);
+    const catalogIds = CATALOG.buyer_purchase.map((item) => item.id);
+    expect(ids.slice(0, catalogIds.length)).toEqual(catalogIds);
+    expect(ids.slice(catalogIds.length)).toEqual(['last_month_rent_deposit']);
   });
 });

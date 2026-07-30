@@ -2,18 +2,32 @@
 
 const rules = require('./rules');
 
+// -- Constants --------------------------------------------------------------------
+
+const STATE_FIELDS = ['completed', 'completedAt', 'documents'];
+
+// -- Argument assertions ------------------------------------------------------------
+
+function assertKnownType(fnName, type) {
+  if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(rules.CATALOG, type)) {
+    throw new Error(`${fnName}: unknown type '${type}'`);
+  }
+}
+
+function assertFacts(fnName, facts) {
+  if (facts === undefined) {
+    throw new Error(`${fnName}: facts is required`);
+  }
+  if (facts === null || typeof facts !== 'object') {
+    throw new Error(`${fnName}: facts must be a non-null object`);
+  }
+}
+
 // -- resolveChecklist -----------------------------------------------------------
 
 function resolveChecklist(type, facts) {
-  if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(rules.CATALOG, type)) {
-    throw new Error(`resolveChecklist: unknown type '${type}'`);
-  }
-  if (facts === undefined) {
-    throw new Error('resolveChecklist: facts is required');
-  }
-  if (facts === null || typeof facts !== 'object') {
-    throw new Error('resolveChecklist: facts must be a non-null object');
-  }
+  assertKnownType('resolveChecklist', type);
+  assertFacts('resolveChecklist', facts);
 
   return rules.CATALOG[type].map((item) => annotateItem(item, facts));
 }
@@ -45,6 +59,49 @@ function annotateItem(item, facts) {
   };
 }
 
+// -- reResolve --------------------------------------------------------------------
+
+function reResolve(previousItems, type, facts) {
+  if (!Array.isArray(previousItems)) {
+    throw new Error('reResolve: previousItems must be an array');
+  }
+  assertKnownType('reResolve', type);
+  assertFacts('reResolve', facts);
+
+  const newItems = resolveChecklist(type, facts);
+  const previousById = new Map(previousItems.map((item) => [item.id, item]));
+
+  const merged = newItems.map((item) => {
+    const previous = previousById.get(item.id);
+    if (!previous) {
+      return item;
+    }
+    const carried = { ...item };
+    STATE_FIELDS.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(previous, field)) {
+        carried[field] = previous[field];
+      }
+    });
+    return carried;
+  });
+
+  const newIds = new Set(newItems.map((item) => item.id));
+  const carriedOver = previousItems
+    .filter((item) => !newIds.has(item.id))
+    .map((item) => {
+      const appended = {
+        ...item,
+        applicability: 'no_longer_applicable',
+        reason: `no longer applicable: transaction changed to type '${type}'`,
+      };
+      delete appended.pendingFacts;
+      return appended;
+    });
+
+  return [...merged, ...carriedOver];
+}
+
 module.exports = {
   resolveChecklist,
+  reResolve,
 };
