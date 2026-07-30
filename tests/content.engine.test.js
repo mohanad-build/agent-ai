@@ -17,6 +17,7 @@ jest.mock('../src/content/renderInstagramCaption', () => ({ renderInstagramCapti
 jest.mock('../src/content/renderBlogPost',      () => ({ renderBlogPost: jest.fn() }));
 jest.mock('../src/content/reviewEmail',         () => ({ composeReviewEmail: jest.fn() }));
 jest.mock('../src/email',                       () => ({ sendNewEmail: jest.fn() }));
+jest.mock('../src/twilio');
 jest.mock('node:fs', () => ({
   ...jest.requireActual('node:fs'),
   appendFileSync: jest.fn(),
@@ -32,6 +33,7 @@ const { renderInstagramCaption } = require('../src/content/renderInstagramCaptio
 const { renderBlogPost }       = require('../src/content/renderBlogPost');
 const { composeReviewEmail }   = require('../src/content/reviewEmail');
 const { sendNewEmail }         = require('../src/email');
+const twilio                   = require('../src/twilio');
 
 const {
   runContentEngineForAgent,
@@ -302,6 +304,106 @@ describe('Evergreen menu merge', () => {
   });
 });
 
+// ── 1c. Menu presence: missing vs unreadable, headsUp and SMS ─────────────────
+
+describe('Menu presence: missing vs unreadable, headsUp and SMS', () => {
+  test('both present: no headsUp note, no SMS', async () => {
+    setupHappyPath();
+    readWeeklyAngles.mockResolvedValue(makeWeeklyAngles(5));
+    readEvergreenAngles.mockResolvedValue(makeEvergreenMenu(3));
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBeUndefined();
+    const batchArg = composeReviewEmail.mock.calls[0][0];
+    expect(batchArg.headsUp).toEqual([]);
+    expect(twilio.sendSMS).not.toHaveBeenCalled();
+  });
+
+  test('market only (evergreen missing): partial, headsUp note, batch proceeds, no SMS', async () => {
+    setupHappyPath();
+    readWeeklyAngles.mockResolvedValue(makeWeeklyAngles(5));
+    readEvergreenAngles.mockResolvedValue(null);
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBeUndefined();
+    const batchArg = composeReviewEmail.mock.calls[0][0];
+    expect(batchArg.headsUp).toHaveLength(1);
+    expect(batchArg.headsUp[0]).toBe(
+      'No Evergreen angles were generated for this week. Proceeding with Market angles only.'
+    );
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining('angle-menu-partial'),
+      'utf8',
+    );
+    expect(twilio.sendSMS).not.toHaveBeenCalled();
+  });
+
+  test('evergreen only (market missing): partial, headsUp note, batch proceeds, no SMS', async () => {
+    setupHappyPath();
+    readWeeklyAngles.mockResolvedValue(null);
+    readEvergreenAngles.mockResolvedValue(makeEvergreenMenu(3));
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBeUndefined();
+    const batchArg = composeReviewEmail.mock.calls[0][0];
+    expect(batchArg.headsUp).toHaveLength(1);
+    expect(batchArg.headsUp[0]).toBe(
+      'No Market angles were generated for this week. Proceeding with Evergreen angles only.'
+    );
+    expect(twilio.sendSMS).not.toHaveBeenCalled();
+  });
+
+  test('neither present: total skip, SMS fires naming agent, week, and missing status', async () => {
+    readContentProfile.mockReturnValue(makeContentProfile());
+    readWeeklyAngles.mockResolvedValue(null);
+    readEvergreenAngles.mockResolvedValue(null);
+    twilio.sendSMS.mockResolvedValue({ sid: 'SM123' });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBe('no-angles');
+    expect(twilio.sendSMS).toHaveBeenCalledTimes(1);
+    const [shim, body] = twilio.sendSMS.mock.calls[0];
+    expect(shim).toEqual({ agentId: 'operator:test-operator', agentPhone: operatorConfig.operatorPhone });
+    expect(body).toContain('mo-test');
+    expect(body).toContain(result.batchWeekIso);
+    expect(body).toContain('market: missing');
+    expect(body).toContain('evergreen: missing');
+  });
+
+  test('corrupt market file, evergreen missing: total skip reported as unreadable, not missing', async () => {
+    readContentProfile.mockReturnValue(makeContentProfile());
+    const parseError = new Error('Unexpected token in JSON at position 0');
+    readWeeklyAngles.mockRejectedValue(parseError);
+    readEvergreenAngles.mockResolvedValue(null);
+    twilio.sendSMS.mockResolvedValue({ sid: 'SM123' });
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW });
+    expect(result.skipped).toBe('no-angles');
+    const [, body] = twilio.sendSMS.mock.calls[0];
+    expect(body).toContain('market: unreadable');
+    expect(body).toContain('evergreen: missing');
+    const logCall = fs.appendFileSync.mock.calls.find(c => c[1].includes('angles-missing'));
+    expect(logCall).toBeDefined();
+    expect(logCall[1]).toContain(parseError.message);
+  });
+
+  test('SMS not sent when operatorPhone is not configured', async () => {
+    readContentProfile.mockReturnValue(makeContentProfile());
+    readWeeklyAngles.mockResolvedValue(null);
+    readEvergreenAngles.mockResolvedValue(null);
+    const opConfigNoPhone = { ...operatorConfig, operatorPhone: undefined };
+    const result = await runContentEngineForAgent(makeAgent(), { operatorConfig: opConfigNoPhone, now: TEST_NOW });
+    expect(result.skipped).toBe('no-angles');
+    expect(twilio.sendSMS).not.toHaveBeenCalled();
+  });
+
+  test('SMS failure does not fail the batch: skip result still returned', async () => {
+    readContentProfile.mockReturnValue(makeContentProfile());
+    readWeeklyAngles.mockResolvedValue(null);
+    readEvergreenAngles.mockResolvedValue(null);
+    twilio.sendSMS.mockRejectedValue(new Error('twilio down'));
+    await expect(
+      runContentEngineForAgent(makeAgent(), { operatorConfig, now: TEST_NOW })
+    ).resolves.toEqual({ skipped: 'no-angles', batchWeekIso: expect.any(String) });
+  });
+});
+
 // ── 2. assignPieceIds ─────────────────────────────────────────────────────────
 
 describe('assignPieceIds', () => {
@@ -506,7 +608,11 @@ describe('runContentEngineForAgent -- happy path', () => {
     // otherAngles = picks.remaining (2 angles in makePicks default)
     expect(Array.isArray(batch.otherAngles)).toBe(true);
     expect(batch.otherAngles).toHaveLength(2);
-    expect(batch.headsUp).toEqual([]);
+    // setupHappyPath leaves the evergreen menu missing (market only), which is
+    // now a partial-menu state and surfaces as a headsUp note.
+    expect(batch.headsUp).toEqual([
+      'No Evergreen angles were generated for this week. Proceeding with Market angles only.',
+    ]);
   });
 
   test('errors array is empty on happy path', async () => {

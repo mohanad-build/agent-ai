@@ -16,6 +16,7 @@ const { renderInstagramCaption }            = require('./renderInstagramCaption'
 const { renderBlogPost }                    = require('./renderBlogPost');
 const { composeReviewEmail }                = require('./reviewEmail');
 const { sendNewEmail }                      = require('../email');
+const twilio                                = require('../twilio');
 
 // ── Skip-condition error (discriminated throw from gatherInputs) ──────────────
 
@@ -134,6 +135,27 @@ function assembleBatchObject({ agentConfig, weekIso, renderedPieces, picks, head
   };
 }
 
+async function _readMenuState(readerFn, weekIso) {
+  try {
+    const menu = await readerFn(weekIso);
+    return menu === null
+      ? { status: 'missing', menu: null, error: null }
+      : { status: 'ok', menu, error: null };
+  } catch (err) {
+    return { status: 'unreadable', menu: null, error: err };
+  }
+}
+
+function _menuNoteFor(absentLabel, presentLabel, state) {
+  if (state.status === 'missing') {
+    return `No ${absentLabel} angles were generated for this week. Proceeding with ${presentLabel} angles only.`;
+  }
+  if (state.status === 'unreadable') {
+    return `The ${absentLabel} angle file for this week could not be read. Proceeding with ${presentLabel} angles only.`;
+  }
+  throw new Error(`_menuNoteFor: unknown menu status '${state.status}'`);
+}
+
 async function gatherInputs(agentConfig, now) {
   const contentProfile = readContentProfile(agentConfig.agentId);
   if (!contentProfile.contentEngineEnabled) {
@@ -142,28 +164,39 @@ async function gatherInputs(agentConfig, now) {
 
   const weekIso = currentWeek(now ?? getNowDate());
 
-  // Read both menus independently. A menu is "absent" if its reader returns
-  // null or throws (missing/unreadable) -- this preserves the pre-evergreen
-  // semantics per menu. 'no-angles' fires only when BOTH are absent.
-  let marketMenu = null;
-  try {
-    marketMenu = await readWeeklyAngles(weekIso);
-  } catch (err) {
-    marketMenu = null;
-  }
+  // Read both menus independently and keep missing distinct from unreadable.
+  // A menu is "missing" when its reader returns null (no file published for
+  // this week) and "unreadable" when the reader throws (corrupt JSON, or any
+  // fs error other than ENOENT). These used to collapse into the same null,
+  // which made a corrupt file look identical to an unpublished one: the batch
+  // would skip or degrade with a "no angles this week" message that hid a
+  // real data failure behind what reads as a routine scheduling gap.
+  const marketState    = await _readMenuState(readWeeklyAngles, weekIso);
+  const evergreenState = await _readMenuState(readEvergreenAngles, weekIso);
 
-  let evergreenMenu = null;
-  try {
-    evergreenMenu = await readEvergreenAngles(weekIso);
-  } catch (err) {
-    evergreenMenu = null;
-  }
+  const marketMenu    = marketState.menu;
+  const evergreenMenu = evergreenState.menu;
 
   const marketAngles    = (marketMenu    && Array.isArray(marketMenu.angles))    ? marketMenu.angles    : [];
   const evergreenAngles = (evergreenMenu && Array.isArray(evergreenMenu.angles)) ? evergreenMenu.angles : [];
 
-  if (marketMenu === null && evergreenMenu === null) {
-    throw new SkipError('no-angles', { batchWeekIso: weekIso });
+  const marketAbsent    = marketState.status    !== 'ok';
+  const evergreenAbsent = evergreenState.status !== 'ok';
+
+  if (marketAbsent && evergreenAbsent) {
+    throw new SkipError('no-angles', {
+      batchWeekIso: weekIso,
+      marketStatus: marketState.status,
+      evergreenStatus: evergreenState.status,
+      cause: marketState.error || evergreenState.error,
+    });
+  }
+
+  let angleMenuNote = null;
+  if (marketAbsent) {
+    angleMenuNote = _menuNoteFor('Market', 'Evergreen', marketState);
+  } else if (evergreenAbsent) {
+    angleMenuNote = _menuNoteFor('Evergreen', 'Market', evergreenState);
   }
 
   // Preserve the existing weeklyAngles object shape for downstream consumers,
@@ -181,7 +214,7 @@ async function gatherInputs(agentConfig, now) {
     throw new SkipError('already-sent', { batchWeekIso: weekIso });
   }
 
-  return { contentProfile, contentState, agentHistory, weekIso, weeklyAngles };
+  return { contentProfile, contentState, agentHistory, weekIso, weeklyAngles, angleMenuNote };
 }
 
 // ── Time gate ─────────────────────────────────────────────────────────────────
@@ -268,6 +301,18 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
       if (err.reason === 'no-angles') {
         _appendErrorLog(agentConfig.agentId, 'angles-missing', err.cause || err);
         console.log(`[${agentConfig.agentId}] content engine: angles missing for ${err.batchWeekIso}, skipping`);
+        const operatorPhone = operatorConfig.operatorPhone;
+        if (!operatorPhone) {
+          console.log('[content-engine:no-angles] no operatorPhone configured, skipping SMS fallback');
+        } else {
+          const fallbackBody = `No angles for ${agentConfig.agentId} week ${err.batchWeekIso} (market: ${err.marketStatus}, evergreen: ${err.evergreenStatus}). Content batch skipped.`;
+          const operatorTwilioShim = { agentId: `operator:${operatorConfig.operatorId}`, agentPhone: operatorPhone };
+          try {
+            await twilio.sendSMS(operatorTwilioShim, fallbackBody);
+          } catch (smsErr) {
+            console.log(`[content-engine:no-angles] operator SMS fallback failed: ${smsErr.message}`);
+          }
+        }
         return { skipped: 'no-angles', batchWeekIso: err.batchWeekIso };
       }
       if (err.reason === 'already-sent') {
@@ -278,7 +323,7 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
     throw err;
   }
 
-  const { contentProfile, weekIso, weeklyAngles, agentHistory } = inputs;
+  const { contentProfile, weekIso, weeklyAngles, agentHistory, angleMenuNote } = inputs;
 
   const picks = selectDefaults(weeklyAngles.angles, contentProfile, agentHistory, { weekIso });
 
@@ -297,6 +342,11 @@ async function runContentEngineForAgent(agentConfig, options = {}) {
   const pieceResults  = [];
   const renderedPieces = [];
   const headsUp       = [];
+
+  if (angleMenuNote) {
+    headsUp.push(angleMenuNote);
+    _appendErrorLog(agentConfig.agentId, 'angle-menu-partial', new Error(angleMenuNote));
+  }
 
   for (const assignment of pieceAssignments) {
     try {
