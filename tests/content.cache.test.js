@@ -33,6 +33,7 @@ const {
   getFreshPoint,
   appendPullLog,
   currentWeek,
+  targetWeekIso,
   currentMonth,
 } = require('../src/content/cache');
 
@@ -512,6 +513,41 @@ describe('currentWeek', () => {
 
   test('output format matches PERIOD_RE (round-trips through readSnapshot without throwing)', async () => {
     const period = currentWeek('2026-05-13T12:00:00.000Z');
+    expect(period).toMatch(/^\d{4}-W\d{2}$/);
+  });
+});
+
+// ── targetWeekIso ─────────────────────────────────────────────────────────────
+
+describe('targetWeekIso', () => {
+  test('a Sunday returns the following ISO week', () => {
+    expect(targetWeekIso('2026-05-17T12:00:00.000Z')).toBe('2026-W21');
+  });
+
+  test('a mid-week date returns the following ISO week', () => {
+    expect(targetWeekIso('2026-05-13T12:00:00.000Z')).toBe('2026-W21');
+  });
+
+  test('a Sunday in late December targets W01 of the next year', () => {
+    expect(targetWeekIso('2025-12-28T12:00:00.000Z')).toBe('2026-W01');
+  });
+
+  test('accepts a Date object', () => {
+    const d = new Date('2026-05-17T12:00:00.000Z');
+    expect(targetWeekIso(d)).toBe('2026-W21');
+  });
+
+  test('accepts an ISO string', () => {
+    expect(targetWeekIso('2026-05-17T12:00:00.000Z')).toBe('2026-W21');
+  });
+
+  test('throws on invalid now input', () => {
+    expect(() => targetWeekIso('not-a-date')).toThrow();
+    expect(() => targetWeekIso(undefined)).toThrow();
+  });
+
+  test('output format matches PERIOD_RE (round-trips through readSnapshot without throwing)', async () => {
+    const period = targetWeekIso('2026-05-17T12:00:00.000Z');
     expect(period).toMatch(/^\d{4}-W\d{2}$/);
   });
 });

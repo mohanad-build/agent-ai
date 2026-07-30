@@ -89,11 +89,13 @@ const { pullBankOfCanada, shouldRunDataPull } = require('../src/content/pullData
 const { generateWeeklyAngles, shouldRunAngleGeneration } = require('../src/content/angles');
 const { generateEvergreenAngles } = require('../src/content/evergreenAngles');
 
-// currentWeek is a real pure function -- used to compute the expected week ISO
-// for the angle-gen file path from the mocked getNowDate value.
-const { currentWeek } = require('../src/content/cache');
+// targetWeekIso is a real pure function -- used to compute the expected week
+// ISO for the angle-gen file path from the mocked getNowDate value. The
+// scheduler jobs write under the week the following Monday's batch will read,
+// not the week containing the Sunday the job runs on.
+const { targetWeekIso } = require('../src/content/cache');
 const MOCK_DATE = new Date('2026-05-17T07:00:00.000Z');
-const MOCK_WEEK = currentWeek(MOCK_DATE); // '2026-W20'
+const MOCK_WEEK = targetWeekIso(MOCK_DATE); // '2026-W21'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -235,7 +237,11 @@ describe('maybeRunWeeklyAngleGenerationJob', () => {
     await maybeRunWeeklyAngleGenerationJob();
 
     expect(generateWeeklyAngles).toHaveBeenCalledWith(
-      expect.objectContaining({ appendUpstreamErrorLog: expect.any(Function) }),
+      expect.objectContaining({
+        now:      MOCK_DATE,
+        weekIso:  MOCK_WEEK,
+        appendUpstreamErrorLog: expect.any(Function),
+      }),
     );
   });
 
@@ -323,7 +329,7 @@ describe('maybeRunWeeklyEvergreenAngleGenerationJob', () => {
 
     await maybeRunWeeklyEvergreenAngleGenerationJob();
 
-    expect(generateEvergreenAngles).toHaveBeenCalledTimes(1);
+    expect(generateEvergreenAngles).toHaveBeenCalledWith({ weekIso: MOCK_WEEK });
   });
 
   it('logs success format on success', async () => {
@@ -356,6 +362,57 @@ describe('maybeRunWeeklyEvergreenAngleGenerationJob', () => {
       '[scheduler] evergreen-angle-gen: failed err=Claude API timeout',
     );
     errSpy.mockRestore();
+  });
+});
+
+// ── Sunday job / Monday batch week boundary ───────────────────────────────────
+//
+// The other tests in this file mock generateEvergreenAngles entirely, so they
+// never observe what week the real maybeRunWeeklyEvergreenAngleGenerationJob
+// computed, only what the mock was told to return. This test drives the real,
+// unmocked weekIso computation inside src/index.js by giving the mock a
+// mockImplementation that actually writes to disk under whatever weekIso it
+// was called with, then reads that file back using the real readEvergreenAngles
+// keyed on the real Monday-side currentWeek. If the writer's weekIso and the
+// Monday reader's weekIso ever disagree again, this test fails because the
+// file will not be found under the week the reader looks for.
+
+describe('Sunday job writes the file Monday reads (evergreen)', () => {
+  let tmpDir;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'evergreen-boundary-'));
+    process.env.STORAGE_ROOT = tmpDir;
+  });
+
+  afterEach(async () => {
+    delete process.env.STORAGE_ROOT;
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('the weekIso the real Sunday job computes is the weekIso the real Monday batch reads', async () => {
+    shouldRunAngleGeneration.mockReturnValue(true);
+    const { evergreenAnglesFilePath, readEvergreenAngles } = jest.requireActual('../src/content/evergreenAngles');
+    generateEvergreenAngles.mockImplementation(async ({ weekIso }) => {
+      const filePath = evergreenAnglesFilePath(tmpDir, weekIso);
+      await fsp.mkdir(path.dirname(filePath), { recursive: true });
+      const menu = { weekIso, generatedAt: '2026-05-17T08:00:00.000Z', bankVersion: 1, angles: [] };
+      await fsp.writeFile(filePath, JSON.stringify(menu), 'utf8');
+      return { angles: [], weekIso, generatedAt: menu.generatedAt, bankVersion: 1, regenerated: true };
+    });
+
+    // MOCK_DATE (getNowDate mock, top of file) is Sunday 2026-05-17. The
+    // Monday batch that follows it runs on 2026-05-18.
+    const { currentWeek } = jest.requireActual('../src/content/cache');
+    const mondayNow = new Date('2026-05-18T11:00:00.000Z');
+    const mondayReadWeekIso = currentWeek(mondayNow);
+
+    await maybeRunWeeklyEvergreenAngleGenerationJob();
+
+    const result = await readEvergreenAngles(mondayReadWeekIso, { baseDir: tmpDir });
+    expect(result).not.toBeNull();
+    expect(result.weekIso).toBe(mondayReadWeekIso);
   });
 });
 

@@ -26,7 +26,7 @@ const { readContentProfile, isContentEngineEnabled } = require('./content/profil
 const { generateWeeklyAngles, shouldRunAngleGeneration } = require('./content/angles');
 const { generateEvergreenAngles, evergreenAnglesFilePath } = require('./content/evergreenAngles');
 const { pullBankOfCanada, shouldRunDataPull } = require('./content/pullData');
-const { currentWeek } = require('./content/cache');
+const { targetWeekIso } = require('./content/cache');
 const { readContentState } = require('./content/state');
 const operatorState = require('./operatorState');
 const { loadOperator, discoverOperatorIds, validateAgentOperatorMappings } = require('./operatorConfig');
@@ -664,14 +664,14 @@ async function maybeRunWeeklyAngleGenerationJob() {
   try {
     const now = getNowDate();
     if (!shouldRunAngleGeneration(now)) return;
-    const weekIso = currentWeek(now);
+    const weekIso = targetWeekIso(now);
     const anglePath = path.join(getStorageRoot(), '_market', '_angles', `${weekIso}.json`);
     if (fs.existsSync(anglePath)) {
       console.log(`[scheduler] angle-gen: skipped (already exists for week ${weekIso})`);
       return;
     }
     console.log(`[scheduler] angle-gen: starting week=${weekIso}`);
-    const result = await generateWeeklyAngles({ appendUpstreamErrorLog });
+    const result = await generateWeeklyAngles({ now, weekIso, appendUpstreamErrorLog });
     const topScore = result.angles.length > 0
       ? Math.max(...result.angles.map(a => a.surpriseScore))
       : 0;
@@ -690,14 +690,14 @@ async function maybeRunWeeklyEvergreenAngleGenerationJob() {
   try {
     const now = getNowDate();
     if (!shouldRunAngleGeneration(now)) return;
-    const weekIso = currentWeek(now);
+    const weekIso = targetWeekIso(now);
     const evergreenPath = evergreenAnglesFilePath(getStorageRoot(), weekIso);
     if (fs.existsSync(evergreenPath)) {
       console.log(`[scheduler] evergreen-angle-gen: skipped (already exists for week ${weekIso})`);
       return;
     }
     console.log(`[scheduler] evergreen-angle-gen: starting week=${weekIso}`);
-    const result = await generateEvergreenAngles({});
+    const result = await generateEvergreenAngles({ weekIso });
     console.log(`[scheduler] evergreen-angle-gen: success week=${result.weekIso} angles=${result.angles.length}`);
   } catch (err) {
     appendUpstreamErrorLog('evergreen-angle-gen', `exception: ${err.message}`);

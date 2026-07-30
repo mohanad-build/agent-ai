@@ -5,10 +5,12 @@ const os   = require('node:os');
 const path = require('node:path');
 
 const { TOPIC_BANK, selectWeeklyTopics } = require('../src/content/topicBank');
+const { currentWeek, targetWeekIso } = require('../src/content/cache');
 
 const {
   generateEvergreenAngles,
   readEvergreenAngles,
+  evergreenAnglesFilePath,
   EvergreenAngleGenerationError,
   EVERGREEN_ANGLE_ID_RE,
   _internal,
@@ -252,6 +254,47 @@ describe('readEvergreenAngles', () => {
 
   test('throws on malformed weekIso', async () => {
     await expect(readEvergreenAngles('2026-W00', { baseDir: tmpDir })).rejects.toThrow(/malformed weekIso/);
+  });
+});
+
+// ── Sunday write / Monday read week boundary ───────────────────────────────────
+//
+// The bug this guards against: generation runs Sunday and used to key the file
+// off currentWeek(sundayNow), the week containing that Sunday. The Monday batch
+// reads with currentWeek(mondayNow), which is already the next ISO week because
+// Sunday is the last day of an ISO week and Monday is the first day of the next
+// one. The write and the read landed on different filenames and the file the
+// writer produced was never readable. The fix has the writer key off
+// targetWeekIso(sundayNow) instead, which is defined to equal the week the very
+// next Monday will compute. This test proves that equality with real dates and
+// a real file, not just by comparing strings.
+
+describe('Sunday write / Monday read week boundary', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evergreen-angles-boundary-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('file written under the Sunday job\'s target week is the file the Monday batch reads', async () => {
+    const sundayNow = new Date('2026-05-17T08:00:00.000Z');
+    const mondayNow = new Date('2026-05-18T11:00:00.000Z');
+
+    const sundayWriteWeekIso = targetWeekIso(sundayNow);
+    const mondayReadWeekIso  = currentWeek(mondayNow);
+    expect(sundayWriteWeekIso).toBe(mondayReadWeekIso);
+
+    const menu = { weekIso: sundayWriteWeekIso, generatedAt: sundayNow.toISOString(), bankVersion: 'abc123', angles: [] };
+    const filePath = evergreenAnglesFilePath(tmpDir, sundayWriteWeekIso);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(menu));
+
+    const result = await readEvergreenAngles(mondayReadWeekIso, { baseDir: tmpDir });
+    expect(result).toEqual(menu);
   });
 });
 

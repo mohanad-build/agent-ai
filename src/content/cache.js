@@ -227,6 +227,21 @@ function currentWeek(now) {
   return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
 }
 
+// currentWeek answers what week is it now. targetWeekIso answers what week is
+// this content for. Those are different questions, and conflating them is
+// what caused generation on Sunday to write a week that Monday, which starts
+// a new ISO week, can never read. currentWeek rolls at the Monday 00:00 UTC
+// boundary and that boundary repeats every 7 days, so adding 7 days to any
+// now lands exactly one ISO week later regardless of which day now falls on.
+function targetWeekIso(now) {
+  const date = (now instanceof Date) ? now : new Date(now);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error('targetWeekIso: now must be a valid Date or ISO string');
+  }
+  const sevenDaysAhead = new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return currentWeek(sevenDaysAhead);
+}
+
 /**
  * Returns the calendar month period string ('YYYY-MM') for the month containing now.
  */
@@ -250,5 +265,6 @@ module.exports = {
   getFreshPoint,
   appendPullLog,
   currentWeek,
+  targetWeekIso,
   currentMonth,
 };
