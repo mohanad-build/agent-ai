@@ -88,6 +88,20 @@ describe('resolveChecklist', () => {
     expect(item.applicability).toBe('indeterminate');
     expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty']);
   });
+
+  it('does not throw for landlord_lease and returns the universal items by id', () => {
+    expect(() => resolveChecklist('landlord_lease', {})).not.toThrow();
+    const result = resolveChecklist('landlord_lease', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual(['reco_information_guide', 'representation_agreement', 'srp_disclosure']);
+  });
+
+  it('marks srp_disclosure indeterminate for landlord_lease on empty facts', () => {
+    const result = resolveChecklist('landlord_lease', {});
+    const item = result.find((entry) => entry.id === 'srp_disclosure');
+    expect(item.applicability).toBe('indeterminate');
+    expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty']);
+  });
 });
 
 describe('structural invariants (iterate the catalog, do not hardcode)', () => {
