@@ -251,6 +251,19 @@ describe('lease item catalog (RTA replacement)', () => {
       expect(ids).not.toContain('representation_agreement');
     });
   });
+
+  it('resolves the exact seller_sale id set', () => {
+    const result = resolveChecklist('seller_sale', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual(['reco_information_guide', 'srp_disclosure', 'listing_agreement']);
+  });
+
+  it('listing_agreement resolves for seller_sale with scope transaction and no clientScope', () => {
+    const result = resolveChecklist('seller_sale', {});
+    const item = result.find((entry) => entry.id === 'listing_agreement');
+    expect(item.scope).toBe('transaction');
+    expect(item).not.toHaveProperty('clientScope');
+  });
 });
 
 describe('locked spec content', () => {

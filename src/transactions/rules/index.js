@@ -3,6 +3,7 @@
 const buyerPurchase = require('./buyerPurchase');
 const tenantLease = require('./tenantLease');
 const landlordLease = require('./landlordLease');
+const sellerSale = require('./sellerSale');
 
 // -- Catalog assembly -----------------------------------------------------------
 
@@ -10,6 +11,7 @@ const CATALOG = {
   buyer_purchase: buyerPurchase.BUYER_PURCHASE_ITEMS,
   tenant_lease: tenantLease.TENANT_LEASE_ITEMS,
   landlord_lease: landlordLease.LANDLORD_LEASE_ITEMS,
+  seller_sale: sellerSale.SELLER_SALE_ITEMS,
 };
 
 function deepFreeze(value) {
