@@ -42,7 +42,7 @@ describe('resolveChecklist', () => {
 
   it('marks an item with no requiredWhen as required', () => {
     const result = resolveChecklist('tenant_lease', {});
-    const item = result.find((entry) => entry.id === 'last_month_rent_deposit');
+    const item = result.find((entry) => entry.id === 'ontario_standard_lease');
     expect(item.applicability).toBe('required');
     expect(item).not.toHaveProperty('reason');
   });
@@ -87,13 +87,6 @@ describe('resolveChecklist', () => {
     const item = result.find((entry) => entry.id === 'srp_disclosure');
     expect(item.applicability).toBe('indeterminate');
     expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty']);
-  });
-
-  it('does not throw for landlord_lease and returns the universal items by id', () => {
-    expect(() => resolveChecklist('landlord_lease', {})).not.toThrow();
-    const result = resolveChecklist('landlord_lease', {});
-    const ids = result.map((entry) => entry.id);
-    expect(ids).toEqual(['reco_information_guide', 'representation_agreement', 'srp_disclosure']);
   });
 
   it('marks srp_disclosure indeterminate for landlord_lease on empty facts', () => {
@@ -182,6 +175,60 @@ describe('structural invariants (iterate the catalog, do not hardcode)', () => {
         expect(Object.isFrozen(item)).toBe(true);
       });
     });
+  });
+});
+
+describe('lease item catalog (RTA replacement)', () => {
+  it('resolves the exact tenant_lease id set', () => {
+    const result = resolveChecklist('tenant_lease', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual([
+      'reco_information_guide',
+      'representation_agreement',
+      'srp_disclosure',
+      'agreement_to_lease',
+      'ontario_standard_lease',
+      'signed_lease_copy_received',
+      'deposit_obtained_from_tenant',
+      'deposit_delivered_to_listing_agent',
+      'brokerage_deposit_receipt_received',
+      'first_month_rent_paid',
+      'keys_received',
+    ]);
+  });
+
+  it('resolves the exact landlord_lease id set', () => {
+    const result = resolveChecklist('landlord_lease', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual([
+      'reco_information_guide',
+      'representation_agreement',
+      'srp_disclosure',
+      'agreement_to_lease',
+      'ontario_standard_lease',
+      'signed_lease_copy_delivered',
+      'deposit_slip_received',
+      'deposit_forwarded_to_accounting',
+      'brokerage_deposit_receipt_issued',
+      'first_month_rent_received',
+      'keys_delivered',
+    ]);
+  });
+
+  it('never presents a security or damage deposit item anywhere in the catalog', () => {
+    const pattern = /security|damage/i;
+    Object.keys(CATALOG).forEach((type) => {
+      CATALOG[type].forEach((item) => {
+        expect(pattern.test(item.id)).toBe(false);
+        expect(pattern.test(item.label)).toBe(false);
+      });
+    });
+  });
+
+  it('no longer resolves last_month_rent_deposit for tenant_lease', () => {
+    const result = resolveChecklist('tenant_lease', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).not.toContain('last_month_rent_deposit');
   });
 });
 
