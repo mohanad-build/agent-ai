@@ -14,15 +14,6 @@ const UNIVERSAL_ITEMS = [
     reads: [],
   },
   {
-    id: 'representation_agreement',
-    label: 'Representation Agreement',
-    source: 'TRESA',
-    scope: 'client',
-    clientScope: 'dated',
-    evidence: 'document',
-    reads: [],
-  },
-  {
     id: 'srp_disclosure',
     label: 'Self-Represented Party Disclosure',
     source: 'TRESA',

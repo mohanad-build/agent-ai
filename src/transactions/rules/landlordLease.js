@@ -8,6 +8,14 @@ const universal = require('./universal');
 const LANDLORD_LEASE_ITEMS = [
   ...universal.UNIVERSAL_ITEMS,
   {
+    id: 'listing_agreement_lease',
+    label: 'Listing Agreement (Lease)',
+    source: 'TRESA',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: [],
+  },
+  {
     id: 'agreement_to_lease',
     label: 'Agreement to Lease (Form 400)',
     source: 'brokerage',

@@ -8,6 +8,15 @@ const universal = require('./universal');
 const TENANT_LEASE_ITEMS = [
   ...universal.UNIVERSAL_ITEMS,
   {
+    id: 'tenant_representation_agreement',
+    label: 'Tenant Representation Agreement',
+    source: 'TRESA',
+    scope: 'client',
+    clientScope: 'dated',
+    evidence: 'document',
+    reads: [],
+  },
+  {
     id: 'agreement_to_lease',
     label: 'Agreement to Lease (Form 400)',
     source: 'brokerage',

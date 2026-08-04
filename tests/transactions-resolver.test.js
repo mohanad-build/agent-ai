@@ -184,8 +184,8 @@ describe('lease item catalog (RTA replacement)', () => {
     const ids = result.map((entry) => entry.id);
     expect(ids).toEqual([
       'reco_information_guide',
-      'representation_agreement',
       'srp_disclosure',
+      'tenant_representation_agreement',
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_received',
@@ -202,8 +202,8 @@ describe('lease item catalog (RTA replacement)', () => {
     const ids = result.map((entry) => entry.id);
     expect(ids).toEqual([
       'reco_information_guide',
-      'representation_agreement',
       'srp_disclosure',
+      'listing_agreement_lease',
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_delivered',
@@ -229,6 +229,27 @@ describe('lease item catalog (RTA replacement)', () => {
     const result = resolveChecklist('tenant_lease', {});
     const ids = result.map((entry) => entry.id);
     expect(ids).not.toContain('last_month_rent_deposit');
+  });
+
+  it('listing_agreement_lease resolves for landlord_lease with scope transaction and no clientScope', () => {
+    const result = resolveChecklist('landlord_lease', {});
+    const item = result.find((entry) => entry.id === 'listing_agreement_lease');
+    expect(item.scope).toBe('transaction');
+    expect(item).not.toHaveProperty('clientScope');
+  });
+
+  it('tenant_representation_agreement resolves for tenant_lease with scope client and clientScope dated', () => {
+    const result = resolveChecklist('tenant_lease', {});
+    const item = result.find((entry) => entry.id === 'tenant_representation_agreement');
+    expect(item.scope).toBe('client');
+    expect(item.clientScope).toBe('dated');
+  });
+
+  it('no catalog entry anywhere still has id representation_agreement', () => {
+    Object.keys(CATALOG).forEach((type) => {
+      const ids = CATALOG[type].map((item) => item.id);
+      expect(ids).not.toContain('representation_agreement');
+    });
   });
 });
 
@@ -297,8 +318,8 @@ describe('reResolve', () => {
       documents: ['guide.pdf'],
     },
     {
-      id: 'representation_agreement',
-      label: 'Representation Agreement',
+      id: 'buyer_representation_agreement',
+      label: 'Buyer Representation Agreement',
       source: 'TRESA',
       scope: 'client',
       clientScope: 'dated',

@@ -8,6 +8,15 @@ const universal = require('./universal');
 const BUYER_PURCHASE_ITEMS = [
   ...universal.UNIVERSAL_ITEMS,
   {
+    id: 'buyer_representation_agreement',
+    label: 'Buyer Representation Agreement',
+    source: 'TRESA',
+    scope: 'client',
+    clientScope: 'dated',
+    evidence: 'document',
+    reads: [],
+  },
+  {
     id: 'fintrac_corporation_identification_record',
     label: 'FINTRAC Corporation Identification Record',
     source: 'FINTRAC',
