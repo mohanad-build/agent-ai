@@ -389,6 +389,27 @@ describe('locked spec content', () => {
       });
     });
   });
+
+  // TRESA s. 5.1: the representation/listing agreement must be in writing and
+  // must clearly identify the method used to determine remuneration. There is
+  // no structural marker distinguishing "the representation instrument" item
+  // from any other catalog item, so this is an explicit id list rather than a
+  // pattern match, since it fails loudly if a type gains a second instrument
+  // instead of silently covering nothing.
+  it('every representation/listing agreement instrument states its remuneration method in the label', () => {
+    const REPRESENTATION_INSTRUMENT_IDS = {
+      buyer_purchase: 'buyer_representation_agreement',
+      tenant_lease: 'tenant_representation_agreement',
+      seller_sale: 'listing_agreement',
+      landlord_lease: 'listing_agreement_lease',
+    };
+    TYPES.forEach((type) => {
+      const id = REPRESENTATION_INSTRUMENT_IDS[type];
+      const item = CATALOG[type].find((entry) => entry.id === id);
+      expect(item).toBeDefined();
+      expect(item.label).toMatch(/remuneration/);
+    });
+  });
 });
 
 describe('reResolve', () => {
@@ -408,7 +429,7 @@ describe('reResolve', () => {
     },
     {
       id: 'buyer_representation_agreement',
-      label: 'Buyer Representation Agreement',
+      label: 'Buyer Representation Agreement, in writing with remuneration method stated',
       source: 'TRESA',
       scope: 'client',
       clientScope: 'dated',

@@ -9,7 +9,7 @@ const SELLER_SALE_ITEMS = [
   ...universal.UNIVERSAL_ITEMS,
   {
     id: 'listing_agreement',
-    label: 'Listing Agreement',
+    label: 'Listing Agreement, in writing with remuneration method stated',
     source: 'TRESA',
     scope: 'transaction',
     evidence: 'document',

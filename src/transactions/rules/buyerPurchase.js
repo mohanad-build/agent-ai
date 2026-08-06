@@ -9,7 +9,7 @@ const BUYER_PURCHASE_ITEMS = [
   ...universal.UNIVERSAL_ITEMS,
   {
     id: 'buyer_representation_agreement',
-    label: 'Buyer Representation Agreement',
+    label: 'Buyer Representation Agreement, in writing with remuneration method stated',
     source: 'TRESA',
     scope: 'client',
     clientScope: 'dated',
