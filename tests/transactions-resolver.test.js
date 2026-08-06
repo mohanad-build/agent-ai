@@ -349,7 +349,16 @@ describe('lease item catalog (RTA replacement)', () => {
   it('resolves the exact seller_sale id set', () => {
     const result = resolveChecklist('seller_sale', {});
     const ids = result.map((entry) => entry.id);
-    expect(ids).toEqual(['reco_information_guide', 'srp_disclosure', 'listing_agreement']);
+    expect(ids).toEqual([
+      'reco_information_guide',
+      'srp_disclosure',
+      'listing_agreement',
+      'fintrac_corporation_identification_record',
+      'fintrac_individual_identification_record',
+      'fintrac_third_party_determination',
+      'fintrac_receipt_of_funds_record',
+      'fintrac_unrepresented_party_record',
+    ]);
   });
 
   it('resolves the exact buyer_purchase id set', () => {
@@ -444,6 +453,68 @@ describe('locked spec content', () => {
     const trueItem = trueResult.find((entry) => entry.id === 'fintrac_unrepresented_party_record');
     expect(trueItem.applicability).toBe('required');
     expect(trueItem).not.toHaveProperty('reason');
+  });
+
+  // Spec 5.3: every FINTRAC item lives only in the Fintracker app, there is no
+  // document evidence and there never will be.
+  it('every FINTRAC item on seller_sale carries externalSystem Fintracker and evidence external_system', () => {
+    const fintracItems = CATALOG.seller_sale.filter((item) => item.source === 'FINTRAC');
+    expect(fintracItems.length).toBeGreaterThan(0);
+    fintracItems.forEach((item) => {
+      expect(item.evidence).toBe('external_system');
+      expect(item.externalSystem).toBe('Fintracker');
+    });
+  });
+
+  it('the receipt of funds record on seller_sale resolves indeterminate on an empty facts object, naming both facts in reads order', () => {
+    const result = resolveChecklist('seller_sale', {});
+    const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+    expect(item.applicability).toBe('indeterminate');
+    expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty', 'brokerageReceivedFunds']);
+  });
+
+  it('the receipt of funds record on seller_sale resolves not_applicable when hasSelfRepresentedParty is false and brokerageReceivedFunds is true', () => {
+    const result = resolveChecklist('seller_sale', {
+      hasSelfRepresentedParty: false,
+      brokerageReceivedFunds: true,
+    });
+    const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+    expect(item.applicability).toBe('not_applicable');
+    expect(item.reason).toBe(
+      "Responsibility for the receipt of funds record falls to the buyer's agent when the buyer is represented"
+    );
+  });
+
+  it('the receipt of funds record on seller_sale resolves not_applicable when hasSelfRepresentedParty is true and brokerageReceivedFunds is false', () => {
+    const result = resolveChecklist('seller_sale', {
+      hasSelfRepresentedParty: true,
+      brokerageReceivedFunds: false,
+    });
+    const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+    expect(item.applicability).toBe('not_applicable');
+    expect(item.reason).toBe(
+      "Responsibility for the receipt of funds record falls to the buyer's agent when the buyer is represented"
+    );
+  });
+
+  it('the receipt of funds record on seller_sale resolves required only when both hasSelfRepresentedParty and brokerageReceivedFunds are true', () => {
+    const result = resolveChecklist('seller_sale', {
+      hasSelfRepresentedParty: true,
+      brokerageReceivedFunds: true,
+    });
+    const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+    expect(item.applicability).toBe('required');
+    expect(item).not.toHaveProperty('reason');
+  });
+
+  it('the same id fintrac_receipt_of_funds_record resolves required on buyer_purchase and indeterminate on seller_sale, both with empty facts', () => {
+    const buyerResult = resolveChecklist('buyer_purchase', {});
+    const buyerItem = buyerResult.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+    expect(buyerItem.applicability).toBe('required');
+
+    const sellerResult = resolveChecklist('seller_sale', {});
+    const sellerItem = sellerResult.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+    expect(sellerItem.applicability).toBe('indeterminate');
   });
 
   it('an item resolved required has no reason key at all', () => {
