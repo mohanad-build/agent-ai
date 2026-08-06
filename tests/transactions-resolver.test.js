@@ -120,6 +120,24 @@ describe('resolveChecklist', () => {
     expect(item.outstandingPersons).toEqual(['bob']);
   });
 
+  it('partitions representedPersons for the FINTRAC individual identification record and third party determination', () => {
+    const result = resolveChecklist('buyer_purchase', {
+      representedPersons: ['alice', 'bob'],
+      clientSatisfactions: {
+        alice: {
+          fintrac_individual_identification_record: { verifiedAt: '2026-01-05' },
+          fintrac_third_party_determination: { verifiedAt: '2026-01-05' },
+        },
+      },
+    });
+    const individualRecord = result.find((entry) => entry.id === 'fintrac_individual_identification_record');
+    expect(individualRecord.satisfiedPersons).toEqual(['alice']);
+    expect(individualRecord.outstandingPersons).toEqual(['bob']);
+    const thirdPartyDetermination = result.find((entry) => entry.id === 'fintrac_third_party_determination');
+    expect(thirdPartyDetermination.satisfiedPersons).toEqual(['alice']);
+    expect(thirdPartyDetermination.outstandingPersons).toEqual(['bob']);
+  });
+
   it('preserves representedPersons input order within satisfiedPersons and outstandingPersons', () => {
     const result = resolveChecklist('buyer_purchase', {
       representedPersons: ['zoe', 'amy', 'mike'],
@@ -334,11 +352,33 @@ describe('lease item catalog (RTA replacement)', () => {
     expect(ids).toEqual(['reco_information_guide', 'srp_disclosure', 'listing_agreement']);
   });
 
+  it('resolves the exact buyer_purchase id set', () => {
+    const result = resolveChecklist('buyer_purchase', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual([
+      'reco_information_guide',
+      'srp_disclosure',
+      'buyer_representation_agreement',
+      'fintrac_corporation_identification_record',
+      'fintrac_individual_identification_record',
+      'fintrac_third_party_determination',
+      'fintrac_receipt_of_funds_record',
+      'fintrac_unrepresented_party_record',
+    ]);
+  });
+
   it('listing_agreement resolves for seller_sale with scope transaction and no clientScope', () => {
     const result = resolveChecklist('seller_sale', {});
     const item = result.find((entry) => entry.id === 'listing_agreement');
     expect(item.scope).toBe('transaction');
     expect(item).not.toHaveProperty('clientScope');
+  });
+
+  it('resolves no item with source FINTRAC for either lease type, since FINTRAC does not apply to leases', () => {
+    const tenantResult = resolveChecklist('tenant_lease', {});
+    expect(tenantResult.some((entry) => entry.source === 'FINTRAC')).toBe(false);
+    const landlordResult = resolveChecklist('landlord_lease', {});
+    expect(landlordResult.some((entry) => entry.source === 'FINTRAC')).toBe(false);
   });
 });
 
@@ -369,6 +409,41 @@ describe('locked spec content', () => {
     const result = resolveChecklist('buyer_purchase', { entityType: 'corporation' });
     const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
     expect(item.applicability).toBe('required');
+  });
+
+  // Spec 5.3: every FINTRAC item lives only in the Fintracker app, there is no
+  // document evidence and there never will be.
+  it('every FINTRAC item on buyer_purchase carries externalSystem Fintracker and evidence external_system', () => {
+    const fintracItems = CATALOG.buyer_purchase.filter((item) => item.source === 'FINTRAC');
+    expect(fintracItems.length).toBeGreaterThan(0);
+    fintracItems.forEach((item) => {
+      expect(item.evidence).toBe('external_system');
+      expect(item.externalSystem).toBe('Fintracker');
+    });
+  });
+
+  it('the receipt of funds record resolves required on buyer_purchase with an empty facts object', () => {
+    const result = resolveChecklist('buyer_purchase', {});
+    const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+    expect(item.applicability).toBe('required');
+    expect(item).not.toHaveProperty('reason');
+  });
+
+  it('the unrepresented party record resolves not_applicable, required, or indeterminate based on hasSelfRepresentedParty', () => {
+    const absent = resolveChecklist('buyer_purchase', {});
+    const absentItem = absent.find((entry) => entry.id === 'fintrac_unrepresented_party_record');
+    expect(absentItem.applicability).toBe('indeterminate');
+    expect(absentItem.pendingFacts).toEqual(['hasSelfRepresentedParty']);
+
+    const falseResult = resolveChecklist('buyer_purchase', { hasSelfRepresentedParty: false });
+    const falseItem = falseResult.find((entry) => entry.id === 'fintrac_unrepresented_party_record');
+    expect(falseItem.applicability).toBe('not_applicable');
+    expect(falseItem.reason).toBe('No self-represented party on this transaction');
+
+    const trueResult = resolveChecklist('buyer_purchase', { hasSelfRepresentedParty: true });
+    const trueItem = trueResult.find((entry) => entry.id === 'fintrac_unrepresented_party_record');
+    expect(trueItem.applicability).toBe('required');
+    expect(trueItem).not.toHaveProperty('reason');
   });
 
   it('an item resolved required has no reason key at all', () => {
