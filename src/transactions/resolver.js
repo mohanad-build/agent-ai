@@ -24,13 +24,33 @@ function assertFacts(fnName, facts) {
   }
 }
 
+function assertRepresentedPersons(fnName, facts) {
+  if (!('representedPersons' in facts) || facts.representedPersons === undefined) {
+    return;
+  }
+  if (!Array.isArray(facts.representedPersons)) {
+    throw new Error(`${fnName}: representedPersons must be an array`);
+  }
+}
+
+function assertClientSatisfactions(fnName, facts) {
+  if (!('clientSatisfactions' in facts) || facts.clientSatisfactions === undefined) {
+    return;
+  }
+  if (facts.clientSatisfactions === null || typeof facts.clientSatisfactions !== 'object') {
+    throw new Error(`${fnName}: clientSatisfactions must be a non-null object`);
+  }
+}
+
 // -- resolveChecklist -----------------------------------------------------------
 
 function resolveChecklist(type, facts) {
   assertKnownType('resolveChecklist', type);
   assertFacts('resolveChecklist', facts);
+  assertRepresentedPersons('resolveChecklist', facts);
+  assertClientSatisfactions('resolveChecklist', facts);
 
-  return rules.CATALOG[type].map((item) => annotateItem(item, facts));
+  return rules.CATALOG[type].map((item) => withClientSatisfaction(annotateItem(item, facts), item, facts));
 }
 
 function annotateItem(item, facts) {
@@ -60,6 +80,51 @@ function annotateItem(item, facts) {
   };
 }
 
+// -- Per-person client satisfaction ------------------------------------------------
+
+// satisfiedPersons and outstandingPersons are a separate axis from applicability:
+// applicability says whether an item is in play at all, these say who has cleared
+// it. Only clientScope 'event' items get them here; clientScope 'dated' needs a
+// validity window, which needs a date, which this resolver has no clock to supply,
+// so that is separate work.
+function withClientSatisfaction(annotated, item, facts) {
+  if (item.scope !== 'client' || item.clientScope !== 'event') {
+    return annotated;
+  }
+
+  // Absent representedPersons means we were never told who is on the deal, so we
+  // cannot say who is satisfied or outstanding: emit neither field. An empty array
+  // is a different, real answer, that we were told there is nobody. Callers must
+  // use absent, never [], to mean unknown, the same way null counts as present
+  // for a fact elsewhere in this file.
+  if (!('representedPersons' in facts) || facts.representedPersons === undefined) {
+    return annotated;
+  }
+
+  const satisfiedPersons = [];
+  const outstandingPersons = [];
+  facts.representedPersons.forEach((personId) => {
+    if (isPersonSatisfied(facts.clientSatisfactions, personId, item.id)) {
+      satisfiedPersons.push(personId);
+    } else {
+      outstandingPersons.push(personId);
+    }
+  });
+
+  return { ...annotated, satisfiedPersons, outstandingPersons };
+}
+
+function isPersonSatisfied(clientSatisfactions, personId, itemId) {
+  if (clientSatisfactions === undefined) {
+    return false;
+  }
+  const perPerson = clientSatisfactions[personId];
+  if (perPerson === undefined || perPerson === null) {
+    return false;
+  }
+  return Object.prototype.hasOwnProperty.call(perPerson, itemId);
+}
+
 // -- reResolve --------------------------------------------------------------------
 
 function reResolve(previousItems, type, facts) {
@@ -68,6 +133,8 @@ function reResolve(previousItems, type, facts) {
   }
   assertKnownType('reResolve', type);
   assertFacts('reResolve', facts);
+  assertRepresentedPersons('reResolve', facts);
+  assertClientSatisfactions('reResolve', facts);
 
   const newItems = resolveChecklist(type, facts);
   const previousById = new Map(previousItems.map((item) => [item.id, item]));

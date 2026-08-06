@@ -95,6 +95,82 @@ describe('resolveChecklist', () => {
     expect(item.applicability).toBe('indeterminate');
     expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty']);
   });
+
+  it('emits neither satisfiedPersons nor outstandingPersons when representedPersons is absent', () => {
+    const result = resolveChecklist('buyer_purchase', {});
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item).not.toHaveProperty('satisfiedPersons');
+    expect(item).not.toHaveProperty('outstandingPersons');
+  });
+
+  it('treats everyone as outstanding when clientSatisfactions is absent', () => {
+    const result = resolveChecklist('buyer_purchase', { representedPersons: ['alice', 'bob'] });
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.satisfiedPersons).toEqual([]);
+    expect(item.outstandingPersons).toEqual(['alice', 'bob']);
+  });
+
+  it('partitions representedPersons into satisfiedPersons and outstandingPersons for a genuine partial', () => {
+    const result = resolveChecklist('buyer_purchase', {
+      representedPersons: ['alice', 'bob'],
+      clientSatisfactions: { alice: { reco_information_guide: { signedAt: '2026-01-05' } } },
+    });
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.satisfiedPersons).toEqual(['alice']);
+    expect(item.outstandingPersons).toEqual(['bob']);
+  });
+
+  it('preserves representedPersons input order within satisfiedPersons and outstandingPersons', () => {
+    const result = resolveChecklist('buyer_purchase', {
+      representedPersons: ['zoe', 'amy', 'mike'],
+      clientSatisfactions: {
+        zoe: { reco_information_guide: {} },
+        mike: { reco_information_guide: {} },
+      },
+    });
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.satisfiedPersons).toEqual(['zoe', 'mike']);
+    expect(item.outstandingPersons).toEqual(['amy']);
+  });
+
+  it('emits both fields as empty arrays when representedPersons is an empty array', () => {
+    const result = resolveChecklist('buyer_purchase', { representedPersons: [] });
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.satisfiedPersons).toEqual([]);
+    expect(item.outstandingPersons).toEqual([]);
+  });
+
+  it('does not add satisfiedPersons or outstandingPersons to a scope transaction item', () => {
+    const result = resolveChecklist('buyer_purchase', {
+      representedPersons: ['alice'],
+      clientSatisfactions: { alice: { fintrac_corporation_identification_record: {} } },
+    });
+    const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
+    expect(item).not.toHaveProperty('satisfiedPersons');
+    expect(item).not.toHaveProperty('outstandingPersons');
+  });
+
+  it('does not add satisfiedPersons or outstandingPersons to a clientScope dated item', () => {
+    const result = resolveChecklist('buyer_purchase', {
+      representedPersons: ['alice'],
+      clientSatisfactions: { alice: { buyer_representation_agreement: {} } },
+    });
+    const item = result.find((entry) => entry.id === 'buyer_representation_agreement');
+    expect(item).not.toHaveProperty('satisfiedPersons');
+    expect(item).not.toHaveProperty('outstandingPersons');
+  });
+
+  it('throws when representedPersons is present and not an array', () => {
+    expect(() => resolveChecklist('buyer_purchase', { representedPersons: 'alice' })).toThrow(
+      /resolveChecklist: representedPersons must be an array/
+    );
+  });
+
+  it('throws when clientSatisfactions is present and not a non-null object', () => {
+    expect(() => resolveChecklist('buyer_purchase', { clientSatisfactions: 'alice' })).toThrow(
+      /resolveChecklist: clientSatisfactions must be a non-null object/
+    );
+  });
 });
 
 describe('structural invariants (iterate the catalog, do not hardcode)', () => {
@@ -371,6 +447,18 @@ describe('reResolve', () => {
     expect(() => reResolve('nope', 'buyer_purchase', facts)).toThrow(/reResolve:/);
   });
 
+  it('throws with the reResolve prefix when representedPersons is present and not an array', () => {
+    expect(() =>
+      reResolve([], 'buyer_purchase', { ...facts, representedPersons: 'alice' })
+    ).toThrow(/reResolve: representedPersons must be an array/);
+  });
+
+  it('throws with the reResolve prefix when clientSatisfactions is present and not a non-null object', () => {
+    expect(() =>
+      reResolve([], 'buyer_purchase', { ...facts, clientSatisfactions: 'alice' })
+    ).toThrow(/reResolve: clientSatisfactions must be a non-null object/);
+  });
+
   it('keeps completed, completedAt, and documents for an item present in both sets', () => {
     const result = reResolve(previousItems, 'buyer_purchase', facts);
     const item = result.find((entry) => entry.id === 'reco_information_guide');
@@ -435,6 +523,24 @@ describe('reResolve', () => {
     const result = reResolve(items, 'buyer_purchase', facts);
     const item = result.find((entry) => entry.id === 'reco_information_guide');
     expect(item.note).toBe('');
+  });
+
+  it('does not carry forward a stale outstandingPersons when new facts say the person is now satisfied', () => {
+    const items = [
+      {
+        id: 'reco_information_guide',
+        satisfiedPersons: [],
+        outstandingPersons: ['alice'],
+      },
+    ];
+    const result = reResolve(items, 'buyer_purchase', {
+      ...facts,
+      representedPersons: ['alice'],
+      clientSatisfactions: { alice: { reco_information_guide: {} } },
+    });
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.satisfiedPersons).toEqual(['alice']);
+    expect(item.outstandingPersons).toEqual([]);
   });
 
   it('produces an identical result when re-resolved again, with no duplicated no_longer_applicable entries', () => {
