@@ -4,7 +4,8 @@ const rules = require('./rules');
 
 // -- Constants --------------------------------------------------------------------
 
-const STATE_FIELDS = ['completed', 'completedAt', 'documents'];
+// note is agent-authored, explaining why an item was satisfied or left incomplete; the resolver never writes it.
+const STATE_FIELDS = ['completed', 'completedAt', 'documents', 'note'];
 
 // -- Argument assertions ------------------------------------------------------------
 

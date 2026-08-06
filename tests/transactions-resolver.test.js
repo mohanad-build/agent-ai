@@ -404,6 +404,39 @@ describe('reResolve', () => {
     expect(item.reason).toMatch(/buyer_purchase/);
   });
 
+  it('keeps a note for an item present in both sets', () => {
+    const items = [
+      { id: 'reco_information_guide', note: 'confirmed verbally, guide emailed same day' },
+    ];
+    const result = reResolve(items, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.note).toBe('confirmed verbally, guide emailed same day');
+  });
+
+  it('keeps a note on a dropped item that becomes no_longer_applicable', () => {
+    const items = [
+      { id: 'last_month_rent_deposit', note: 'landlord waived LMR, confirmed in writing' },
+    ];
+    const result = reResolve(items, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'last_month_rent_deposit');
+    expect(item.applicability).toBe('no_longer_applicable');
+    expect(item.note).toBe('landlord waived LMR, confirmed in writing');
+  });
+
+  it('does not add a note key to an item that had none', () => {
+    const items = [{ id: 'reco_information_guide' }];
+    const result = reResolve(items, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item).not.toHaveProperty('note');
+  });
+
+  it('carries forward an empty-string note rather than dropping it', () => {
+    const items = [{ id: 'reco_information_guide', note: '' }];
+    const result = reResolve(items, 'buyer_purchase', facts);
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+    expect(item.note).toBe('');
+  });
+
   it('produces an identical result when re-resolved again, with no duplicated no_longer_applicable entries', () => {
     const first = reResolve(previousItems, 'buyer_purchase', facts);
     const second = reResolve(first, 'buyer_purchase', facts);
