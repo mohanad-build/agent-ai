@@ -358,6 +358,14 @@ describe('lease item catalog (RTA replacement)', () => {
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
       'fintrac_unrepresented_party_record',
+      'financing_condition',
+      'inspection_condition',
+      'sale_of_property_condition',
+      'solicitor_approval_condition',
+      'insurance_condition',
+      'well_septic_condition',
+      'status_certificate_receipt',
+      'status_certificate_review',
     ]);
   });
 
@@ -373,6 +381,14 @@ describe('lease item catalog (RTA replacement)', () => {
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
       'fintrac_unrepresented_party_record',
+      'financing_condition',
+      'inspection_condition',
+      'sale_of_property_condition',
+      'solicitor_approval_condition',
+      'insurance_condition',
+      'well_septic_condition',
+      'status_certificate_receipt',
+      'status_certificate_review',
     ]);
   });
 
@@ -729,5 +745,84 @@ describe('reResolve', () => {
     const catalogIds = CATALOG.buyer_purchase.map((item) => item.id);
     expect(ids.slice(0, catalogIds.length)).toEqual(catalogIds);
     expect(ids.slice(catalogIds.length)).toEqual(['last_month_rent_deposit']);
+  });
+});
+
+describe('condition items (buyer_purchase and seller_sale)', () => {
+  const CONDITION_IDS = [
+    'financing_condition',
+    'inspection_condition',
+    'sale_of_property_condition',
+    'solicitor_approval_condition',
+    'insurance_condition',
+    'well_septic_condition',
+    'status_certificate_receipt',
+    'status_certificate_review',
+  ];
+
+  const REASONS = {
+    financing_condition: 'No financing condition in the agreement',
+    inspection_condition: 'No home inspection condition in the agreement',
+    sale_of_property_condition: 'No sale of buyer property condition in the agreement',
+    solicitor_approval_condition: 'No solicitor approval condition in the agreement',
+    insurance_condition: 'No insurance condition in the agreement',
+    well_septic_condition: 'No well and septic inspection condition in the agreement',
+    status_certificate_receipt: 'No status certificate condition in the agreement',
+    status_certificate_review: 'No status certificate condition in the agreement',
+  };
+
+  ['buyer_purchase', 'seller_sale'].forEach((type) => {
+    it(`resolves financing_condition required and the other seven not_applicable on ${type} when conditions is ['financing']`, () => {
+      const result = resolveChecklist(type, { conditions: ['financing'] });
+      const byId = new Map(result.map((entry) => [entry.id, entry]));
+      expect(byId.get('financing_condition').applicability).toBe('required');
+      CONDITION_IDS.filter((id) => id !== 'financing_condition').forEach((id) => {
+        expect(byId.get(id).applicability).toBe('not_applicable');
+        expect(byId.get(id).reason).toBe(REASONS[id]);
+      });
+    });
+
+    it(`resolves all eight condition items not_applicable on ${type} when conditions is []`, () => {
+      const result = resolveChecklist(type, { conditions: [] });
+      const byId = new Map(result.map((entry) => [entry.id, entry]));
+      CONDITION_IDS.forEach((id) => {
+        expect(byId.get(id).applicability).toBe('not_applicable');
+        expect(byId.get(id).reason).toBe(REASONS[id]);
+      });
+    });
+
+    it(`resolves all eight condition items indeterminate on ${type} when conditions is absent`, () => {
+      const result = resolveChecklist(type, {});
+      const byId = new Map(result.map((entry) => [entry.id, entry]));
+      CONDITION_IDS.forEach((id) => {
+        expect(byId.get(id).applicability).toBe('indeterminate');
+        expect(byId.get(id).pendingFacts).toEqual(['conditions']);
+      });
+    });
+
+    it(`resolves both status certificate rows required on ${type} when conditions is ['status_certificate']`, () => {
+      const result = resolveChecklist(type, { conditions: ['status_certificate'] });
+      const byId = new Map(result.map((entry) => [entry.id, entry]));
+      expect(byId.get('status_certificate_receipt').applicability).toBe('required');
+      expect(byId.get('status_certificate_review').applicability).toBe('required');
+    });
+
+    it(`throws on ${type} when conditions is null`, () => {
+      expect(() => resolveChecklist(type, { conditions: null })).toThrow(
+        'hasCondition: facts.conditions must be an array, got null'
+      );
+    });
+  });
+
+  it('produces identical condition results on buyer_purchase and seller_sale for the same facts', () => {
+    const facts = { conditions: ['financing', 'status_certificate'] };
+    const pick = (result) =>
+      CONDITION_IDS.map((id) => {
+        const { applicability, reason, pendingFacts } = result.find((entry) => entry.id === id);
+        return { id, applicability, reason, pendingFacts };
+      });
+    const buyerResult = pick(resolveChecklist('buyer_purchase', facts));
+    const sellerResult = pick(resolveChecklist('seller_sale', facts));
+    expect(buyerResult).toEqual(sellerResult);
   });
 });

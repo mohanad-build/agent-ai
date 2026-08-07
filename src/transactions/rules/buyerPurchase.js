@@ -1,6 +1,7 @@
 'use strict';
 
 const universal = require('./universal');
+const conditions = require('./conditions');
 
 // -- Buyer purchase items ------------------------------------------------------
 // Universal spine plus the buyer-purchase-specific FINTRAC record.
@@ -76,6 +77,7 @@ const BUYER_PURCHASE_ITEMS = [
     requiredWhen: (facts) => facts.hasSelfRepresentedParty === true,
     notApplicableReason: 'No self-represented party on this transaction',
   },
+  ...conditions.CONDITION_ITEMS,
 ];
 
 module.exports = {
