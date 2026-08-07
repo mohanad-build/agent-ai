@@ -2,6 +2,7 @@
 
 const universal = require('./universal');
 const conditions = require('./conditions');
+const terminal = require('./terminal');
 
 // -- Seller sale items ---------------------------------------------------------
 // Universal spine plus the seller-side listing agreement.
@@ -80,6 +81,7 @@ const SELLER_SALE_ITEMS = [
     notApplicableReason: 'No self-represented party on this transaction',
   },
   ...conditions.CONDITION_ITEMS,
+  ...terminal.TERMINAL_ITEMS,
 ];
 
 module.exports = {

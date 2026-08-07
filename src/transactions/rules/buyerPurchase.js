@@ -2,6 +2,7 @@
 
 const universal = require('./universal');
 const conditions = require('./conditions');
+const terminal = require('./terminal');
 
 // -- Buyer purchase items ------------------------------------------------------
 // Universal spine plus the buyer-purchase-specific FINTRAC record.
@@ -78,6 +79,7 @@ const BUYER_PURCHASE_ITEMS = [
     notApplicableReason: 'No self-represented party on this transaction',
   },
   ...conditions.CONDITION_ITEMS,
+  ...terminal.TERMINAL_ITEMS,
 ];
 
 module.exports = {

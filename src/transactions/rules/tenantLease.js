@@ -1,6 +1,7 @@
 'use strict';
 
 const universal = require('./universal');
+const terminal = require('./terminal');
 
 // -- Tenant lease items ---------------------------------------------------------
 // Universal spine plus the tenant-side lease execution and deposit sequence.
@@ -80,6 +81,7 @@ const TENANT_LEASE_ITEMS = [
     evidence: 'attestation',
     reads: [],
   },
+  ...terminal.TERMINAL_ITEMS,
 ];
 
 module.exports = {
