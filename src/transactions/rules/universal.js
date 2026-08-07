@@ -23,6 +23,14 @@ const UNIVERSAL_ITEMS = [
     requiredWhen: (facts) => facts.hasSelfRepresentedParty === true,
     notApplicableReason: 'No self-represented party on this transaction',
   },
+  {
+    id: 'deal_sheet',
+    label: 'Deal sheet or brokerage submission summary on file',
+    source: 'brokerage',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: [],
+  },
 ];
 
 module.exports = {

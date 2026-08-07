@@ -279,6 +279,7 @@ describe('lease item catalog (RTA replacement)', () => {
     expect(ids).toEqual([
       'reco_information_guide',
       'srp_disclosure',
+      'deal_sheet',
       'tenant_representation_agreement',
       'agreement_to_lease',
       'ontario_standard_lease',
@@ -297,6 +298,7 @@ describe('lease item catalog (RTA replacement)', () => {
     expect(ids).toEqual([
       'reco_information_guide',
       'srp_disclosure',
+      'deal_sheet',
       'listing_agreement_lease',
       'agreement_to_lease',
       'ontario_standard_lease',
@@ -352,6 +354,7 @@ describe('lease item catalog (RTA replacement)', () => {
     expect(ids).toEqual([
       'reco_information_guide',
       'srp_disclosure',
+      'deal_sheet',
       'listing_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_individual_identification_record',
@@ -375,6 +378,7 @@ describe('lease item catalog (RTA replacement)', () => {
     expect(ids).toEqual([
       'reco_information_guide',
       'srp_disclosure',
+      'deal_sheet',
       'buyer_representation_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_individual_identification_record',
@@ -397,6 +401,14 @@ describe('lease item catalog (RTA replacement)', () => {
     const item = result.find((entry) => entry.id === 'listing_agreement');
     expect(item.scope).toBe('transaction');
     expect(item).not.toHaveProperty('clientScope');
+  });
+
+  it('resolves deal_sheet as required on all four types with empty facts', () => {
+    TYPES.forEach((type) => {
+      const result = resolveChecklist(type, {});
+      const item = result.find((entry) => entry.id === 'deal_sheet');
+      expect(item.applicability).toBe('required');
+    });
   });
 
   it('resolves no item with source FINTRAC for either lease type, since FINTRAC does not apply to leases', () => {
