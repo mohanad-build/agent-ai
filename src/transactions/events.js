@@ -1,8 +1,9 @@
 'use strict';
 
-// One concern: what an event IS (shape and validation). Building a specific
-// event's payload, such as the close-with-items-outstanding payload, is
-// separate work that belongs elsewhere.
+// What an event IS (shape and validation), plus the payload shape for the
+// closed_with_items_outstanding kind. Writing an event onto a transaction
+// record, or calling the resolver to produce items in the first place,
+// stays out of this file.
 
 const ACTORS = Object.freeze(['agent', 'system', 'operator']);
 
@@ -41,9 +42,61 @@ function appendEvent(events, event) {
   return Object.freeze([...base, event]);
 }
 
+// Applicability values as produced by resolver.reResolve. Local to this
+// file: the resolver owns the definition, this is only a closed list to
+// validate against.
+const APPLICABILITIES = ['required', 'indeterminate', 'not_applicable', 'no_longer_applicable'];
+
+function buildCloseOutstandingPayload(items) {
+  if (!Array.isArray(items)) {
+    throw new Error('buildCloseOutstandingPayload: items must be an array');
+  }
+
+  let outstandingCount = 0;
+  const rows = [];
+
+  items.forEach((item) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('buildCloseOutstandingPayload: every item must be a plain object');
+    }
+    if (typeof item.id !== 'string' || item.id.trim() === '') {
+      throw new Error('buildCloseOutstandingPayload: every item must have a non-empty string id');
+    }
+    if (typeof item.label !== 'string' || item.label.trim() === '') {
+      throw new Error('buildCloseOutstandingPayload: every item must have a non-empty string label');
+    }
+    if (!APPLICABILITIES.includes(item.applicability)) {
+      throw new Error(`buildCloseOutstandingPayload: unknown applicability '${item.applicability}'`);
+    }
+
+    const completed = Boolean(item.completed);
+
+    if (item.applicability === 'required' && !completed) {
+      outstandingCount += 1;
+    }
+
+    if (item.applicability === 'required' || item.applicability === 'indeterminate') {
+      rows.push({
+        id: item.id,
+        label: item.label,
+        applicability: item.applicability,
+        completed,
+      });
+    }
+  });
+
+  Object.freeze(rows);
+
+  return Object.freeze({
+    outstandingCount,
+    rows,
+  });
+}
+
 module.exports = {
   ACTORS,
   EVENT_KINDS,
   makeEvent,
   appendEvent,
+  buildCloseOutstandingPayload,
 };
