@@ -89,7 +89,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '',
     '---',
     '',
-    ...(hasSource ? ['**Sources:**', '- [Source Name](URL) — as of YYYY-MM-DD', '- [Source Name](URL) — as of YYYY-MM-DD', ''] : []),
+    ...(hasSource ? ['**Sources:**', '- [Source Name](URL) -- as of YYYY-MM-DD', '- [Source Name](URL) -- as of YYYY-MM-DD', ''] : []),
     'META: <metaDescription, MUST be 100-160 characters total; Google truncates at 160, so >160 gets cut off; count characters before returning>',
     'KEYWORD: <targetKeyword phrase, 2-4 words; the SEO topic this post targets; does NOT need to appear in the title>',
     '',
@@ -107,7 +107,7 @@ function buildBlogPostPrompt({ angle, contentProfile }) {
     '- No tri-colon listicles ("X, Y, Z all matter").',
     '- Banned phrases: "in conclusion", "it\'s important to note that", "it\'s worth noting", "navigating the market", "navigating the [anything] market" (pattern), "in today\'s market", "ever-changing", "ever-evolving".',
     '',
-    ...(hasSource ? ['CITATIONS:', '- Inline: prose attribution for flow, plus at least one Markdown link per major stat.', '- Sources block (bottom): full attribution. Format each entry as: `- [Source Name](URL) — as of YYYY-MM-DD`.', '- At least 1 sources entry required.', ''] : []),
+    ...(hasSource ? ['CITATIONS:', '- Inline: prose attribution for flow, plus at least one Markdown link per major stat.', '- Sources block (bottom): full attribution. Format each entry as: `- [Source Name](URL) -- as of YYYY-MM-DD`.', '- At least 1 sources entry required.', ''] : []),
     'CONSTRAINTS:',
     '- Every factual claim traces to a dataPoint in the source angle.',
     '- The thesis is ground truth -- restate in agent\'s voice, do not rewrite.',
@@ -230,6 +230,10 @@ function parseSections(rawText, hasSource = true) {
     const line = afterSep[j].trim();
     if (!line) continue;
     if (/^(meta|keyword)\s*:/i.test(line)) break;
+    // The em-dash and en-dash alternatives below are unreachable in this pipeline:
+    // stripDashes (src/claude.js) runs on every raw response before parseSections
+    // is called, converting both to ", ". They are kept here for callers that
+    // parse unstripped text directly.
     const m = line.match(/^-\s*\[([^\]]+)\]\(([^)]+)\)\s*(?:--|—|–)\s*as\s+of\s+(.+)$/i);
     if (m) {
       sources.push({ name: m[1].trim(), url: m[2].trim(), asOfDate: m[3].trim() });
@@ -410,7 +414,7 @@ function assembleSections(sections, { forbidsRateAdvice }) {
   parts.push('');
   parts.push('**Sources:**');
   for (const src of sections.sources) {
-    parts.push(`- [${src.name}](${src.url}) — as of ${src.asOfDate}`);
+    parts.push(`- [${src.name}](${src.url}) -- as of ${src.asOfDate}`);
   }
 
   return parts.join('\n');

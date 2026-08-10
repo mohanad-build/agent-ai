@@ -5,6 +5,7 @@ const {
   BlogPostGenerationError,
   _internal,
 } = require('../src/content/renderBlogPost');
+const { stripDashes } = require('../src/claude');
 
 const { buildBlogPostPrompt, validateBlogPost, assembleSections, parseSections } = _internal;
 
@@ -337,6 +338,11 @@ describe('parseSections', () => {
     expect(result.body[1].heading).toBe('What a two-week yield drop actually signals');
   });
 
+  // Parser tolerance only: this covers callers that hand parseSections raw,
+  // unstripped text directly. In the actual renderBlogPost pipeline, stripDashes
+  // runs on every raw response before parseSections sees it, so an em-dash
+  // separator is converted to ", " and never reaches this branch of the regex.
+  // See the seam test below for the path that pipeline actually exercises.
   test('parseSections accepts em-dash separator for forward compatibility', () => {
     const emDash = VALID_CLAUDE_RESPONSE.replace(
       '-- as of 2026-05-14',
@@ -347,6 +353,8 @@ describe('parseSections', () => {
     expect(result.sources).toEqual(VALID_SECTIONS.sources);
   });
 
+  // Parser tolerance only, same caveat as above: stripDashes makes the en-dash
+  // branch unreachable when parseSections is called via the real pipeline.
   test('parseSections accepts en-dash separator for resilience', () => {
     const enDash = VALID_CLAUDE_RESPONSE.replace(
       '-- as of 2026-05-14',
@@ -355,6 +363,46 @@ describe('parseSections', () => {
     const result = parseSections(enDash);
     expect(result).not.toBeNull();
     expect(result.sources).toEqual(VALID_SECTIONS.sources);
+  });
+
+  test('closes the stripDashes -> parseSections seam: a raw response using the ' +
+    'separator the prompt now specifies still parses after the real stripDashes runs', () => {
+    const { system } = buildBlogPostPrompt({ angle: makeAngle(), contentProfile: makeContentProfile() });
+    const templateLine = system
+      .split('\n')
+      .find(line => /- \[Source Name\]\(URL\).*as of YYYY-MM-DD/.test(line));
+    expect(templateLine).toBeDefined();
+
+    const sourceLine = templateLine
+      .replace('Source Name', 'Bank of Canada')
+      .replace('URL', 'https://www.bankofcanada.ca/')
+      .replace('YYYY-MM-DD', '2026-05-14');
+
+    const rawResponse = [
+      '# Seam test title',
+      '',
+      'Hook paragraph text for the seam test, long enough to stand on its own.',
+      '',
+      '## Only section',
+      '',
+      'Body paragraph text for the seam test.',
+      '',
+      '---',
+      '',
+      '**Sources:**',
+      sourceLine,
+      '',
+      'META: A meta description for the seam test fixture, long enough to be non-empty.',
+      'KEYWORD: seam test',
+    ].join('\n');
+
+    const cleaned = stripDashes(rawResponse);
+    const result = parseSections(cleaned);
+
+    expect(result).not.toBeNull();
+    expect(result.sources).toEqual([
+      { name: 'Bank of Canada', url: 'https://www.bankofcanada.ca/', asOfDate: '2026-05-14' },
+    ]);
   });
 
   test('parses exactly 4 H2 sections correctly', () => {
@@ -662,9 +710,9 @@ describe('assembleSections', () => {
     expect(text).toContain('Extra paragraph.');
   });
 
-  test('sources rendered as - [name](url) — as of date lines', () => {
+  test('sources rendered as - [name](url) -- as of date lines', () => {
     const text = assembleSections(VALID_SECTIONS, { forbidsRateAdvice: false });
-    expect(text).toContain('- [Bank of Canada key policy rate](https://www.bankofcanada.ca/core-functions/monetary-policy/) — as of 2026-05-14');
+    expect(text).toContain('- [Bank of Canada key policy rate](https://www.bankofcanada.ca/core-functions/monetary-policy/) -- as of 2026-05-14');
   });
 
   test('does NOT include META or KEYWORD lines in output', () => {
