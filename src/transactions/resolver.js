@@ -106,6 +106,14 @@ function annotateItem(item, facts) {
 // it. Only clientScope 'event' items get them here; clientScope 'dated' needs a
 // validity window, which needs a date, which this resolver has no clock to supply,
 // so that is separate work.
+//
+// Emission is gated by applicability too: required emits both fields, unchanged.
+// not_applicable emits satisfiedPersons only: evidence of who was checked before
+// the item was ruled out survives, but nobody is named outstanding against an
+// obligation that does not apply to them. indeterminate emits neither field, for
+// the same reason the representedPersons-absent branch below emits neither: we
+// do not yet know whether the obligation exists, so naming anyone against it
+// would assert a fact we were never given.
 function withClientSatisfaction(annotated, item, facts) {
   if (item.scope !== 'client' || item.clientScope !== 'event') {
     return annotated;
@@ -120,6 +128,10 @@ function withClientSatisfaction(annotated, item, facts) {
     return annotated;
   }
 
+  if (annotated.applicability === 'indeterminate') {
+    return annotated;
+  }
+
   const satisfiedPersons = [];
   const outstandingPersons = [];
   facts.representedPersons.forEach((personId) => {
@@ -129,6 +141,10 @@ function withClientSatisfaction(annotated, item, facts) {
       outstandingPersons.push(personId);
     }
   });
+
+  if (annotated.applicability === 'not_applicable') {
+    return { ...annotated, satisfiedPersons };
+  }
 
   return { ...annotated, satisfiedPersons, outstandingPersons };
 }

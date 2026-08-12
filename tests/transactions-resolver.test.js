@@ -178,9 +178,9 @@ describe('resolveChecklist', () => {
   it('does not add satisfiedPersons or outstandingPersons to a scope transaction item', () => {
     const result = resolveChecklist('buyer_purchase', 'conditional', {
       representedPersons: ['alice'],
-      clientSatisfactions: { alice: { fintrac_corporation_identification_record: {} } },
+      clientSatisfactions: { alice: { deal_sheet: {} } },
     });
-    const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
+    const item = result.find((entry) => entry.id === 'deal_sheet');
     expect(item).not.toHaveProperty('satisfiedPersons');
     expect(item).not.toHaveProperty('outstandingPersons');
   });
@@ -374,6 +374,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'deal_sheet',
       'listing_agreement',
       'fintrac_corporation_identification_record',
+      'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
@@ -398,6 +399,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'deal_sheet',
       'buyer_representation_agreement',
       'fintrac_corporation_identification_record',
+      'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
@@ -506,6 +508,7 @@ describe('terminal items (mutual_release)', () => {
       'deal_sheet',
       'listing_agreement',
       'fintrac_corporation_identification_record',
+      'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
@@ -531,6 +534,7 @@ describe('terminal items (mutual_release)', () => {
       'deal_sheet',
       'buyer_representation_agreement',
       'fintrac_corporation_identification_record',
+      'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
@@ -1038,5 +1042,78 @@ describe('condition items (buyer_purchase and seller_sale)', () => {
     const buyerResult = pick(resolveChecklist('buyer_purchase', NON_COLLAPSED_STATE.buyer_purchase, facts));
     const sellerResult = pick(resolveChecklist('seller_sale', NON_COLLAPSED_STATE.seller_sale, facts));
     expect(buyerResult).toEqual(sellerResult);
+  });
+});
+
+describe('corporate client identification (fintrac_corporation_identification_record / fintrac_articles_of_incorporation)', () => {
+  ['buyer_purchase', 'seller_sale'].forEach((type) => {
+    const state = NON_COLLAPSED_STATE[type];
+
+    it(`resolves the corporation record required with both person fields correctly partitioned on ${type} when entityType is corporation`, () => {
+      const result = resolveChecklist(type, state, {
+        entityType: 'corporation',
+        representedPersons: ['alice', 'bob'],
+        clientSatisfactions: { alice: { fintrac_corporation_identification_record: {} } },
+      });
+      const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
+      expect(item.applicability).toBe('required');
+      expect(item.satisfiedPersons).toEqual(['alice']);
+      expect(item.outstandingPersons).toEqual(['bob']);
+    });
+
+    it(`resolves the corporation record not_applicable on ${type} when entityType is individual, with satisfiedPersons present and outstandingPersons absent`, () => {
+      const result = resolveChecklist(type, state, {
+        entityType: 'individual',
+        representedPersons: ['alice', 'bob'],
+      });
+      const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
+      expect(item.applicability).toBe('not_applicable');
+      expect(item.satisfiedPersons).toEqual([]);
+      expect(item).not.toHaveProperty('outstandingPersons');
+    });
+
+    it(`resolves the corporation record indeterminate on ${type} when entityType is absent, with both person fields absent`, () => {
+      const result = resolveChecklist(type, state, { representedPersons: ['alice', 'bob'] });
+      const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
+      expect(item.applicability).toBe('indeterminate');
+      expect(item).not.toHaveProperty('satisfiedPersons');
+      expect(item).not.toHaveProperty('outstandingPersons');
+    });
+
+    it(`preserves evidence on ${type}: satisfiedPersons still names a person checked before the corporation record was ruled not_applicable`, () => {
+      const result = resolveChecklist(type, state, {
+        entityType: 'individual',
+        representedPersons: ['alice', 'bob'],
+        clientSatisfactions: { alice: { fintrac_corporation_identification_record: {} } },
+      });
+      const item = result.find((entry) => entry.id === 'fintrac_corporation_identification_record');
+      expect(item.applicability).toBe('not_applicable');
+      expect(item.satisfiedPersons).toEqual(['alice']);
+      expect(item).not.toHaveProperty('outstandingPersons');
+    });
+
+    it(`resolves fintrac_articles_of_incorporation's applicability the same as the corporation record on ${type}`, () => {
+      const required = resolveChecklist(type, state, { entityType: 'corporation' }).find(
+        (entry) => entry.id === 'fintrac_articles_of_incorporation'
+      );
+      expect(required.applicability).toBe('required');
+
+      const notApplicable = resolveChecklist(type, state, { entityType: 'individual' }).find(
+        (entry) => entry.id === 'fintrac_articles_of_incorporation'
+      );
+      expect(notApplicable.applicability).toBe('not_applicable');
+
+      const indeterminate = resolveChecklist(type, state, {}).find(
+        (entry) => entry.id === 'fintrac_articles_of_incorporation'
+      );
+      expect(indeterminate.applicability).toBe('indeterminate');
+    });
+
+    it(`fintrac_articles_of_incorporation carries scope client and clientScope event on ${type}`, () => {
+      const result = resolveChecklist(type, state, { entityType: 'corporation' });
+      const item = result.find((entry) => entry.id === 'fintrac_articles_of_incorporation');
+      expect(item.scope).toBe('client');
+      expect(item.clientScope).toBe('event');
+    });
   });
 });
