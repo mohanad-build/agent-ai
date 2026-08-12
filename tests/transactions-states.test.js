@@ -276,17 +276,78 @@ describe('structural invariants (iterate the table, do not hardcode)', () => {
 });
 
 describe('locked spec content (section 3)', () => {
-  it('pins the edges that earlier spec reviews missed', () => {
-    expect(canTransition('seller_sale', 'conditional', 'live')).toEqual({ valid: true });
-    expect(canTransition('landlord_lease', 'signed', 'live')).toEqual({ valid: true });
-    expect(canTransition('landlord_lease', 'tenant_selected', 'live')).toEqual({ valid: true });
+  it('seller_sale adopts the buyer_purchase table verbatim: every edge permitted', () => {
+    expect(canTransition('seller_sale', 'conditional', 'firm')).toEqual({ valid: true });
+    expect(canTransition('seller_sale', 'firm', 'closed')).toEqual({ valid: true });
+    expect(canTransition('seller_sale', 'conditional', 'collapsed')).toEqual({ valid: true });
+    expect(canTransition('seller_sale', 'firm', 'collapsed')).toEqual({ valid: true });
+  });
+
+  it('landlord_lease adopts the tenant_lease table verbatim: every edge permitted', () => {
+    expect(canTransition('landlord_lease', 'accepted', 'signed')).toEqual({ valid: true });
+    expect(canTransition('landlord_lease', 'signed', 'possession')).toEqual({ valid: true });
+    expect(canTransition('landlord_lease', 'possession', 'closed')).toEqual({ valid: true });
+    expect(canTransition('landlord_lease', 'accepted', 'collapsed')).toEqual({ valid: true });
+    expect(canTransition('landlord_lease', 'signed', 'collapsed')).toEqual({ valid: true });
     expect(canTransition('landlord_lease', 'possession', 'collapsed')).toEqual({ valid: true });
-    expect(canTransition('seller_sale', 'live', 'suspended')).toEqual({ valid: true });
-    expect(canTransition('seller_sale', 'suspended', 'live')).toEqual({ valid: true });
-    expect(canTransition('landlord_lease', 'live', 'suspended')).toEqual({ valid: true });
-    expect(canTransition('landlord_lease', 'suspended', 'live')).toEqual({ valid: true });
-    expect(isValidInitialState('seller_sale', 'live')).toBe(true);
-    expect(isValidInitialState('landlord_lease', 'live')).toBe(true);
+  });
+
+  it('seller_sale and landlord_lease have the new initial state sets, in both directions', () => {
+    expect(getInitialStates('seller_sale')).toEqual(['conditional', 'firm']);
+    expect(isValidInitialState('seller_sale', 'conditional')).toBe(true);
+    expect(isValidInitialState('seller_sale', 'firm')).toBe(true);
+    expect(isValidInitialState('seller_sale', 'closed')).toBe(false);
+    expect(isValidInitialState('seller_sale', 'collapsed')).toBe(false);
+
+    expect(getInitialStates('landlord_lease')).toEqual(['accepted']);
+    expect(isValidInitialState('landlord_lease', 'accepted')).toBe(true);
+    expect(isValidInitialState('landlord_lease', 'signed')).toBe(false);
+    expect(isValidInitialState('landlord_lease', 'possession')).toBe(false);
+    expect(isValidInitialState('landlord_lease', 'closed')).toBe(false);
+    expect(isValidInitialState('landlord_lease', 'collapsed')).toBe(false);
+  });
+
+  it('the removed states, including tenant_selected, are no longer valid states for seller_sale and landlord_lease', () => {
+    ['preparing', 'live', 'suspended', 'terminated'].forEach((state) => {
+      expect(getStates('seller_sale')).not.toContain(state);
+      expect(getStates('landlord_lease')).not.toContain(state);
+    });
+    expect(getStates('landlord_lease')).not.toContain('tenant_selected');
+  });
+
+  it('mirror: the listing types still contain preparing, live, suspended, terminated -- the states moved, they did not vanish', () => {
+    ['preparing', 'live', 'suspended', 'terminated'].forEach((state) => {
+      expect(getStates('seller_listing')).toContain(state);
+      expect(getStates('landlord_listing')).toContain(state);
+    });
+  });
+
+  it('the split-eliminated transitions refuse across three distinct canTransition branches', () => {
+    // Branch 1: not-a-valid-state. `live` did not lose an edge, it left the type.
+    expect(canTransition('seller_sale', 'conditional', 'live')).toEqual({
+      valid: false,
+      reason: 'live is not a valid state for seller_sale',
+    });
+    expect(canTransition('landlord_lease', 'signed', 'live')).toEqual({
+      valid: false,
+      reason: 'live is not a valid state for landlord_lease',
+    });
+
+    // Branch 2: no-such-edge. Both states valid, no edge between them.
+    expect(canTransition('seller_sale', 'conditional', 'closed')).toEqual({
+      valid: false,
+      reason: 'Cannot move from conditional to closed',
+    });
+    expect(canTransition('landlord_lease', 'accepted', 'possession')).toEqual({
+      valid: false,
+      reason: 'Cannot move from accepted to possession',
+    });
+
+    // Branch 3: terminal-state.
+    expect(canTransition('seller_sale', 'closed', 'conditional')).toEqual({
+      valid: false,
+      reason: 'closed is a final state and cannot transition to another state',
+    });
   });
 
   it('buy-side types have no terminated state, deliberately', () => {

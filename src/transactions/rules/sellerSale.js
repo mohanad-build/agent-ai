@@ -28,14 +28,6 @@ const SELLER_SALE_ITEMS = [
     reads: [],
   },
   {
-    id: 'listing_agreement',
-    label: 'Listing Agreement, in writing with remuneration method stated',
-    source: 'TRESA',
-    scope: 'transaction',
-    evidence: 'document',
-    reads: [],
-  },
-  {
     id: 'fintrac_corporation_identification_record',
     label: 'FINTRAC Corporation Identification Record',
     source: 'FINTRAC',

@@ -14,15 +14,26 @@ const TYPES = Object.keys(CATALOG);
 // doesn't exist for the listing types.
 const DEAL_TYPES = ['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease'];
 
+// The four types that carry a representation/listing instrument of their own.
+// seller_sale and landlord_lease do not: the split moved listing_agreement and
+// listing_agreement_lease onto seller_listing and landlord_listing exclusively,
+// so those two deal types have no representation instrument left to assert on.
+const TYPES_WITH_REPRESENTATION_INSTRUMENT = [
+  'buyer_purchase',
+  'tenant_lease',
+  'seller_listing',
+  'landlord_listing',
+];
+
 const VALID_SOURCES = new Set(['TRESA', 'FINTRAC', 'RTA', 'APS', 'brokerage', 'agent']);
 
 // A representative non-collapsed state per type, for tests that need a valid
 // state but aren't exercising state-dependent behavior themselves.
 const NON_COLLAPSED_STATE = {
   buyer_purchase: 'conditional',
-  seller_sale: 'live',
+  seller_sale: 'conditional',
   tenant_lease: 'accepted',
-  landlord_lease: 'live',
+  landlord_lease: 'accepted',
   seller_listing: 'live',
   landlord_listing: 'live',
 };
@@ -117,7 +128,7 @@ describe('resolveChecklist', () => {
   });
 
   it('marks srp_disclosure indeterminate for landlord_lease on empty facts', () => {
-    const result = resolveChecklist('landlord_lease', 'live', {});
+    const result = resolveChecklist('landlord_lease', 'accepted', {});
     const item = result.find((entry) => entry.id === 'srp_disclosure');
     expect(item.applicability).toBe('indeterminate');
     expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty']);
@@ -320,13 +331,12 @@ describe('lease item catalog (RTA replacement)', () => {
   });
 
   it('resolves the exact landlord_lease id set', () => {
-    const result = resolveChecklist('landlord_lease', 'live', {});
+    const result = resolveChecklist('landlord_lease', 'accepted', {});
     const ids = result.map((entry) => entry.id);
     expect(ids).toEqual([
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
-      'listing_agreement_lease',
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_delivered',
@@ -354,11 +364,10 @@ describe('lease item catalog (RTA replacement)', () => {
     expect(ids).not.toContain('last_month_rent_deposit');
   });
 
-  it('listing_agreement_lease resolves for landlord_lease with scope transaction and no clientScope', () => {
-    const result = resolveChecklist('landlord_lease', 'live', {});
-    const item = result.find((entry) => entry.id === 'listing_agreement_lease');
-    expect(item.scope).toBe('transaction');
-    expect(item).not.toHaveProperty('clientScope');
+  it('listing_agreement_lease no longer resolves on landlord_lease; it moved to landlord_listing', () => {
+    const result = resolveChecklist('landlord_lease', 'accepted', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).not.toContain('listing_agreement_lease');
   });
 
   it('tenant_representation_agreement resolves for tenant_lease with scope client and clientScope dated', () => {
@@ -376,13 +385,12 @@ describe('lease item catalog (RTA replacement)', () => {
   });
 
   it('resolves the exact seller_sale id set', () => {
-    const result = resolveChecklist('seller_sale', 'live', {});
+    const result = resolveChecklist('seller_sale', 'conditional', {});
     const ids = result.map((entry) => entry.id);
     expect(ids).toEqual([
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
-      'listing_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
@@ -425,11 +433,10 @@ describe('lease item catalog (RTA replacement)', () => {
     ]);
   });
 
-  it('listing_agreement resolves for seller_sale with scope transaction and no clientScope', () => {
-    const result = resolveChecklist('seller_sale', 'live', {});
-    const item = result.find((entry) => entry.id === 'listing_agreement');
-    expect(item.scope).toBe('transaction');
-    expect(item).not.toHaveProperty('clientScope');
+  it('listing_agreement no longer resolves on seller_sale; it moved to seller_listing', () => {
+    const result = resolveChecklist('seller_sale', 'conditional', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).not.toContain('listing_agreement');
   });
 
   it('resolves deal_sheet as required on all four deal types with empty facts', () => {
@@ -443,7 +450,7 @@ describe('lease item catalog (RTA replacement)', () => {
   it('resolves no item with source FINTRAC for either lease type, since FINTRAC does not apply to leases', () => {
     const tenantResult = resolveChecklist('tenant_lease', 'accepted', {});
     expect(tenantResult.some((entry) => entry.source === 'FINTRAC')).toBe(false);
-    const landlordResult = resolveChecklist('landlord_lease', 'live', {});
+    const landlordResult = resolveChecklist('landlord_lease', 'accepted', {});
     expect(landlordResult.some((entry) => entry.source === 'FINTRAC')).toBe(false);
   });
 });
@@ -523,7 +530,6 @@ describe('terminal items (mutual_release)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
-      'listing_agreement_lease',
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_delivered',
@@ -543,7 +549,6 @@ describe('terminal items (mutual_release)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
-      'listing_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
@@ -684,14 +689,14 @@ describe('locked spec content', () => {
   });
 
   it('the receipt of funds record on seller_sale resolves indeterminate on an empty facts object, naming both facts in reads order', () => {
-    const result = resolveChecklist('seller_sale', 'live', {});
+    const result = resolveChecklist('seller_sale', 'conditional', {});
     const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
     expect(item.applicability).toBe('indeterminate');
     expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty', 'brokerageReceivedFunds']);
   });
 
   it('the receipt of funds record on seller_sale resolves not_applicable when hasSelfRepresentedParty is false and brokerageReceivedFunds is true', () => {
-    const result = resolveChecklist('seller_sale', 'live', {
+    const result = resolveChecklist('seller_sale', 'conditional', {
       hasSelfRepresentedParty: false,
       brokerageReceivedFunds: true,
     });
@@ -703,7 +708,7 @@ describe('locked spec content', () => {
   });
 
   it('the receipt of funds record on seller_sale resolves not_applicable when hasSelfRepresentedParty is true and brokerageReceivedFunds is false', () => {
-    const result = resolveChecklist('seller_sale', 'live', {
+    const result = resolveChecklist('seller_sale', 'conditional', {
       hasSelfRepresentedParty: true,
       brokerageReceivedFunds: false,
     });
@@ -715,7 +720,7 @@ describe('locked spec content', () => {
   });
 
   it('the receipt of funds record on seller_sale resolves required only when both hasSelfRepresentedParty and brokerageReceivedFunds are true', () => {
-    const result = resolveChecklist('seller_sale', 'live', {
+    const result = resolveChecklist('seller_sale', 'conditional', {
       hasSelfRepresentedParty: true,
       brokerageReceivedFunds: true,
     });
@@ -729,7 +734,7 @@ describe('locked spec content', () => {
     const buyerItem = buyerResult.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
     expect(buyerItem.applicability).toBe('required');
 
-    const sellerResult = resolveChecklist('seller_sale', 'live', {});
+    const sellerResult = resolveChecklist('seller_sale', 'conditional', {});
     const sellerItem = sellerResult.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
     expect(sellerItem.applicability).toBe('indeterminate');
   });
@@ -763,17 +768,20 @@ describe('locked spec content', () => {
     const REPRESENTATION_INSTRUMENT_IDS = {
       buyer_purchase: 'buyer_representation_agreement',
       tenant_lease: 'tenant_representation_agreement',
-      seller_sale: 'listing_agreement',
-      landlord_lease: 'listing_agreement_lease',
       seller_listing: 'listing_agreement',
       landlord_listing: 'listing_agreement_lease',
     };
-    TYPES.forEach((type) => {
+    TYPES_WITH_REPRESENTATION_INSTRUMENT.forEach((type) => {
       const id = REPRESENTATION_INSTRUMENT_IDS[type];
       const item = CATALOG[type].find((entry) => entry.id === id);
       expect(item).toBeDefined();
       expect(item.label).toMatch(/remuneration/);
     });
+  });
+
+  it('seller_sale and landlord_lease no longer carry a representation/listing instrument of their own', () => {
+    expect(CATALOG.seller_sale.find((entry) => entry.id === 'listing_agreement')).toBeUndefined();
+    expect(CATALOG.landlord_lease.find((entry) => entry.id === 'listing_agreement_lease')).toBeUndefined();
   });
 });
 

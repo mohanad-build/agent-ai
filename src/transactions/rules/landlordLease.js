@@ -27,14 +27,6 @@ const LANDLORD_LEASE_ITEMS = [
     reads: [],
   },
   {
-    id: 'listing_agreement_lease',
-    label: 'Listing Agreement (Lease), in writing with remuneration method stated',
-    source: 'TRESA',
-    scope: 'transaction',
-    evidence: 'document',
-    reads: [],
-  },
-  {
     id: 'agreement_to_lease',
     label: 'Agreement to Lease (Form 400)',
     source: 'brokerage',
