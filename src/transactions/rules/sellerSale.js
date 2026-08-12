@@ -10,6 +10,24 @@ const terminal = require('./terminal');
 const SELLER_SALE_ITEMS = [
   ...universal.UNIVERSAL_ITEMS,
   {
+    id: 'srp_disclosure',
+    label: 'Self-Represented Party Disclosure',
+    source: 'TRESA',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: ['hasSelfRepresentedParty'],
+    requiredWhen: (facts) => facts.hasSelfRepresentedParty === true,
+    notApplicableReason: 'No self-represented party on this transaction',
+  },
+  {
+    id: 'deal_sheet',
+    label: 'Deal sheet or brokerage submission summary on file',
+    source: 'brokerage',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: [],
+  },
+  {
     id: 'listing_agreement',
     label: 'Listing Agreement, in writing with remuneration method stated',
     source: 'TRESA',

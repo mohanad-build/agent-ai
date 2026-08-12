@@ -1,7 +1,7 @@
 'use strict';
 
 // -- Universal items ----------------------------------------------------------
-// Consumed by every transaction type's rules file.
+// What every record carries regardless of whether it is a deal or a listing.
 
 const UNIVERSAL_ITEMS = [
   {
@@ -11,24 +11,6 @@ const UNIVERSAL_ITEMS = [
     scope: 'client',
     clientScope: 'event',
     evidence: 'attestation',
-    reads: [],
-  },
-  {
-    id: 'srp_disclosure',
-    label: 'Self-Represented Party Disclosure',
-    source: 'TRESA',
-    scope: 'transaction',
-    evidence: 'document',
-    reads: ['hasSelfRepresentedParty'],
-    requiredWhen: (facts) => facts.hasSelfRepresentedParty === true,
-    notApplicableReason: 'No self-represented party on this transaction',
-  },
-  {
-    id: 'deal_sheet',
-    label: 'Deal sheet or brokerage submission summary on file',
-    source: 'brokerage',
-    scope: 'transaction',
-    evidence: 'document',
     reads: [],
   },
 ];
