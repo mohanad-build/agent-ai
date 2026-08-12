@@ -6,6 +6,14 @@ const { getStates } = require('../src/transactions/states');
 
 const TYPES = Object.keys(CATALOG);
 
+// The four types that carry the deal-only universal items (deal_sheet,
+// srp_disclosure) and the collapsed/mutual_release terminal machinery. The
+// listing types (seller_listing, landlord_listing) are non-deal records and
+// have neither, so tests exercising those must scope to this list explicitly
+// rather than iterating TYPES, which would try 'collapsed' as a state that
+// doesn't exist for the listing types.
+const DEAL_TYPES = ['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease'];
+
 const VALID_SOURCES = new Set(['TRESA', 'FINTRAC', 'RTA', 'APS', 'brokerage', 'agent']);
 
 // A representative non-collapsed state per type, for tests that need a valid
@@ -15,6 +23,8 @@ const NON_COLLAPSED_STATE = {
   seller_sale: 'live',
   tenant_lease: 'accepted',
   landlord_lease: 'live',
+  seller_listing: 'live',
+  landlord_listing: 'live',
 };
 
 describe('resolveChecklist', () => {
@@ -422,8 +432,8 @@ describe('lease item catalog (RTA replacement)', () => {
     expect(item).not.toHaveProperty('clientScope');
   });
 
-  it('resolves deal_sheet as required on all four types with empty facts', () => {
-    TYPES.forEach((type) => {
+  it('resolves deal_sheet as required on all four deal types with empty facts', () => {
+    DEAL_TYPES.forEach((type) => {
       const result = resolveChecklist(type, NON_COLLAPSED_STATE[type], {});
       const item = result.find((entry) => entry.id === 'deal_sheet');
       expect(item.applicability).toBe('required');
@@ -438,8 +448,35 @@ describe('lease item catalog (RTA replacement)', () => {
   });
 });
 
+describe('listing item catalog (seller_listing, landlord_listing)', () => {
+  it('resolves the exact seller_listing id set', () => {
+    const result = resolveChecklist('seller_listing', 'live', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual(['reco_information_guide', 'listing_agreement']);
+  });
+
+  it('resolves the exact landlord_listing id set', () => {
+    const result = resolveChecklist('landlord_listing', 'live', {});
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual(['reco_information_guide', 'listing_agreement_lease']);
+  });
+
+  it('resolves no item with source FINTRAC for either listing type', () => {
+    const sellerResult = resolveChecklist('seller_listing', 'live', {});
+    expect(sellerResult.some((entry) => entry.source === 'FINTRAC')).toBe(false);
+    const landlordResult = resolveChecklist('landlord_listing', 'live', {});
+    expect(landlordResult.some((entry) => entry.source === 'FINTRAC')).toBe(false);
+  });
+
+  it('resolves the identical id set at both initial states, preparing and live', () => {
+    const preparingIds = resolveChecklist('seller_listing', 'preparing', {}).map((entry) => entry.id);
+    const liveIds = resolveChecklist('seller_listing', 'live', {}).map((entry) => entry.id);
+    expect(preparingIds).toEqual(liveIds);
+  });
+});
+
 describe('terminal items (mutual_release)', () => {
-  it('is absent from the resolved set on every non-collapsed state, for all four types', () => {
+  it('is absent from the resolved set on every non-collapsed state, for every type', () => {
     TYPES.forEach((type) => {
       getStates(type)
         .filter((state) => state !== 'collapsed')
@@ -450,8 +487,8 @@ describe('terminal items (mutual_release)', () => {
     });
   });
 
-  it('is present and required when state is collapsed, for all four types', () => {
-    TYPES.forEach((type) => {
+  it('is present and required when state is collapsed, for all four deal types', () => {
+    DEAL_TYPES.forEach((type) => {
       const result = resolveChecklist(type, 'collapsed', {});
       const item = result.find((entry) => entry.id === 'mutual_release');
       expect(item).toBeDefined();
@@ -562,7 +599,7 @@ describe('terminal items (mutual_release)', () => {
 
 describe('locked spec content', () => {
   it('returns exactly the non-terminal-only catalog items for the type at a non-collapsed state, for any facts input including {}', () => {
-    TYPES.forEach((type) => {
+    DEAL_TYPES.forEach((type) => {
       const state = NON_COLLAPSED_STATE[type];
       const expectedLength = CATALOG[type].filter((item) => !item.terminalOnly).length;
       expect(resolveChecklist(type, state, {}).length).toBe(expectedLength);
@@ -573,7 +610,7 @@ describe('locked spec content', () => {
   });
 
   it('returns the full catalog length for the type at state collapsed, for any facts input including {}', () => {
-    TYPES.forEach((type) => {
+    DEAL_TYPES.forEach((type) => {
       expect(resolveChecklist(type, 'collapsed', {}).length).toBe(CATALOG[type].length);
       expect(
         resolveChecklist(type, 'collapsed', { entityType: 'corporation', hasSelfRepresentedParty: true }).length
@@ -728,6 +765,8 @@ describe('locked spec content', () => {
       tenant_lease: 'tenant_representation_agreement',
       seller_sale: 'listing_agreement',
       landlord_lease: 'listing_agreement_lease',
+      seller_listing: 'listing_agreement',
+      landlord_listing: 'listing_agreement_lease',
     };
     TYPES.forEach((type) => {
       const id = REPRESENTATION_INSTRUMENT_IDS[type];

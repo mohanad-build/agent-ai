@@ -28,7 +28,14 @@ class TransactionSchemaValidationError extends Error {
 
 const TRANSACTION_ID_RE = /^txn-\d{8}-[0-9a-f]{8}$/;
 const TRANSACTION_FILE_RE = /^txn-\d{8}-[0-9a-f]{8}\.json$/;
-const VALID_TYPES = new Set(['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease']);
+const VALID_TYPES = new Set([
+  'buyer_purchase',
+  'seller_sale',
+  'tenant_lease',
+  'landlord_lease',
+  'seller_listing',
+  'landlord_listing',
+]);
 
 // -- Path helpers ---------------------------------------------------------------
 

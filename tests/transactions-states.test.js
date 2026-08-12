@@ -13,8 +13,15 @@ const {
 const { TABLE } = require('../src/transactions/states')._internal;
 
 describe('TRANSACTION_TYPES', () => {
-  it('lists exactly the four locked transaction types in order', () => {
-    expect(TRANSACTION_TYPES).toEqual(['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease']);
+  it('lists exactly the six locked transaction types in order', () => {
+    expect(TRANSACTION_TYPES).toEqual([
+      'buyer_purchase',
+      'seller_sale',
+      'tenant_lease',
+      'landlord_lease',
+      'seller_listing',
+      'landlord_listing',
+    ]);
   });
 
   it('is frozen', () => {
@@ -23,7 +30,14 @@ describe('TRANSACTION_TYPES', () => {
 
   it('cannot be extended by push', () => {
     expect(() => TRANSACTION_TYPES.push('new_type')).toThrow();
-    expect(TRANSACTION_TYPES).toEqual(['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease']);
+    expect(TRANSACTION_TYPES).toEqual([
+      'buyer_purchase',
+      'seller_sale',
+      'tenant_lease',
+      'landlord_lease',
+      'seller_listing',
+      'landlord_listing',
+    ]);
   });
 });
 
@@ -278,5 +292,43 @@ describe('locked spec content (section 3)', () => {
   it('buy-side types have no terminated state, deliberately', () => {
     expect(getStates('buyer_purchase')).not.toContain('terminated');
     expect(getStates('tenant_lease')).not.toContain('terminated');
+  });
+});
+
+describe('locked spec content (listing types)', () => {
+  ['seller_listing', 'landlord_listing'].forEach((type) => {
+    it(`${type}: every enumerated edge is permitted`, () => {
+      expect(canTransition(type, 'preparing', 'live')).toEqual({ valid: true });
+      expect(canTransition(type, 'live', 'closed')).toEqual({ valid: true });
+      expect(canTransition(type, 'live', 'suspended')).toEqual({ valid: true });
+      expect(canTransition(type, 'suspended', 'live')).toEqual({ valid: true });
+      expect(canTransition(type, 'preparing', 'terminated')).toEqual({ valid: true });
+      expect(canTransition(type, 'live', 'terminated')).toEqual({ valid: true });
+      expect(canTransition(type, 'suspended', 'terminated')).toEqual({ valid: true });
+    });
+
+    it(`${type}: a representative non-edge is refused, with the states.js reason string`, () => {
+      const result = canTransition(type, 'preparing', 'closed');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('Cannot move from preparing to closed');
+    });
+
+    it(`${type}: closed and terminated are terminal with no outgoing edges`, () => {
+      expect(isTerminal(type, 'closed')).toBe(true);
+      expect(isTerminal(type, 'terminated')).toBe(true);
+      expect(listTransitions(type, 'closed')).toEqual([]);
+      expect(listTransitions(type, 'terminated')).toEqual([]);
+    });
+
+    it(`${type}: both preparing and live are valid initial states`, () => {
+      expect(isValidInitialState(type, 'preparing')).toBe(true);
+      expect(isValidInitialState(type, 'live')).toBe(true);
+    });
+
+    it(`${type}: a non-initial state is refused by isValidInitialState`, () => {
+      expect(isValidInitialState(type, 'closed')).toBe(false);
+      expect(isValidInitialState(type, 'suspended')).toBe(false);
+      expect(isValidInitialState(type, 'terminated')).toBe(false);
+    });
   });
 });

@@ -61,6 +61,34 @@ const TABLE = {
       ['possession', 'collapsed'],
     ],
   },
+  seller_listing: {
+    states: ['preparing', 'live', 'suspended', 'closed', 'terminated'],
+    initial: ['preparing', 'live'],
+    terminal: ['closed', 'terminated'],
+    edges: [
+      ['preparing', 'live'],
+      ['live', 'closed'],
+      ['live', 'suspended'],
+      ['suspended', 'live'],
+      ['preparing', 'terminated'],
+      ['live', 'terminated'],
+      ['suspended', 'terminated'],
+    ],
+  },
+  landlord_listing: {
+    states: ['preparing', 'live', 'suspended', 'closed', 'terminated'],
+    initial: ['preparing', 'live'],
+    terminal: ['closed', 'terminated'],
+    edges: [
+      ['preparing', 'live'],
+      ['live', 'closed'],
+      ['live', 'suspended'],
+      ['suspended', 'live'],
+      ['preparing', 'terminated'],
+      ['live', 'terminated'],
+      ['suspended', 'terminated'],
+    ],
+  },
 };
 
 function deepFreeze(value) {
