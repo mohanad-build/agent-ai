@@ -121,6 +121,12 @@ function isValidInitialState(type, state) {
   return TABLE[type].initial.includes(state);
 }
 
+function isValidState(type, state) {
+  assertKnownType('isValidState', type);
+  assertStateArg('isValidState', 'state', state);
+  return TABLE[type].states.includes(state);
+}
+
 function isTerminal(type, state) {
   assertKnownType('isTerminal', type);
   assertStateArg('isTerminal', 'state', state);
@@ -163,6 +169,7 @@ module.exports = {
   getStates,
   getInitialStates,
   isValidInitialState,
+  isValidState,
   isTerminal,
   canTransition,
   listTransitions,

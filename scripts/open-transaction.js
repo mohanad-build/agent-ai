@@ -30,6 +30,11 @@ function openTransaction(agentId, fields, opts = {}) {
     throw new Error('openTransaction: state must be a non-empty string');
   }
 
+  if (!states.isValidState(type, state)) {
+    const valid = states.getStates(type);
+    throw new Error(`openTransaction: '${state}' is not a valid state for type '${type}'. Valid states: ${valid.join(', ')}`);
+  }
+
   if (!states.isValidInitialState(type, state)) {
     const initial = states.getInitialStates(type);
     throw new Error(`openTransaction: '${state}' is not a valid initial state for type '${type}'. Valid initial states: ${initial.join(', ')}`);

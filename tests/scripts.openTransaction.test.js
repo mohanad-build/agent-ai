@@ -45,6 +45,13 @@ describe('openTransaction', () => {
     expect(fs.readdirSync(baseDir)).toEqual([]);
   });
 
+  test('a state that is not a state of the type at all throws the not-a-valid-state error, naming the valid states', () => {
+    expect(() => openTransaction(AGENT_ID, { type: 'landlord_lease', state: 'preparing' }, { baseDir, now: CLOCK }))
+      .toThrow("openTransaction: 'preparing' is not a valid state for type 'landlord_lease'. Valid states: accepted, signed, possession, closed, collapsed");
+
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
   for (const type of states.TRANSACTION_TYPES) {
     for (const state of states.getInitialStates(type)) {
       test(`opens ${type} in initial state ${state}`, () => {

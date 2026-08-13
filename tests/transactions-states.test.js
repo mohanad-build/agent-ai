@@ -5,6 +5,7 @@ const {
   getStates,
   getInitialStates,
   isValidInitialState,
+  isValidState,
   isTerminal,
   canTransition,
   listTransitions,
@@ -97,6 +98,33 @@ describe('isValidInitialState', () => {
 
   it('throws for a missing state', () => {
     expect(() => isValidInitialState('buyer_purchase', undefined)).toThrow(/isValidInitialState: state must be a non-empty string/);
+  });
+});
+
+describe('isValidState', () => {
+  it('returns true for every declared state, for all six types, derived from getStates', () => {
+    TRANSACTION_TYPES.forEach((type) => {
+      getStates(type).forEach((state) => {
+        expect(isValidState(type, state)).toBe(true);
+      });
+    });
+  });
+
+  it('returns false for a state that belongs to a different type', () => {
+    expect(isValidState('landlord_lease', 'preparing')).toBe(false);
+    expect(isValidState('seller_sale', 'accepted')).toBe(false);
+  });
+
+  it('throws for an unknown type', () => {
+    expect(() => isValidState('not_a_type', 'conditional')).toThrow(/isValidState: unknown type/);
+  });
+
+  it('throws for a non-string state', () => {
+    expect(() => isValidState('buyer_purchase', 123)).toThrow(/isValidState: state must be a non-empty string/);
+  });
+
+  it('throws for a missing state', () => {
+    expect(() => isValidState('buyer_purchase', undefined)).toThrow(/isValidState: state must be a non-empty string/);
   });
 });
 
