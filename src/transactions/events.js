@@ -7,7 +7,12 @@
 
 const ACTORS = Object.freeze(['agent', 'system', 'operator']);
 
-const EVENT_KINDS = Object.freeze(['closed_with_items_outstanding']);
+const EVENT_KINDS = Object.freeze([
+  'closed_with_items_outstanding',
+  'fact_set',
+  'fact_confirmed',
+  'fact_corrected',
+]);
 
 function makeEvent({ at, actor, kind, payload }) {
   if (typeof at !== 'string' || at.trim() === '') {

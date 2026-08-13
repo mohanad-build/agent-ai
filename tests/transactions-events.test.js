@@ -26,8 +26,13 @@ describe('ACTORS', () => {
 });
 
 describe('EVENT_KINDS', () => {
-  it('lists exactly one kind', () => {
-    expect(EVENT_KINDS).toEqual(['closed_with_items_outstanding']);
+  it('lists exactly the four expected kinds', () => {
+    expect(EVENT_KINDS).toEqual([
+      'closed_with_items_outstanding',
+      'fact_set',
+      'fact_confirmed',
+      'fact_corrected',
+    ]);
   });
 
   it('is frozen', () => {
