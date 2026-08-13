@@ -12,6 +12,8 @@ const EVENT_KINDS = Object.freeze([
   'fact_set',
   'fact_confirmed',
   'fact_corrected',
+  'item_completed',
+  'item_uncompleted',
 ]);
 
 function makeEvent({ at, actor, kind, payload }) {

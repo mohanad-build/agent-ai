@@ -5,6 +5,11 @@ const states = require('./states');
 const events = require('./events');
 
 function transitionTransaction(agentId, transactionId, toState, opts = {}) {
+  // items here is an ARRAY of fully annotated resolver output (id, label,
+  // applicability, completed, ...), passed in transiently by the caller for
+  // buildCloseOutstandingPayload. It is NOT the `items` map items.js reads
+  // and writes on the transaction record (id -> {completed, completedAt,
+  // documents, note}). Same name, different shape, no converter exists.
   const { at, actor, items, baseDir, now } = opts;
 
   const previous = store.readTransaction(agentId, transactionId, { baseDir });
