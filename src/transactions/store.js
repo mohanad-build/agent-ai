@@ -5,6 +5,7 @@ const path   = require('node:path');
 const crypto = require('node:crypto');
 
 const { getStorageRoot } = require('../storagePaths');
+const states = require('./states');
 
 // -- Error classes -----------------------------------------------------------
 
@@ -107,16 +108,15 @@ function validateEnvelope(transaction) {
     errors.push('agentId: required non-empty string');
   }
 
-  if (!VALID_TYPES.has(transaction.type)) {
+  const typeIsValid = VALID_TYPES.has(transaction.type);
+  if (!typeIsValid) {
     errors.push(`type: must be one of ${[...VALID_TYPES].join(', ')}`);
   }
 
-  // state is deliberately not enum validated. The transaction state
-  // machine is not locked in the spec yet (see
-  // TRANSACTION_COORDINATOR_SPEC.md section 3), so this only checks that
-  // state is present as a non-empty string.
   if (typeof transaction.state !== 'string' || transaction.state.trim() === '') {
     errors.push('state: required non-empty string');
+  } else if (typeIsValid && !states.isValidState(transaction.type, transaction.state)) {
+    errors.push(`state: '${transaction.state}' is not a state of type '${transaction.type}'`);
   }
 
   if (!isIsoString(transaction.createdAt)) {
