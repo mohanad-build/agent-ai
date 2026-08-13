@@ -141,6 +141,23 @@ function validateEnvelope(transaction) {
     }
   }
 
+  if (typeof transaction.address !== 'string' || transaction.address.trim() === '') {
+    errors.push('address: required non-empty string');
+  }
+
+  // Absent is valid: not every property has a unit. Only check when the key
+  // is actually present; null and '' are deliberately not treated as
+  // equivalent to absent. No format check on the value itself: units like
+  // 'Main', 'Basement', 'PH2' and '402' are all real, so nothing beyond
+  // string-or-not is enforced here.
+  if (Object.prototype.hasOwnProperty.call(transaction, 'unit')) {
+    if (transaction.unit === null || transaction.unit === '') {
+      errors.push('unit: must be absent, not null or empty string, when there is no unit');
+    } else if (typeof transaction.unit !== 'string') {
+      errors.push('unit: must be a string');
+    }
+  }
+
   if (errors.length > 0) {
     throw new TransactionSchemaValidationError(
       `Transaction validation failed: ${errors.join('; ')}`,

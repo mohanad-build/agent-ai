@@ -35,6 +35,7 @@ function makeEnvelope(overrides = {}) {
     agentId: AGENT_ID,
     type: 'buyer_purchase',
     state: 'conditional',
+    address: '12 Main St',
     createdAt: '2026-07-15T10:00:00.000Z',
     updatedAt: '2026-07-15T10:00:00.000Z',
     ...overrides,
@@ -51,7 +52,7 @@ afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 describe('createTransaction / readTransaction', () => {
   test('round trip: create then read returns an equal object', () => {
     const now = new Date('2026-07-15T10:00:00.000Z');
-    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now });
+    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now });
     const read = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(read).toEqual(created);
   });
@@ -60,33 +61,33 @@ describe('createTransaction / readTransaction', () => {
     const now = new Date('2026-07-15T10:00:00.000Z');
     const created = createTransaction(
       AGENT_ID,
-      { type: 'buyer_purchase', state: 'conditional', price: 450000, address: { street: '12 Main St' } },
+      { type: 'buyer_purchase', state: 'conditional', address: '12 Main St', price: 450000, notes: { agentComment: 'motivated seller' } },
       { baseDir, now }
     );
     const read = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(read.price).toBe(450000);
-    expect(read.address).toEqual({ street: '12 Main St' });
+    expect(read.notes).toEqual({ agentComment: 'motivated seller' });
   });
 
   test('createTransaction throws if fields carries transactionId', () => {
-    expect(() => createTransaction(AGENT_ID, { transactionId: 'txn-20260715-deadbeef', type: 'buyer_purchase', state: 'conditional' }, { baseDir }))
+    expect(() => createTransaction(AGENT_ID, { transactionId: 'txn-20260715-deadbeef', type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir }))
       .toThrow('transactionId');
   });
 
   test('createTransaction throws if fields carries createdAt', () => {
-    expect(() => createTransaction(AGENT_ID, { createdAt: '2026-07-15T10:00:00.000Z', type: 'buyer_purchase', state: 'conditional' }, { baseDir }))
+    expect(() => createTransaction(AGENT_ID, { createdAt: '2026-07-15T10:00:00.000Z', type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir }))
       .toThrow('createdAt');
   });
 
   test('createTransaction throws if fields carries schemaVersion', () => {
-    expect(() => createTransaction(AGENT_ID, { schemaVersion: 1, type: 'buyer_purchase', state: 'conditional' }, { baseDir }))
+    expect(() => createTransaction(AGENT_ID, { schemaVersion: 1, type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir }))
       .toThrow('schemaVersion');
   });
 
   test('two createTransaction calls with the same injected clock produce different ids', () => {
     const now = new Date('2026-07-15T10:00:00.000Z');
-    const a = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now });
-    const b = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now });
+    const a = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now });
+    const b = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now });
     expect(a.transactionId).not.toBe(b.transactionId);
   });
 });
@@ -124,7 +125,7 @@ describe('writeTransaction', () => {
   });
 
   test('stamps updatedAt from opts.now and persists', () => {
-    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
+    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
     const later = new Date('2026-07-16T09:30:00.000Z');
     const updated = writeTransaction(AGENT_ID, { ...created, state: 'firm' }, { baseDir, now: later });
     expect(updated.updatedAt).toBe(later.toISOString());
@@ -134,7 +135,7 @@ describe('writeTransaction', () => {
   });
 
   test('throws on agentId mismatch and leaves the on-disk file unchanged', () => {
-    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
+    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
     const mutated = { ...created, agentId: 'a-different-agent', state: 'firm' };
     expect(() => writeTransaction(AGENT_ID, mutated, { baseDir })).toThrow(/a-different-agent/);
     expect(() => writeTransaction(AGENT_ID, mutated, { baseDir })).toThrow(new RegExp(AGENT_ID));
@@ -203,6 +204,64 @@ describe('validateEnvelope', () => {
     expect(err).toBeInstanceOf(TransactionSchemaValidationError);
     expect(err.errors).toHaveLength(1);
     expect(err.errors[0]).toMatch(/^type:/);
+  });
+});
+
+// -- address / unit --------------------------------------------------------------
+
+describe('validateEnvelope: address / unit', () => {
+  test('a valid address and no unit passes', () => {
+    expect(() => validateEnvelope(makeEnvelope({ address: '12 Main St' }))).not.toThrow();
+  });
+
+  test('a valid address with unit passes', () => {
+    // Non-numeric on purpose: a house rented by floor uses 'Main' and
+    // 'Basement' as unit values, not just apartment numbers.
+    expect(() => validateEnvelope(makeEnvelope({ address: '12 Main St', unit: 'Basement' }))).not.toThrow();
+  });
+
+  test('missing address is rejected', () => {
+    const envelope = makeEnvelope();
+    delete envelope.address;
+    const err = caught(() => validateEnvelope(envelope));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/address/);
+  });
+
+  test('empty string address is rejected', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ address: '' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/address/);
+  });
+
+  test('whitespace-only address is rejected', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ address: '   ' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/address/);
+  });
+
+  test('null unit is rejected, distinctly from absent', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ address: '12 Main St', unit: null })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/unit/);
+  });
+
+  test('empty string unit is rejected, distinctly from absent', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ address: '12 Main St', unit: '' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/unit/);
+  });
+
+  test('the stored address is byte-identical to what was passed in, including surrounding whitespace', () => {
+    const now = new Date('2026-07-15T10:00:00.000Z');
+    const created = createTransaction(
+      AGENT_ID,
+      { type: 'buyer_purchase', state: 'conditional', address: '  12 Main St  ' },
+      { baseDir, now }
+    );
+    expect(created.address).toBe('  12 Main St  ');
+    const read = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(read.address).toBe('  12 Main St  ');
   });
 });
 
@@ -341,7 +400,7 @@ describe('listTransactionIds', () => {
 
 describe('atomic write', () => {
   test('does not leave a .tmp file behind after a successful write', () => {
-    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
+    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
     const filePath = transactionPath(baseDir, AGENT_ID, created.transactionId);
     expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
     expect(fs.existsSync(filePath)).toBe(true);
@@ -352,7 +411,7 @@ describe('atomic write', () => {
 
 describe('directory layout', () => {
   test('directory name is exactly `${agentId}.transactions`', () => {
-    createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
+    createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
     expect(fs.existsSync(path.join(baseDir, `${AGENT_ID}.transactions`))).toBe(true);
   });
 });
@@ -361,12 +420,12 @@ describe('directory layout', () => {
 
 describe('generateTransactionId / TRANSACTION_ID_RE', () => {
   test('created transactions have ids matching TRANSACTION_ID_RE', () => {
-    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
+    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: new Date('2026-07-15T10:00:00.000Z') });
     expect(TRANSACTION_ID_RE.test(created.transactionId)).toBe(true);
   });
 
   test('id date segment reflects the injected UTC clock', () => {
-    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional' }, { baseDir, now: new Date('2026-01-05T23:59:00.000Z') });
+    const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: new Date('2026-01-05T23:59:00.000Z') });
     expect(created.transactionId.startsWith('txn-20260105-')).toBe(true);
   });
 });

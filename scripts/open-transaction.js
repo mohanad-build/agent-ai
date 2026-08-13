@@ -4,7 +4,7 @@
 // initial states. Thin wrapper over store.createTransaction with
 // type/state validation from src/transactions/states.js.
 //
-// Usage: node scripts/open-transaction.js <agent-id> <type> <state> [--base-dir <path>] [--listing-id <id>]
+// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>]
 
 'use strict';
 
@@ -20,7 +20,7 @@ function openTransaction(agentId, fields, opts = {}) {
     throw new Error('openTransaction: baseDir is required');
   }
 
-  const { type, state, listingId } = fields || {};
+  const { type, state, listingId, address, unit } = fields || {};
 
   if (!states.TRANSACTION_TYPES.includes(type)) {
     throw new Error(`openTransaction: unknown type '${type}'. Must be one of: ${states.TRANSACTION_TYPES.join(', ')}`);
@@ -40,9 +40,12 @@ function openTransaction(agentId, fields, opts = {}) {
     throw new Error(`openTransaction: '${state}' is not a valid initial state for type '${type}'. Valid initial states: ${initial.join(', ')}`);
   }
 
-  const txnFields = { type, state };
+  const txnFields = { type, state, address };
   if (listingId !== undefined) {
     txnFields.listingId = listingId;
+  }
+  if (unit !== undefined) {
+    txnFields.unit = unit;
   }
 
   return store.createTransaction(agentId, txnFields, { baseDir: opts.baseDir, now: opts.now });
@@ -55,6 +58,8 @@ if (require.main === module) {
 
   let baseDirFromFlag;
   let listingIdFromFlag;
+  let addressFromFlag;
+  let unitFromFlag;
   const positional = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--base-dir') {
@@ -63,16 +68,31 @@ if (require.main === module) {
     } else if (args[i] === '--listing-id') {
       listingIdFromFlag = args[i + 1];
       i++;
+    } else if (args[i] === '--address') {
+      addressFromFlag = args[i + 1];
+      i++;
+    } else if (args[i] === '--unit') {
+      unitFromFlag = args[i + 1];
+      i++;
     } else {
       positional.push(args[i]);
     }
   }
   const [agentId, type, state] = positional;
 
-  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> [--base-dir <path>] [--listing-id <id>]';
+  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>]';
 
   if (!agentId || !type || !state) {
     console.error(usage);
+    process.exit(1);
+  }
+
+  // The store's validation error is written for a caller bug (a
+  // programmatic fields object missing a required key); it's the wrong
+  // message for a human who forgot a flag at a terminal. Refuse here, in
+  // the same style as the baseDir refusal below, naming the flag.
+  if (!addressFromFlag) {
+    console.error('open-transaction: address is required. Pass --address <address>.');
     process.exit(1);
   }
 
@@ -93,7 +113,7 @@ if (require.main === module) {
   }
 
   try {
-    const transaction = openTransaction(agentId, { type, state, listingId: listingIdFromFlag }, { baseDir });
+    const transaction = openTransaction(agentId, { type, state, address: addressFromFlag, listingId: listingIdFromFlag, unit: unitFromFlag }, { baseDir });
     const filePath = store._internal.transactionPath(baseDir, agentId, transaction.transactionId);
     console.log(`Transaction created: ${transaction.transactionId}`);
     console.log(`File: ${filePath}`);

@@ -22,7 +22,7 @@ beforeEach(() => { baseDir = makeTmpDir(); });
 afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
 function createInState(state, type = 'buyer_purchase') {
-  return createTransaction(AGENT_ID, { type, state }, { baseDir, now: CLOCK });
+  return createTransaction(AGENT_ID, { type, state, address: '12 Main St' }, { baseDir, now: CLOCK });
 }
 
 describe('transitionTransaction', () => {

@@ -3,6 +3,7 @@
 const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('child_process');
 
 const { openTransaction } = require('../scripts/open-transaction');
 const { readTransaction } = require('../src/transactions/store');
@@ -55,7 +56,7 @@ describe('openTransaction', () => {
   for (const type of states.TRANSACTION_TYPES) {
     for (const state of states.getInitialStates(type)) {
       test(`opens ${type} in initial state ${state}`, () => {
-        const result = openTransaction(AGENT_ID, { type, state }, { baseDir, now: CLOCK });
+        const result = openTransaction(AGENT_ID, { type, state, address: '12 Main St' }, { baseDir, now: CLOCK });
 
         expect(result.type).toBe(type);
         expect(result.state).toBe(state);
@@ -70,7 +71,7 @@ describe('openTransaction', () => {
   test('persists a listingId when given', () => {
     const result = openTransaction(
       AGENT_ID,
-      { type: 'seller_sale', state: 'conditional', listingId: 'txn-20260601-11112222' },
+      { type: 'seller_sale', state: 'conditional', address: '12 Main St', listingId: 'txn-20260601-11112222' },
       { baseDir, now: CLOCK }
     );
 
@@ -80,10 +81,94 @@ describe('openTransaction', () => {
   });
 
   test('works without a listingId', () => {
-    const result = openTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional' }, { baseDir, now: CLOCK });
+    const result = openTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK });
 
     expect(result).not.toHaveProperty('listingId');
     const onDisk = readTransaction(AGENT_ID, result.transactionId, { baseDir });
     expect(onDisk).not.toHaveProperty('listingId');
+  });
+
+  test('forwards address and unit through to the store', () => {
+    const result = openTransaction(
+      AGENT_ID,
+      { type: 'seller_sale', state: 'conditional', address: '12 Main St', unit: 'Basement' },
+      { baseDir, now: CLOCK }
+    );
+
+    expect(result.address).toBe('12 Main St');
+    expect(result.unit).toBe('Basement');
+    const onDisk = readTransaction(AGENT_ID, result.transactionId, { baseDir });
+    expect(onDisk.address).toBe('12 Main St');
+    expect(onDisk.unit).toBe('Basement');
+  });
+
+  test('works without a unit', () => {
+    const result = openTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK });
+
+    expect(result).not.toHaveProperty('unit');
+    const onDisk = readTransaction(AGENT_ID, result.transactionId, { baseDir });
+    expect(onDisk).not.toHaveProperty('unit');
+  });
+
+  test('a transaction created without an address is refused', () => {
+    expect(() => openTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional' }, { baseDir, now: CLOCK }))
+      .toThrow(/address/);
+
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+});
+
+describe('CLI argument handling (spawned subprocess)', () => {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'open-transaction.js');
+
+  test('missing --address refuses, exits nonzero, and names the flag', () => {
+    let threw = false;
+    let stderr = '';
+    try {
+      execFileSync(
+        'node',
+        [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--base-dir', baseDir],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+    } catch (err) {
+      threw = true;
+      stderr = err.stderr || '';
+      expect(err.status).toBe(1);
+    }
+    expect(threw).toBe(true);
+    expect(stderr).toContain('--address');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('a full valid invocation with --unit succeeds and writes a file', () => {
+    const stdout = execFileSync(
+      'node',
+      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--unit', 'Basement', '--base-dir', baseDir],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    expect(stdout).toContain('Transaction created:');
+    const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    expect(files).toHaveLength(1);
+    const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    expect(written.address).toBe('12 Main St');
+    expect(written.unit).toBe('Basement');
+  });
+
+  test('the same invocation without --unit still succeeds', () => {
+    const stdout = execFileSync(
+      'node',
+      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    expect(stdout).toContain('Transaction created:');
+    const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    expect(files).toHaveLength(1);
+    const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    expect(written.address).toBe('12 Main St');
+    expect(written).not.toHaveProperty('unit');
   });
 });
