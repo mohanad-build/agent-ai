@@ -59,4 +59,24 @@ describe('openTransaction', () => {
       });
     }
   }
+
+  test('persists a listingId when given', () => {
+    const result = openTransaction(
+      AGENT_ID,
+      { type: 'seller_sale', state: 'conditional', listingId: 'txn-20260601-11112222' },
+      { baseDir, now: CLOCK }
+    );
+
+    expect(result.listingId).toBe('txn-20260601-11112222');
+    const onDisk = readTransaction(AGENT_ID, result.transactionId, { baseDir });
+    expect(onDisk.listingId).toBe('txn-20260601-11112222');
+  });
+
+  test('works without a listingId', () => {
+    const result = openTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional' }, { baseDir, now: CLOCK });
+
+    expect(result).not.toHaveProperty('listingId');
+    const onDisk = readTransaction(AGENT_ID, result.transactionId, { baseDir });
+    expect(onDisk).not.toHaveProperty('listingId');
+  });
 });

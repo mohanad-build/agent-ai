@@ -4,7 +4,7 @@
 // initial states. Thin wrapper over store.createTransaction with
 // type/state validation from src/transactions/states.js.
 //
-// Usage: node scripts/open-transaction.js <agent-id> <type> <state> [--base-dir <path>]
+// Usage: node scripts/open-transaction.js <agent-id> <type> <state> [--base-dir <path>] [--listing-id <id>]
 
 'use strict';
 
@@ -20,7 +20,7 @@ function openTransaction(agentId, fields, opts = {}) {
     throw new Error('openTransaction: baseDir is required');
   }
 
-  const { type, state } = fields || {};
+  const { type, state, listingId } = fields || {};
 
   if (!states.TRANSACTION_TYPES.includes(type)) {
     throw new Error(`openTransaction: unknown type '${type}'. Must be one of: ${states.TRANSACTION_TYPES.join(', ')}`);
@@ -35,7 +35,12 @@ function openTransaction(agentId, fields, opts = {}) {
     throw new Error(`openTransaction: '${state}' is not a valid initial state for type '${type}'. Valid initial states: ${initial.join(', ')}`);
   }
 
-  return store.createTransaction(agentId, { type, state }, { baseDir: opts.baseDir, now: opts.now });
+  const txnFields = { type, state };
+  if (listingId !== undefined) {
+    txnFields.listingId = listingId;
+  }
+
+  return store.createTransaction(agentId, txnFields, { baseDir: opts.baseDir, now: opts.now });
 }
 
 module.exports = { openTransaction };
@@ -43,16 +48,23 @@ module.exports = { openTransaction };
 if (require.main === module) {
   const args = process.argv.slice(2);
 
-  const baseDirFlagIndex = args.indexOf('--base-dir');
   let baseDirFromFlag;
-  let positional = args;
-  if (baseDirFlagIndex !== -1) {
-    baseDirFromFlag = args[baseDirFlagIndex + 1];
-    positional = [...args.slice(0, baseDirFlagIndex), ...args.slice(baseDirFlagIndex + 2)];
+  let listingIdFromFlag;
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--base-dir') {
+      baseDirFromFlag = args[i + 1];
+      i++;
+    } else if (args[i] === '--listing-id') {
+      listingIdFromFlag = args[i + 1];
+      i++;
+    } else {
+      positional.push(args[i]);
+    }
   }
   const [agentId, type, state] = positional;
 
-  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> [--base-dir <path>]';
+  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> [--base-dir <path>] [--listing-id <id>]';
 
   if (!agentId || !type || !state) {
     console.error(usage);
@@ -76,7 +88,7 @@ if (require.main === module) {
   }
 
   try {
-    const transaction = openTransaction(agentId, { type, state }, { baseDir });
+    const transaction = openTransaction(agentId, { type, state, listingId: listingIdFromFlag }, { baseDir });
     const filePath = store._internal.transactionPath(baseDir, agentId, transaction.transactionId);
     console.log(`Transaction created: ${transaction.transactionId}`);
     console.log(`File: ${filePath}`);

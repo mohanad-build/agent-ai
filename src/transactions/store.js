@@ -37,6 +37,11 @@ const VALID_TYPES = new Set([
   'landlord_listing',
 ]);
 
+// The deal types that can sit under a listing. buyer_purchase and
+// tenant_lease open at the deal with no listing behind them; the listing
+// types themselves don't point at a listing.
+const LISTING_ELIGIBLE_TYPES = new Set(['seller_sale', 'landlord_lease']);
+
 // -- Path helpers ---------------------------------------------------------------
 
 // The `${agentId}.` prefix on the directory name is load-bearing. Both
@@ -76,10 +81,17 @@ function isIsoString(value) {
   return typeof value === 'string' && ISO_DATETIME_RE.test(value) && !Number.isNaN(new Date(value).getTime());
 }
 
-// Only the envelope fields below are validated. Every other key on the
-// transaction object passes through untouched and is never inspected here:
-// the store owns bytes, the resolver owns meaning. This is what lets the
-// store ship before the item catalog is locked.
+// The store validates only what the envelope can answer about itself:
+// format and type-permission both qualify, since checking either only
+// requires reading the object in hand. Existence and target-type do not
+// qualify, because answering them needs a filesystem read (does
+// listingId point at a real transaction? is that transaction a listing
+// type?), and that's the resolver's job, or the caller's, not a
+// validator's. listingId is validated when present under that rule
+// (format, plus which types may carry it). Every other key on the
+// transaction object still passes through untouched and is never
+// inspected here: the store owns bytes, the resolver owns meaning. This
+// is what lets the store ship before the item catalog is locked.
 function validateEnvelope(transaction) {
   const errors = [];
 
@@ -113,6 +125,20 @@ function validateEnvelope(transaction) {
 
   if (!isIsoString(transaction.updatedAt)) {
     errors.push('updatedAt: required ISO 8601 string');
+  }
+
+  // Absent is valid on every type: no linked listing is a real, permitted
+  // answer, not an error. Only check shape and type-permission when the
+  // key is actually present; null and '' are deliberately not treated as
+  // equivalent to absent.
+  if (Object.prototype.hasOwnProperty.call(transaction, 'listingId')) {
+    if (!LISTING_ELIGIBLE_TYPES.has(transaction.type)) {
+      errors.push(`listingId: not permitted on type '${transaction.type}'`);
+    } else if (transaction.listingId === null || transaction.listingId === '') {
+      errors.push('listingId: must be absent, not null or empty string, when there is no linked listing');
+    } else if (typeof transaction.listingId !== 'string' || !TRANSACTION_ID_RE.test(transaction.listingId)) {
+      errors.push('listingId: must match txn-YYYYMMDD-xxxxxxxx format');
+    }
   }
 
   if (errors.length > 0) {

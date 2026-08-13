@@ -190,6 +190,76 @@ describe('validateEnvelope', () => {
   });
 });
 
+// -- listingId ------------------------------------------------------------------
+
+describe('validateEnvelope: listingId', () => {
+  test('absent is valid on all six types', () => {
+    const types = ['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease', 'seller_listing', 'landlord_listing'];
+    for (const type of types) {
+      expect(() => validateEnvelope(makeEnvelope({ type }))).not.toThrow();
+    }
+  });
+
+  test('well-formed listingId is accepted on seller_sale', () => {
+    expect(() => validateEnvelope(makeEnvelope({ type: 'seller_sale', listingId: 'txn-20260715-abcd1234' }))).not.toThrow();
+  });
+
+  test('well-formed listingId is accepted on landlord_lease', () => {
+    expect(() => validateEnvelope(makeEnvelope({ type: 'landlord_lease', listingId: 'txn-20260715-abcd1234' }))).not.toThrow();
+  });
+
+  test('present listingId is rejected on buyer_purchase, naming the type', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'buyer_purchase', listingId: 'txn-20260715-abcd1234' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/listingId.*buyer_purchase/);
+  });
+
+  test('present listingId is rejected on tenant_lease, naming the type', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'tenant_lease', listingId: 'txn-20260715-abcd1234' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/listingId.*tenant_lease/);
+  });
+
+  test('present listingId is rejected on seller_listing, naming the type', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'seller_listing', listingId: 'txn-20260715-abcd1234' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/listingId.*seller_listing/);
+  });
+
+  test('present listingId is rejected on landlord_listing, naming the type', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'landlord_listing', listingId: 'txn-20260715-abcd1234' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/listingId.*landlord_listing/);
+  });
+
+  test('null listingId is rejected on seller_sale, distinctly from absent', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'seller_sale', listingId: null })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/listingId/);
+  });
+
+  test('empty string listingId is rejected on seller_sale, distinctly from absent', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'seller_sale', listingId: '' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+    expect(err.message).toMatch(/listingId/);
+  });
+
+  test('listingId with wrong prefix is rejected on seller_sale', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'seller_sale', listingId: 'lst-20260715-abcd1234' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+  });
+
+  test('listingId with wrong date shape is rejected on seller_sale', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'seller_sale', listingId: 'txn-2026-07-15-abcd1234' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+  });
+
+  test('listingId with wrong suffix length is rejected on seller_sale', () => {
+    const err = caught(() => validateEnvelope(makeEnvelope({ type: 'seller_sale', listingId: 'txn-20260715-abcd12' })));
+    expect(err).toBeInstanceOf(TransactionSchemaValidationError);
+  });
+});
+
 // -- isIsoString (exercised through validateEnvelope's createdAt field) ---------
 
 describe('isIsoString', () => {
