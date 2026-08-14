@@ -4,11 +4,11 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { resolveTransactionChecklist } = require('../src/transactions/checklist');
+const { resolveTransactionChecklist, resolveChecklistForTransaction } = require('../src/transactions/checklist');
 const { resolveChecklist } = require('../src/transactions/resolver');
 const { markItemComplete } = require('../src/transactions/items');
 const { setFact } = require('../src/transactions/facts');
-const { createTransaction, writeTransaction } = require('../src/transactions/store');
+const { createTransaction, writeTransaction, readTransaction } = require('../src/transactions/store');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -121,5 +121,55 @@ describe('resolveTransactionChecklist', () => {
     expect(() => resolveTransactionChecklist(AGENT_ID, 'txn-20260715-deadbeef', { baseDir })).toThrow(
       /resolveTransactionChecklist: no transaction txn-20260715-deadbeef for agent test-agent/
     );
+  });
+
+  it('resolves differently at different states: collapsed includes mutual_release, conditional does not', () => {
+    const conditional = create('buyer_purchase', 'conditional');
+    const collapsed = create('buyer_purchase', 'collapsed');
+
+    const conditionalResult = resolveTransactionChecklist(AGENT_ID, conditional.transactionId, { baseDir });
+    const collapsedResult = resolveTransactionChecklist(AGENT_ID, collapsed.transactionId, { baseDir });
+
+    expect(conditionalResult.some((item) => item.id === 'mutual_release')).toBe(false);
+    expect(collapsedResult.some((item) => item.id === 'mutual_release')).toBe(true);
+  });
+});
+
+describe('resolveChecklistForTransaction', () => {
+  it("given the same transaction, matches resolveTransactionChecklist's result", () => {
+    const created = create();
+    markItemComplete(AGENT_ID, created.transactionId, 'reco_information_guide', {
+      at: AT, actor: 'agent', completedAt: COMPLETED_AT, baseDir, now: LATER,
+    });
+
+    const viaDiskRead = resolveTransactionChecklist(AGENT_ID, created.transactionId, { baseDir });
+
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const viaPureFunction = resolveChecklistForTransaction(transaction);
+
+    expect(viaPureFunction).toEqual(viaDiskRead);
+  });
+
+  it('does no I/O: resolves a hand-built transaction for an agent and id that do not exist on disk', () => {
+    const transaction = {
+      type: 'buyer_purchase',
+      state: 'conditional',
+      items: {},
+      facts: {},
+    };
+
+    const result = resolveChecklistForTransaction(transaction);
+
+    expect(result).toEqual(resolveChecklist('buyer_purchase', 'conditional', {}));
+  });
+
+  it('reads state off the object it is handed: same transaction, different state field, different result', () => {
+    const base = { type: 'buyer_purchase', items: {}, facts: {} };
+
+    const conditionalResult = resolveChecklistForTransaction({ ...base, state: 'conditional' });
+    const collapsedResult = resolveChecklistForTransaction({ ...base, state: 'collapsed' });
+
+    expect(conditionalResult.some((item) => item.id === 'mutual_release')).toBe(false);
+    expect(collapsedResult.some((item) => item.id === 'mutual_release')).toBe(true);
   });
 });

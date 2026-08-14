@@ -31,6 +31,23 @@ function toItemsArray(items) {
   return Object.entries(items || {}).map(([id, entry]) => ({ id, ...entry }));
 }
 
+// -- resolveChecklistForTransaction ---------------------------------------------------
+
+// Every stored id is converted and passed through, never filtered against
+// the current catalog. An id that no longer resolves (a catalog item
+// renamed or removed since it was completed) still reaches reResolve,
+// which carries it forward as 'no_longer_applicable' instead of dropping
+// it — the row loses its label (carriedOver only spreads the stored
+// entry, which never had one) but the record survives. Filtering stale
+// ids out here instead would silently discard a recorded completion,
+// the same mistake as shrinking `conditions`.
+function resolveChecklistForTransaction(transaction) {
+  const previousItems = toItemsArray(transaction.items);
+  const facts = transaction.facts || {};
+
+  return resolver.reResolve(previousItems, transaction.type, transaction.state, facts);
+}
+
 // -- resolveTransactionChecklist ------------------------------------------------------
 
 function resolveTransactionChecklist(agentId, transactionId, opts = {}) {
@@ -38,18 +55,7 @@ function resolveTransactionChecklist(agentId, transactionId, opts = {}) {
 
   const transaction = readExisting('resolveTransactionChecklist', agentId, transactionId, baseDir);
 
-  const previousItems = toItemsArray(transaction.items);
-  const facts = transaction.facts || {};
-
-  // Every stored id is converted and passed through, never filtered against
-  // the current catalog. An id that no longer resolves (a catalog item
-  // renamed or removed since it was completed) still reaches reResolve,
-  // which carries it forward as 'no_longer_applicable' instead of dropping
-  // it — the row loses its label (carriedOver only spreads the stored
-  // entry, which never had one) but the record survives. Filtering stale
-  // ids out here instead would silently discard a recorded completion,
-  // the same mistake as shrinking `conditions`.
-  return resolver.reResolve(previousItems, transaction.type, transaction.state, facts);
+  return resolveChecklistForTransaction(transaction);
 }
 
-module.exports = { resolveTransactionChecklist };
+module.exports = { resolveTransactionChecklist, resolveChecklistForTransaction };
