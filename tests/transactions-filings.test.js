@@ -1,0 +1,366 @@
+'use strict';
+
+const fs   = require('node:fs');
+const os   = require('node:os');
+const path = require('node:path');
+
+const { recordDocumentSeen, recordDocumentFiled, abandonDocumentFiling, FILING_STATUSES } = require('../src/transactions/filings');
+const { createTransaction, readTransaction } = require('../src/transactions/store');
+
+const AGENT_ID = 'test-agent';
+const CLOCK = new Date('2026-07-15T10:00:00.000Z');
+const LATER = new Date('2026-07-16T09:30:00.000Z');
+const EVEN_LATER = new Date('2026-07-17T08:00:00.000Z');
+const AT = '2026-07-16T09:30:00.000Z';
+const AT2 = '2026-07-17T08:00:00.000Z';
+
+const MESSAGE_ID = 'msg-abc123';
+const ATTACHMENT_ID = 'att-def456';
+
+function makeTmpDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'transactions-filings-test-'));
+}
+
+let baseDir;
+
+beforeEach(() => { baseDir = makeTmpDir(); });
+afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
+
+function create(type = 'buyer_purchase', state = 'conditional') {
+  return createTransaction(
+    AGENT_ID,
+    { type, state, address: '12 Main St' },
+    { baseDir, now: CLOCK }
+  );
+}
+
+function seeDocument(transactionId, opts = {}) {
+  return recordDocumentSeen(AGENT_ID, transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+    at: AT,
+    actor: 'system',
+    filename: 'agreement.pdf',
+    mimeType: 'application/pdf',
+    size: 2048,
+    baseDir,
+    now: LATER,
+    ...opts,
+  });
+}
+
+describe('FILING_STATUSES', () => {
+  it('lists exactly the three expected statuses', () => {
+    expect(FILING_STATUSES).toEqual(['seen', 'filed', 'abandoned']);
+  });
+
+  it('is frozen', () => {
+    expect(Object.isFrozen(FILING_STATUSES)).toBe(true);
+  });
+});
+
+describe('recordDocumentSeen', () => {
+  it('creates a filing record at status seen with the four future fields absent', () => {
+    const created = create();
+    const result = seeDocument(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const record = result.filings[key];
+
+    expect(record).toEqual({
+      messageId: MESSAGE_ID,
+      attachmentId: ATTACHMENT_ID,
+      filename: 'agreement.pdf',
+      mimeType: 'application/pdf',
+      size: 2048,
+      status: 'seen',
+      seenAt: AT,
+      attempts: 0,
+    });
+    expect(record).not.toHaveProperty('lastError');
+    expect(record).not.toHaveProperty('lastAttemptAt');
+    expect(record).not.toHaveProperty('contentHash');
+    expect(record).not.toHaveProperty('driveFileId');
+  });
+
+  it('emits a document_seen event with the key, filename, mimeType and size', () => {
+    const created = create();
+    const result = seeDocument(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const event = result.events[result.events.length - 1];
+
+    expect(event.kind).toBe('document_seen');
+    expect(event.at).toBe(AT);
+    expect(event.actor).toBe('system');
+    expect(event.payload).toEqual({
+      key,
+      filename: 'agreement.pdf',
+      mimeType: 'application/pdf',
+      size: 2048,
+    });
+  });
+
+  it('persists the record and event to disk', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+
+    const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(reread.filings[key].status).toBe('seen');
+    expect(reread.events).toHaveLength(1);
+    expect(reread.events[0].kind).toBe('document_seen');
+  });
+
+  it('re-seeing an already-seen record is idempotent: no second event, no field change', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const second = seeDocument(created.transactionId, { at: AT2, filename: 'renamed.pdf' });
+
+    expect(second.events).toHaveLength(1);
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(second.filings[key].filename).toBe('agreement.pdf');
+    expect(second.filings[key].seenAt).toBe(AT);
+  });
+
+  it('two different attachments on the same message each get their own record', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, 'att-other', {
+      at: AT2, actor: 'system', filename: 'disclosure.pdf', mimeType: 'application/pdf', size: 512, baseDir, now: EVEN_LATER,
+    });
+
+    expect(Object.keys(result.filings)).toHaveLength(2);
+  });
+
+  it('throws when the transaction does not exist', () => {
+    expect(() => seeDocument('txn-20260715-00000000'))
+      .toThrow(/no transaction/);
+  });
+
+  it('throws when size is not a non-negative number', () => {
+    const created = create();
+    expect(() => seeDocument(created.transactionId, { size: -1 }))
+      .toThrow(/size must be a non-negative number/);
+  });
+
+  it('throws when at is absent', () => {
+    const created = create();
+    expect(() => seeDocument(created.transactionId, { at: undefined }))
+      .toThrow(/at must be a non-empty string/);
+  });
+});
+
+describe('recordDocumentFiled', () => {
+  function file(transactionId, opts = {}) {
+    return recordDocumentFiled(AGENT_ID, transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2,
+      actor: 'system',
+      driveFileId: 'drive-xyz',
+      contentHash: 'sha256:deadbeef',
+      baseDir,
+      now: EVEN_LATER,
+      ...opts,
+    });
+  }
+
+  it('transitions seen to filed and sets driveFileId and contentHash', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = file(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key]).toEqual({
+      messageId: MESSAGE_ID,
+      attachmentId: ATTACHMENT_ID,
+      filename: 'agreement.pdf',
+      mimeType: 'application/pdf',
+      size: 2048,
+      status: 'filed',
+      seenAt: AT,
+      attempts: 0,
+      driveFileId: 'drive-xyz',
+      contentHash: 'sha256:deadbeef',
+    });
+  });
+
+  it('emits a document_filed event with the key, filename, driveFileId and contentHash', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = file(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const event = result.events[result.events.length - 1];
+    expect(event.kind).toBe('document_filed');
+    expect(event.payload).toEqual({
+      key,
+      filename: 'agreement.pdf',
+      driveFileId: 'drive-xyz',
+      contentHash: 'sha256:deadbeef',
+    });
+  });
+
+  it('throws when there is no filing record at all', () => {
+    const created = create();
+    expect(() => file(created.transactionId))
+      .toThrow(/no filing record/);
+  });
+
+  it('throws attempting to file an already-filed record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    file(created.transactionId);
+    expect(() => file(created.transactionId))
+      .toThrow(/is 'filed', not 'seen'/);
+  });
+
+  it('throws attempting to file an abandoned record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    abandonDocumentFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'fetch failed', baseDir, now: EVEN_LATER,
+    });
+    expect(() => file(created.transactionId))
+      .toThrow(/is 'abandoned', not 'seen'/);
+  });
+});
+
+describe('abandonDocumentFiling', () => {
+  function abandon(transactionId, opts = {}) {
+    return abandonDocumentFiling(AGENT_ID, transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2,
+      actor: 'system',
+      lastError: 'attachment fetch timed out',
+      baseDir,
+      now: EVEN_LATER,
+      ...opts,
+    });
+  }
+
+  it('transitions seen to abandoned and sets lastError', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = abandon(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key]).toEqual({
+      messageId: MESSAGE_ID,
+      attachmentId: ATTACHMENT_ID,
+      filename: 'agreement.pdf',
+      mimeType: 'application/pdf',
+      size: 2048,
+      status: 'abandoned',
+      seenAt: AT,
+      attempts: 0,
+      lastError: 'attachment fetch timed out',
+    });
+  });
+
+  it('emits a document_filing_abandoned event with the key, filename, attempts and lastError', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = abandon(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const event = result.events[result.events.length - 1];
+    expect(event.kind).toBe('document_filing_abandoned');
+    expect(event.payload).toEqual({
+      key,
+      filename: 'agreement.pdf',
+      attempts: 0,
+      lastError: 'attachment fetch timed out',
+    });
+  });
+
+  it('throws when there is no filing record at all', () => {
+    const created = create();
+    expect(() => abandon(created.transactionId))
+      .toThrow(/no filing record/);
+  });
+
+  it('throws attempting to abandon an already-abandoned record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    abandon(created.transactionId);
+    expect(() => abandon(created.transactionId))
+      .toThrow(/is 'abandoned', not 'seen'/);
+  });
+
+  it('throws attempting to abandon an already-filed record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    recordDocumentFiled(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', driveFileId: 'drive-xyz', contentHash: 'sha256:deadbeef', baseDir, now: EVEN_LATER,
+    });
+    expect(() => abandon(created.transactionId))
+      .toThrow(/is 'filed', not 'seen'/);
+  });
+});
+
+// Every writer here reads the whole transaction file, patches it in memory,
+// and rewrites the whole file, same as facts.js and items.js. That pattern
+// is only safe under concurrent callers if the read-patch-write cycle
+// cannot be interrupted mid-flight. Every step of it (store.readTransaction,
+// store.writeTransaction) is synchronous fs (readFileSync, writeFileSync,
+// renameSync with no callback), so once a writer starts it runs to
+// completion before Node's single thread picks up anything else queued
+// against the same file, regardless of how the caller schedules the calls.
+// This test dispatches two writes through real macrotask boundaries (two
+// separate setTimeout callbacks, not two synchronous calls in the same
+// tick) to exercise that property under a realistic Promise.all-style
+// caller, the shape leadIntake.js already uses for per-message work, and
+// confirms neither record is lost.
+describe('concurrent writes to one transaction', () => {
+  it('both records survive when two recordDocumentSeen calls race via Promise.all', async () => {
+    const created = create();
+
+    function seeAfterTick(attachmentId, filename) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            resolve(recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, attachmentId, {
+              at: AT, actor: 'system', filename, mimeType: 'application/pdf', size: 100, baseDir, now: LATER,
+            }));
+          } catch (err) {
+            reject(err);
+          }
+        }, 0);
+      });
+    }
+
+    await Promise.all([
+      seeAfterTick('att-race-1', 'first.pdf'),
+      seeAfterTick('att-race-2', 'second.pdf'),
+    ]);
+
+    const final = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(Object.keys(final.filings)).toHaveLength(2);
+    expect(final.events).toHaveLength(2);
+
+    const filenames = Object.values(final.filings).map((r) => r.filename).sort();
+    expect(filenames).toEqual(['first.pdf', 'second.pdf']);
+  });
+
+  it('five concurrent seens for five different attachments all survive', async () => {
+    const created = create();
+    const attachmentIds = ['att-1', 'att-2', 'att-3', 'att-4', 'att-5'];
+
+    function seeAfterTick(attachmentId) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            resolve(recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, attachmentId, {
+              at: AT, actor: 'system', filename: `${attachmentId}.pdf`, mimeType: 'application/pdf', size: 1, baseDir, now: LATER,
+            }));
+          } catch (err) {
+            reject(err);
+          }
+        }, Math.floor(Math.random() * 5));
+      });
+    }
+
+    await Promise.all(attachmentIds.map(seeAfterTick));
+
+    const final = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(Object.keys(final.filings)).toHaveLength(5);
+    expect(final.events).toHaveLength(5);
+  });
+});
