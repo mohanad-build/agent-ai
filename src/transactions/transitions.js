@@ -1,16 +1,12 @@
 'use strict';
 
-const store  = require('./store');
-const states = require('./states');
-const events = require('./events');
+const store     = require('./store');
+const states    = require('./states');
+const events    = require('./events');
+const checklist = require('./checklist');
 
 function transitionTransaction(agentId, transactionId, toState, opts = {}) {
-  // items here is an ARRAY of fully annotated resolver output (id, label,
-  // applicability, completed, ...), passed in transiently by the caller for
-  // buildCloseOutstandingPayload. It is NOT the `items` map items.js reads
-  // and writes on the transaction record (id -> {completed, completedAt,
-  // documents, note}). Same name, different shape, no converter exists.
-  const { at, actor, items, baseDir, now } = opts;
+  const { at, actor, baseDir, now } = opts;
 
   const previous = store.readTransaction(agentId, transactionId, { baseDir });
   if (previous === null) {
@@ -24,9 +20,10 @@ function transitionTransaction(agentId, transactionId, toState, opts = {}) {
 
   let patch = { state: toState };
 
-  if (toState === 'closed' && items !== undefined) {
-    const payload = events.buildCloseOutstandingPayload(items);
-    if (payload.outstandingCount > 0) {
+  if (toState === 'closed') {
+    const resolvedItems = checklist.resolveChecklistForTransaction(previous);
+    const payload = events.buildCloseOutstandingPayload(resolvedItems);
+    if (payload.outstandingCount > 0 || payload.indeterminateCount > 0) {
       const event = events.makeEvent({
         at,
         actor,

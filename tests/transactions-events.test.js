@@ -206,9 +206,9 @@ describe('buildCloseOutstandingPayload', () => {
     expect(payload.outstandingCount).toBe(0);
   });
 
-  it('returns zero count and empty rows for an empty array', () => {
+  it('returns zero counts and empty rows for an empty array', () => {
     const payload = buildCloseOutstandingPayload([]);
-    expect(payload).toEqual({ outstandingCount: 0, rows: [] });
+    expect(payload).toEqual({ outstandingCount: 0, indeterminateCount: 0, rows: [] });
   });
 
   it('rejects a non-array items argument', () => {

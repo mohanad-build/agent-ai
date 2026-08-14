@@ -54,12 +54,20 @@ function appendEvent(events, event) {
 // validate against.
 const APPLICABILITIES = ['required', 'indeterminate', 'not_applicable', 'no_longer_applicable'];
 
+// outstandingCount and indeterminateCount are reported separately, never
+// merged into one number. outstanding 2 / indeterminate 0 is an agent who
+// worked the file and skipped two required items — a compliance gap.
+// outstanding 2 / indeterminate 11 is a file nobody ever filled in, so most
+// of the checklist never resolved past waiting on facts — a data gap. One
+// number cannot tell those apart, and the person reading this during a
+// complaint is the one who most needs to.
 function buildCloseOutstandingPayload(items) {
   if (!Array.isArray(items)) {
     throw new Error('buildCloseOutstandingPayload: items must be an array');
   }
 
   let outstandingCount = 0;
+  let indeterminateCount = 0;
   const rows = [];
 
   items.forEach((item) => {
@@ -68,9 +76,6 @@ function buildCloseOutstandingPayload(items) {
     }
     if (typeof item.id !== 'string' || item.id.trim() === '') {
       throw new Error('buildCloseOutstandingPayload: every item must have a non-empty string id');
-    }
-    if (typeof item.label !== 'string' || item.label.trim() === '') {
-      throw new Error('buildCloseOutstandingPayload: every item must have a non-empty string label');
     }
     if (!APPLICABILITIES.includes(item.applicability)) {
       throw new Error(`buildCloseOutstandingPayload: unknown applicability '${item.applicability}'`);
@@ -82,7 +87,18 @@ function buildCloseOutstandingPayload(items) {
       outstandingCount += 1;
     }
 
+    if (item.applicability === 'indeterminate') {
+      indeterminateCount += 1;
+    }
+
     if (item.applicability === 'required' || item.applicability === 'indeterminate') {
+      // label is only ever read off a row, so it is only validated for an
+      // item that becomes one. A carried-over no_longer_applicable item has
+      // no label (carriedOver in resolver.js only spreads the stored entry,
+      // which never had one) and is dropped below before this would matter.
+      if (typeof item.label !== 'string' || item.label.trim() === '') {
+        throw new Error('buildCloseOutstandingPayload: every item must have a non-empty string label');
+      }
       rows.push({
         id: item.id,
         label: item.label,
@@ -96,6 +112,7 @@ function buildCloseOutstandingPayload(items) {
 
   return Object.freeze({
     outstandingCount,
+    indeterminateCount,
     rows,
   });
 }
