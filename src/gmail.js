@@ -830,6 +830,7 @@ async function applyMessageLabels(agentConfig, messageId, addLabelIds, removeLab
 // ---------------------------------------------------------------------------
 
 module.exports = {
+  getOAuthClient,
   fetchUnreadReplies,
   getMessage,
   getThreadHistory,
