@@ -854,6 +854,8 @@ module.exports = {
   applyMessageLabels,
   AuthFailureError,
   SheetAccessError,
+  isAuthFailure,
+  handleAuthFailure,
   _internal: {
     normalizeSubject,
     encodeHeaderValue,
