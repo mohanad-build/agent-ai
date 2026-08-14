@@ -196,6 +196,42 @@ describe('buildCloseOutstandingPayload', () => {
     expect(payload.rows[0].completed).toBe(true);
   });
 
+  it('a required item with an empty outstandingPersons counts as complete, regardless of item.completed', () => {
+    const payload = buildCloseOutstandingPayload([
+      item({ id: 'a', completed: false, satisfiedPersons: ['Jane Smith'], outstandingPersons: [] }),
+    ]);
+    expect(payload.rows[0].completed).toBe(true);
+    expect(payload.outstandingCount).toBe(0);
+  });
+
+  it('a required item with a non-empty outstandingPersons counts as outstanding, regardless of item.completed', () => {
+    const payload = buildCloseOutstandingPayload([
+      item({ id: 'a', completed: true, satisfiedPersons: [], outstandingPersons: ['Jane Smith'] }),
+    ]);
+    expect(payload.rows[0].completed).toBe(false);
+    expect(payload.outstandingCount).toBe(1);
+  });
+
+  it('an item with satisfiedPersons but no outstandingPersons key falls back to item.completed', () => {
+    const payload = buildCloseOutstandingPayload([
+      item({ id: 'a', completed: true, satisfiedPersons: ['Jane Smith'] }),
+      item({ id: 'b', completed: false, satisfiedPersons: ['Jane Smith'] }),
+    ]);
+    expect(payload.rows[0].completed).toBe(true);
+    expect(payload.rows[1].completed).toBe(false);
+    expect(payload.outstandingCount).toBe(1);
+  });
+
+  it('an item with neither satisfiedPersons nor outstandingPersons is unaffected: existing behaviour holds', () => {
+    const payload = buildCloseOutstandingPayload([
+      item({ id: 'a', completed: true }),
+      item({ id: 'b', completed: false }),
+    ]);
+    expect(payload.rows[0].completed).toBe(true);
+    expect(payload.rows[1].completed).toBe(false);
+    expect(payload.outstandingCount).toBe(1);
+  });
+
   it('excludes not_applicable and no_longer_applicable from rows entirely', () => {
     const items = [
       item({ id: 'a', applicability: 'not_applicable' }),

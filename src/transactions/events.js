@@ -81,7 +81,18 @@ function buildCloseOutstandingPayload(items) {
       throw new Error(`buildCloseOutstandingPayload: unknown applicability '${item.applicability}'`);
     }
 
-    const completed = Boolean(item.completed);
+    // For a client-scoped 'event' item, per-person satisfaction is the
+    // completion signal, not item.completed: withClientSatisfaction (in
+    // resolver.js) never writes item.completed, so a client-scoped item
+    // that every represented person has cleared would otherwise show up as
+    // incomplete here. We read presence of outstandingPersons specifically
+    // (not satisfiedPersons, not either-of-the-two): the resolver already
+    // decided when to emit it — required emits it, not_applicable emits
+    // only satisfiedPersons — so re-deriving that from scope/clientScope
+    // here would duplicate the resolver's rule in a second place.
+    const completed = Object.prototype.hasOwnProperty.call(item, 'outstandingPersons')
+      ? item.outstandingPersons.length === 0
+      : Boolean(item.completed);
 
     if (item.applicability === 'required' && !completed) {
       outstandingCount += 1;

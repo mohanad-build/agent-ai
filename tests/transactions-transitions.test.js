@@ -238,6 +238,53 @@ describe('transitionTransaction', () => {
     expect(onDisk.events).toBeUndefined();
   });
 
+  test('closing does not count a client-scoped item as outstanding once every represented person has satisfied it', () => {
+    const created = createInState('firm');
+    clearIndeterminates(created.transactionId);
+    // reco_information_guide, fintrac_individual_identification_record and
+    // fintrac_third_party_determination are the three UNCONDITIONAL_REQUIRED_IDS
+    // that are scope 'client' / clientScope 'event' (buyerPurchase.js). Once
+    // representedPersons is a known fact, ALL of them get outstandingPersons
+    // computed, not just the one under test — so all three are left off
+    // item_completed here and cleared through clientSatisfactions instead,
+    // exactly like reco_information_guide, to get a clean close.
+    ['deal_sheet', 'buyer_representation_agreement', 'fintrac_receipt_of_funds_record'].forEach((id) => {
+      markItemComplete(AGENT_ID, created.transactionId, id, { at: AT, actor: 'agent', completedAt: COMPLETED_AT, baseDir, now: CLOCK });
+    });
+
+    const withFacts = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const satisfiedAllThree = {
+      reco_information_guide: { at: AT, actor: 'agent' },
+      fintrac_individual_identification_record: { at: AT, actor: 'agent' },
+      fintrac_third_party_determination: { at: AT, actor: 'agent' },
+    };
+    writeTransaction(AGENT_ID, {
+      ...withFacts,
+      facts: {
+        ...withFacts.facts,
+        representedPersons: ['Jane Smith', 'John Smith'],
+        clientSatisfactions: {
+          'Jane Smith': satisfiedAllThree,
+          'John Smith': satisfiedAllThree,
+        },
+      },
+    }, { baseDir, now: CLOCK });
+
+    const result = transitionTransaction(AGENT_ID, created.transactionId, 'closed', {
+      at: AT,
+      actor: 'agent',
+      baseDir,
+      now: LATER,
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.transaction.state).toBe('closed');
+    expect(closeEvents(result.transaction)).toHaveLength(0);
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(closeEvents(onDisk)).toHaveLength(0);
+  });
+
   test('a missing transaction throws', () => {
     expect(() => transitionTransaction(AGENT_ID, 'txn-20260715-00000000', 'firm', {
       at: AT,
