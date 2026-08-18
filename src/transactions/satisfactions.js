@@ -18,6 +18,9 @@
 const store = require('./store');
 const events = require('./events');
 const rules = require('./rules');
+const participants = require('./participants');
+
+const REPRESENTED_ROLES = participants._internal.REPRESENTED_ROLES;
 
 // -- Argument assertions ------------------------------------------------------------
 
@@ -49,16 +52,29 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
   return previous;
 }
 
-// Strict equality only: no trim, no lowercase, no fuzzy match. The names
-// must agree with the instrument, because the brokerage files under what the
-// paperwork says.
+// Checked against the participants map directly, not a stored fact:
+// representedPersons no longer exists as a stored fact (see checklist.js),
+// so authorization to satisfy an item is decided here by looking the id up
+// as a participant and checking its roles. Object-key lookup is exact by
+// construction, so there is no separate case-folding concern the way there
+// was for name matching. Three distinct error messages, because they are
+// three different mistakes: no participants recorded on the transaction at
+// all, an id that names nobody on this transaction, and an id that names
+// someone on this transaction who holds no role that counts as represented.
 function assertRepresented(fnName, previous, personId) {
-  const representedPersons = previous.facts && previous.facts.representedPersons;
-  if (representedPersons === undefined) {
-    throw new Error(`${fnName}: representedPersons is not set on transaction ${previous.transactionId}; there is nobody to satisfy yet`);
+  const participantsMap = previous.participants;
+  if (!participantsMap || Object.keys(participantsMap).length === 0) {
+    throw new Error(`${fnName}: no participants on transaction ${previous.transactionId}; there is nobody to satisfy yet`);
   }
-  if (!representedPersons.includes(personId)) {
-    throw new Error(`${fnName}: '${personId}' is not in representedPersons for transaction ${previous.transactionId}`);
+
+  const participant = participantsMap[personId];
+  if (!participant) {
+    throw new Error(`${fnName}: '${personId}' is not a participant on transaction ${previous.transactionId}`);
+  }
+
+  const qualifies = participant.roles.some((role) => REPRESENTED_ROLES.includes(role));
+  if (!qualifies) {
+    throw new Error(`${fnName}: '${personId}' is a participant on transaction ${previous.transactionId} but holds no role in ${REPRESENTED_ROLES.join(', ')}`);
   }
 }
 

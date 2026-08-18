@@ -6,7 +6,7 @@ const path = require('node:path');
 const { execFileSync } = require('child_process');
 
 const { createTransaction, readTransaction } = require('../src/transactions/store');
-const { setFact } = require('../src/transactions/facts');
+const { addParticipant } = require('../src/transactions/participants');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -25,8 +25,18 @@ function create() {
   return createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK });
 }
 
-function represent(transactionId, personIds) {
-  return setFact(AGENT_ID, transactionId, 'representedPersons', personIds, { at: AT, actor: 'agent', baseDir, now: CLOCK });
+// Adds one 'client' participant per name and returns their generated ids, in
+// the same order as the names given. The CLI under test takes whatever
+// string it is given for the person argument; these tests pass the
+// generated id, not the name.
+function represent(transactionId, names) {
+  const ids = [];
+  names.forEach((name) => {
+    const result = addParticipant(AGENT_ID, transactionId, ['client'], { name, at: AT, actor: 'agent', baseDir, now: CLOCK });
+    const newId = Object.keys(result.participants).find((id) => !ids.includes(id));
+    ids.push(newId);
+  });
+  return ids;
 }
 
 describe('CLI argument handling (spawned subprocess)', () => {
@@ -64,63 +74,64 @@ describe('CLI argument handling (spawned subprocess)', () => {
 
   it('a full valid invocation succeeds and the change is on disk', () => {
     const created = create();
-    represent(created.transactionId, ['Jane Smith']);
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
 
-    const stdout = run([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
+    const stdout = run([AGENT_ID, created.transactionId, janeId, 'reco_information_guide', '--base-dir', baseDir]);
 
-    expect(stdout).toContain('Person satisfied: Jane Smith / reco_information_guide');
+    expect(stdout).toContain(`Person satisfied: ${janeId} / reco_information_guide`);
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
-    expect(onDisk.facts.clientSatisfactions['Jane Smith']).toHaveProperty('reco_information_guide');
+    expect(onDisk.facts.clientSatisfactions[janeId]).toHaveProperty('reco_information_guide');
   });
 
   it('a missing --base-dir refuses, nonzero exit, message names the flag', () => {
     const created = create();
-    represent(created.transactionId, ['Jane Smith']);
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
 
-    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide']);
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, janeId, 'reco_information_guide']);
 
     expect(status).toBe(1);
     expect(stderr).toContain('--base-dir');
   });
 
-  it('a person not in representedPersons exits nonzero with the writer message on stderr', () => {
+  it('an id that is not a participant on the transaction exits nonzero with the writer message on stderr', () => {
     const created = create();
     represent(created.transactionId, ['Jane Smith']);
 
-    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'Ghost Person', 'reco_information_guide', '--base-dir', baseDir]);
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'per-ffffffff', 'reco_information_guide', '--base-dir', baseDir]);
 
     expect(status).toBe(1);
-    expect(stderr).toContain("markPersonSatisfied: 'Ghost Person' is not in representedPersons");
+    expect(stderr).toContain("markPersonSatisfied: 'per-ffffffff' is not a participant on transaction");
   });
 
-  it('the person argument is passed through unmodified: differing case is a different, unrepresented person', () => {
+  it('the person argument is passed through unmodified: a differently-cased id is not the same participant', () => {
     const created = create();
-    represent(created.transactionId, ['Jane Smith']);
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
+    const differentCase = janeId.toUpperCase();
 
-    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'jane smith', 'reco_information_guide', '--base-dir', baseDir]);
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, differentCase, 'reco_information_guide', '--base-dir', baseDir]);
 
     expect(status).toBe(1);
-    expect(stderr).toContain("markPersonSatisfied: 'jane smith' is not in representedPersons");
+    expect(stderr).toContain(`markPersonSatisfied: '${differentCase}' is not a participant on transaction`);
   });
 
   it('--undo unsatisfies a previously satisfied person', () => {
     const created = create();
-    represent(created.transactionId, ['Jane Smith']);
-    run([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
+    run([AGENT_ID, created.transactionId, janeId, 'reco_information_guide', '--base-dir', baseDir]);
 
-    const stdout = run([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--undo', '--base-dir', baseDir]);
+    const stdout = run([AGENT_ID, created.transactionId, janeId, 'reco_information_guide', '--undo', '--base-dir', baseDir]);
 
-    expect(stdout).toContain('Person unsatisfied: Jane Smith / reco_information_guide');
+    expect(stdout).toContain(`Person unsatisfied: ${janeId} / reco_information_guide`);
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(onDisk.facts.clientSatisfactions).toEqual({});
   });
 
   it('--undo on a never-satisfied item refuses, nonzero exit, and writes nothing', () => {
     const created = create();
-    represent(created.transactionId, ['Jane Smith']);
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
     const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
 
-    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--undo', '--base-dir', baseDir]);
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, janeId, 'reco_information_guide', '--undo', '--base-dir', baseDir]);
 
     expect(status).toBe(1);
     expect(stderr).toContain('is not satisfied for item');

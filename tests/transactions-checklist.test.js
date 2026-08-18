@@ -163,6 +163,49 @@ describe('resolveChecklistForTransaction', () => {
     expect(result).toEqual(resolveChecklist('buyer_purchase', 'conditional', {}));
   });
 
+  it('uses the participants-derived representedPersons over a stale stored facts.representedPersons', () => {
+    // facts.representedPersons here is a leftover from before this field
+    // was derived: a real transaction could carry one if it was written
+    // under the old regime and never rewritten. participants names a
+    // different id entirely. The resolved output must reflect the
+    // participants-derived id, never the stale stored one.
+    const transaction = {
+      type: 'buyer_purchase',
+      state: 'conditional',
+      items: {},
+      facts: { representedPersons: ['per-99999999'] },
+      participants: { 'per-11111111': { roles: ['client'] } },
+    };
+
+    const result = resolveChecklistForTransaction(transaction);
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+
+    expect(item.outstandingPersons).toEqual(['per-11111111']);
+    expect(item.outstandingPersons).not.toContain('per-99999999');
+  });
+
+  it('shows the absent-representedPersons behaviour when participants derives to undefined, not the stale stored value', () => {
+    // facts.representedPersons here is a leftover from before this field
+    // was derived. participants holds only a non-qualifying role, so
+    // deriveRepresentedPersons returns undefined -- "nobody named yet", not
+    // "the stale list is still valid". The resolved row must carry neither
+    // satisfiedPersons nor outstandingPersons, exactly as if participants
+    // had never been set at all: the stale array must not leak through.
+    const transaction = {
+      type: 'buyer_purchase',
+      state: 'conditional',
+      items: {},
+      facts: { representedPersons: ['per-99999999'] },
+      participants: { 'per-11111111': { roles: ['lawyer'] } },
+    };
+
+    const result = resolveChecklistForTransaction(transaction);
+    const item = result.find((entry) => entry.id === 'reco_information_guide');
+
+    expect(item).not.toHaveProperty('satisfiedPersons');
+    expect(item).not.toHaveProperty('outstandingPersons');
+  });
+
   it('reads state off the object it is handed: same transaction, different state field, different result', () => {
     const base = { type: 'buyer_purchase', items: {}, facts: {} };
 

@@ -6,6 +6,7 @@
 
 const store = require('./store');
 const resolver = require('./resolver');
+const participants = require('./participants');
 
 // -- Argument assertions ------------------------------------------------------------
 
@@ -43,7 +44,23 @@ function toItemsArray(items) {
 // the same mistake as shrinking `conditions`.
 function resolveChecklistForTransaction(transaction) {
   const previousItems = toItemsArray(transaction.items);
-  const facts = transaction.facts || {};
+
+  // representedPersons is derived from transaction.participants
+  // (participants.js) and is the only source used here: any stored
+  // facts.representedPersons left over from before this derivation existed
+  // is deleted below, never read. The derived key is set only when
+  // deriveRepresentedPersons returns something -- omitted, not set to
+  // undefined -- because an explicitly-undefined key is not the same as an
+  // omitted one. resolver.js:41 happens to check both `'representedPersons'
+  // in facts` and `=== undefined`, so relying on that second half to paper
+  // over the difference would be fragile.
+  const facts = { ...transaction.facts };
+  delete facts.representedPersons;
+
+  const derivedRepresentedPersons = participants.deriveRepresentedPersons(transaction.participants);
+  if (derivedRepresentedPersons !== undefined) {
+    facts.representedPersons = derivedRepresentedPersons;
+  }
 
   return resolver.reResolve(previousItems, transaction.type, transaction.state, facts);
 }

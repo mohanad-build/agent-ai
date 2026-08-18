@@ -4,8 +4,8 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant } = require('../src/transactions/participants');
-const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
+const { addParticipant, deriveRepresentedPersons } = require('../src/transactions/participants');
+const { PARTICIPANT_ID_RE, REPRESENTED_ROLES } = require('../src/transactions/participants')._internal;
 const { createTransaction, readTransaction } = require('../src/transactions/store');
 
 const AGENT_ID = 'test-agent';
@@ -190,5 +190,62 @@ describe('PARTICIPANT_ID_RE', () => {
     expect(PARTICIPANT_ID_RE.test('per-1A2B3C4D')).toBe(false);
     expect(PARTICIPANT_ID_RE.test('per-1a2b3c4')).toBe(false);
     expect(PARTICIPANT_ID_RE.test('txn-20260715-1a2b3c4d')).toBe(false);
+  });
+});
+
+describe('deriveRepresentedPersons', () => {
+  it('includes a participant whose roles include client', () => {
+    const participants = { 'per-11111111': { roles: ['client'] } };
+    expect(deriveRepresentedPersons(participants)).toEqual(['per-11111111']);
+  });
+
+  it('includes a participant whose roles include co_client', () => {
+    const participants = { 'per-22222222': { roles: ['co_client'] } };
+    expect(deriveRepresentedPersons(participants)).toEqual(['per-22222222']);
+  });
+
+  it('excludes a participant holding neither client nor co_client', () => {
+    const participants = { 'per-33333333': { roles: ['agent'] } };
+    expect(deriveRepresentedPersons(participants)).toBeUndefined();
+  });
+
+  it('includes a participant holding both client and another role exactly once', () => {
+    const participants = { 'per-44444444': { roles: ['client', 'property_manager'] } };
+    expect(deriveRepresentedPersons(participants)).toEqual(['per-44444444']);
+  });
+
+  it('picks out only the qualifying participants from a mixed map, preserving order', () => {
+    const participants = {
+      'per-11111111': { roles: ['agent'] },
+      'per-22222222': { roles: ['client'] },
+      'per-33333333': { roles: ['lawyer'] },
+      'per-44444444': { roles: ['co_client'] },
+    };
+    expect(deriveRepresentedPersons(participants)).toEqual(['per-22222222', 'per-44444444']);
+  });
+
+  it('returns undefined when participants is absent', () => {
+    expect(deriveRepresentedPersons(undefined)).toBeUndefined();
+  });
+
+  it('returns undefined for an empty participants map', () => {
+    expect(deriveRepresentedPersons({})).toBeUndefined();
+  });
+
+  it('returns undefined, not an empty array, when nobody in the map qualifies', () => {
+    const participants = {
+      'per-11111111': { roles: ['agent'] },
+      'per-22222222': { roles: ['lawyer'] },
+    };
+    const result = deriveRepresentedPersons(participants);
+    expect(result).toBeUndefined();
+    expect(result).not.toEqual([]);
+  });
+});
+
+describe('REPRESENTED_ROLES', () => {
+  it('is client and co_client, and is frozen', () => {
+    expect(REPRESENTED_ROLES).toEqual(['client', 'co_client']);
+    expect(Object.isFrozen(REPRESENTED_ROLES)).toBe(true);
   });
 });

@@ -8,6 +8,7 @@ const { transitionTransaction } = require('../src/transactions/transitions');
 const { createTransaction, readTransaction, writeTransaction } = require('../src/transactions/store');
 const { markItemComplete } = require('../src/transactions/items');
 const { setFact } = require('../src/transactions/facts');
+const { addParticipant } = require('../src/transactions/participants');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -244,28 +245,32 @@ describe('transitionTransaction', () => {
     // reco_information_guide, fintrac_individual_identification_record and
     // fintrac_third_party_determination are the three UNCONDITIONAL_REQUIRED_IDS
     // that are scope 'client' / clientScope 'event' (buyerPurchase.js). Once
-    // representedPersons is a known fact, ALL of them get outstandingPersons
-    // computed, not just the one under test — so all three are left off
-    // item_completed here and cleared through clientSatisfactions instead,
-    // exactly like reco_information_guide, to get a clean close.
+    // representedPersons is derived from participants, ALL of them get
+    // outstandingPersons computed, not just the one under test, so all
+    // three are left off item_completed here and cleared through
+    // clientSatisfactions instead, exactly like reco_information_guide, to
+    // get a clean close.
     ['deal_sheet', 'buyer_representation_agreement', 'fintrac_receipt_of_funds_record'].forEach((id) => {
       markItemComplete(AGENT_ID, created.transactionId, id, { at: AT, actor: 'agent', completedAt: COMPLETED_AT, baseDir, now: CLOCK });
     });
 
-    const withFacts = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const afterJane = addParticipant(AGENT_ID, created.transactionId, ['client'], { name: 'Jane Smith', at: AT, actor: 'agent', baseDir, now: CLOCK });
+    const janeId = Object.keys(afterJane.participants)[0];
+    const afterJohn = addParticipant(AGENT_ID, created.transactionId, ['client'], { name: 'John Smith', at: AT, actor: 'agent', baseDir, now: CLOCK });
+    const johnId = Object.keys(afterJohn.participants).find((id) => id !== janeId);
+
     const satisfiedAllThree = {
       reco_information_guide: { at: AT, actor: 'agent' },
       fintrac_individual_identification_record: { at: AT, actor: 'agent' },
       fintrac_third_party_determination: { at: AT, actor: 'agent' },
     };
     writeTransaction(AGENT_ID, {
-      ...withFacts,
+      ...afterJohn,
       facts: {
-        ...withFacts.facts,
-        representedPersons: ['Jane Smith', 'John Smith'],
+        ...afterJohn.facts,
         clientSatisfactions: {
-          'Jane Smith': satisfiedAllThree,
-          'John Smith': satisfiedAllThree,
+          [janeId]: satisfiedAllThree,
+          [johnId]: satisfiedAllThree,
         },
       },
     }, { baseDir, now: CLOCK });

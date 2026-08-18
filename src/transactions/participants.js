@@ -27,10 +27,13 @@
 // path. There is no updateParticipantRole, and none should be added: a
 // changed role is a new participant, not a mutation of an old one.
 //
-// This module is inert today: nothing calls addParticipant, and
-// representedPersons (resolver.js, satisfactions.js) remains the
-// authoritative source for who is on a deal. A later commit makes
-// representedPersons derive from this module.
+// representedPersons is no longer a stored fact: checklist.js derives it
+// from this module's participants map via deriveRepresentedPersons below,
+// and satisfactions.js gates markPersonSatisfied/markPersonUnsatisfied
+// against this module's participants map directly, rather than against a
+// stored representedPersons array. resolver.js itself is unchanged: it
+// still only ever sees a facts object, and still treats an absent
+// representedPersons key as "nobody named yet" rather than "named nobody".
 
 const crypto = require('node:crypto');
 
@@ -142,9 +145,35 @@ function addParticipant(agentId, transactionId, roles, opts = {}) {
   return store.writeTransaction(agentId, next, { baseDir, now });
 }
 
-module.exports = { addParticipant };
+// -- deriveRepresentedPersons ---------------------------------------------------
+
+// A participant counts as represented when their roles include 'client' or
+// 'co_client'. One home for that rule: reused by checklist.js (deriving the
+// representedPersons the resolver sees) and by satisfactions.js (deciding
+// who is eligible to be marked satisfied), so the two lists can never
+// disagree.
+const REPRESENTED_ROLES = Object.freeze(['client', 'co_client']);
+
+// Returns undefined, NOT AN EMPTY ARRAY, when the participants map is
+// absent, empty, or contains nobody qualifying. THIS IS THE MOST IMPORTANT
+// LINE IN THIS MODULE: resolver.js:122-126 (withClientSatisfaction) treats
+// absent representedPersons as a distinct, meaningful state -- we were
+// never told who is on the deal, so it emits neither satisfiedPersons nor
+// outstandingPersons. An empty array is NOT absence: it would flow through
+// as "zero people outstanding" and render a deal nobody has been named on
+// as all-clear. Absent means unknown; empty would mean known-to-be-nobody,
+// and this function is never in a position to assert that.
+function deriveRepresentedPersons(participants) {
+  const ids = Object.keys(participants || {}).filter((id) => {
+    return participants[id].roles.some((role) => REPRESENTED_ROLES.includes(role));
+  });
+  return ids.length > 0 ? ids : undefined;
+}
+
+module.exports = { addParticipant, deriveRepresentedPersons };
 
 module.exports._internal = {
   PARTICIPANT_ID_RE,
   generateParticipantId,
+  REPRESENTED_ROLES,
 };
