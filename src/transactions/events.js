@@ -19,6 +19,7 @@ const EVENT_KINDS = Object.freeze([
   'document_seen',
   'document_filed',
   'document_filing_abandoned',
+  'participant_added',
 ]);
 
 function makeEvent({ at, actor, kind, payload }) {
