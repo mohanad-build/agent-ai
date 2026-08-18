@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseAddress } = require('../src/transactions/address');
+const { parseAddress, compareAddresses } = require('../src/transactions/address');
 
 const { TABLE } = require('../src/transactions/address')._internal;
 
@@ -89,6 +89,108 @@ describe('parseAddress', () => {
 
   it('throws for a non-string argument', () => {
     expect(() => parseAddress(42)).toThrow('parseAddress: address must be a non-empty string');
+  });
+});
+
+describe('compareAddresses', () => {
+  it('matches identical addresses', () => {
+    const a = parseAddress('14 Bonacres Rd');
+    const b = parseAddress('14 Bonacres Rd');
+    expect(compareAddresses(a, b)).toEqual({ match: true, reason: 'match' });
+  });
+
+  it('matches Rd, Road and Rd. against each other', () => {
+    const rd = parseAddress('14 Bonacres Rd');
+    const road = parseAddress('14 Bonacres Road');
+    const rdDot = parseAddress('14 Bonacres Rd.');
+    expect(compareAddresses(rd, road)).toEqual({ match: true, reason: 'match' });
+    expect(compareAddresses(rd, rdDot)).toEqual({ match: true, reason: 'match' });
+    expect(compareAddresses(road, rdDot)).toEqual({ match: true, reason: 'match' });
+  });
+
+  it('matches when street type is absent on one side (the ordinary real-world case)', () => {
+    const bare = parseAddress('14 Bonacres');
+    const withType = parseAddress('14 Bonacres Rd');
+    expect(compareAddresses(bare, withType)).toEqual({ match: true, reason: 'match' });
+  });
+
+  it('does not match when street type is present on both sides and differs', () => {
+    const rd = parseAddress('14 Bonacres Rd');
+    const ave = parseAddress('14 Bonacres Ave');
+    expect(compareAddresses(rd, ave)).toEqual({ match: false, reason: 'street type conflict' });
+  });
+
+  it('does not match when directional is present on both sides and differs', () => {
+    const east = parseAddress('14 Lawrence Ave E');
+    const west = parseAddress('14 Lawrence Ave W');
+    expect(compareAddresses(east, west)).toEqual({ match: false, reason: 'directional conflict' });
+  });
+
+  it('matches when directional is absent on one side', () => {
+    const noDirectional = parseAddress('14 Lawrence Ave');
+    const east = parseAddress('14 Lawrence Ave E');
+    expect(compareAddresses(noDirectional, east)).toEqual({ match: true, reason: 'match' });
+  });
+
+  it('does not match when city is present on both sides and differs', () => {
+    const markham = parseAddress('14 Bonacres Rd, Markham');
+    const toronto = parseAddress('14 Bonacres Rd, Toronto');
+    expect(compareAddresses(markham, toronto)).toEqual({ match: false, reason: 'city conflict' });
+  });
+
+  it('matches when city is absent on one side', () => {
+    const noCity = parseAddress('14 Bonacres Rd');
+    const markham = parseAddress('14 Bonacres Rd, Markham');
+    expect(compareAddresses(noCity, markham)).toEqual({ match: true, reason: 'match' });
+  });
+
+  it('does not match when civic differs', () => {
+    const a = parseAddress('14 Bonacres');
+    const b = parseAddress('16 Bonacres');
+    expect(compareAddresses(a, b)).toEqual({ match: false, reason: 'civic differs' });
+  });
+
+  it('does not match when street differs', () => {
+    const a = parseAddress('14 Bonacres');
+    const b = parseAddress('14 Bonaventure');
+    expect(compareAddresses(a, b)).toEqual({ match: false, reason: 'street differs' });
+  });
+
+  it('does not match a hyphenated civic range against a bare civic number', () => {
+    const range = parseAddress('14-16 Bonacres');
+    const bare = parseAddress('14 Bonacres');
+    expect(compareAddresses(range, bare)).toEqual({ match: false, reason: 'civic differs' });
+  });
+
+  it('returns no match, reason "no address", when either side is null, without throwing', () => {
+    const a = parseAddress('14 Bonacres');
+    expect(compareAddresses(null, a)).toEqual({ match: false, reason: 'no address' });
+    expect(compareAddresses(a, null)).toEqual({ match: false, reason: 'no address' });
+    expect(compareAddresses(null, null)).toEqual({ match: false, reason: 'no address' });
+  });
+
+  it('throws for undefined', () => {
+    const a = parseAddress('14 Bonacres');
+    expect(() => compareAddresses(undefined, a)).toThrow(
+      'compareAddresses: a must be a parseAddress result or null'
+    );
+    expect(() => compareAddresses(a, undefined)).toThrow(
+      'compareAddresses: b must be a parseAddress result or null'
+    );
+  });
+
+  it('throws for a string argument', () => {
+    const a = parseAddress('14 Bonacres');
+    expect(() => compareAddresses('14 Bonacres', a)).toThrow(
+      'compareAddresses: a must be a parseAddress result or null'
+    );
+  });
+
+  it('throws for a number argument', () => {
+    const a = parseAddress('14 Bonacres');
+    expect(() => compareAddresses(a, 42)).toThrow(
+      'compareAddresses: b must be a parseAddress result or null'
+    );
   });
 });
 

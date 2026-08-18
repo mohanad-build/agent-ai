@@ -88,6 +88,12 @@ function assertNonEmptyString(fnName, name, value) {
   }
 }
 
+function assertParsedAddressOrNull(fnName, name, value) {
+  if (value === undefined || (value !== null && typeof value !== 'object')) {
+    throw new Error(`${fnName}: ${name} must be a parseAddress result or null`);
+  }
+}
+
 // -- Civic number ---------------------------------------------------------------------
 
 // Digits, optionally hyphen-joined to more digits, from the very start of
@@ -209,6 +215,46 @@ function parseAddress(text) {
   return result;
 }
 
-module.exports = { parseAddress };
+// -- compareAddresses --------------------------------------------------------------
+
+// Takes two parseAddress results (or null, meaning no civic number was
+// found in the source text) and decides whether they name the same
+// address. Unit is deliberately not handled here: it is a sibling field on
+// the transaction envelope, not part of an address string, so comparing it
+// is the caller's concern one level up.
+function compareAddresses(a, b) {
+  assertParsedAddressOrNull('compareAddresses', 'a', a);
+  assertParsedAddressOrNull('compareAddresses', 'b', b);
+
+  if (a === null || b === null) {
+    return { match: false, reason: 'no address' };
+  }
+
+  if (a.civic !== b.civic) {
+    return { match: false, reason: 'civic differs' };
+  }
+
+  if (a.street !== b.street) {
+    return { match: false, reason: 'street differs' };
+  }
+
+  // Absent on either side is uninformative, not a mismatch: agents usually
+  // type just a number and street name.
+  if (a.streetType !== undefined && b.streetType !== undefined && a.streetType !== b.streetType) {
+    return { match: false, reason: 'street type conflict' };
+  }
+
+  if (a.directional !== undefined && b.directional !== undefined && a.directional !== b.directional) {
+    return { match: false, reason: 'directional conflict' };
+  }
+
+  if (a.city !== undefined && b.city !== undefined && a.city !== b.city) {
+    return { match: false, reason: 'city conflict' };
+  }
+
+  return { match: true, reason: 'match' };
+}
+
+module.exports = { parseAddress, compareAddresses };
 
 module.exports._internal = { TABLE };
