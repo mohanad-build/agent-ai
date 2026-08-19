@@ -56,6 +56,10 @@ describe('FACT_KEYS', () => {
     expect(FACT_KEYS).not.toContain('clientSatisfactions');
   });
 
+  it('does not include representedPersons', () => {
+    expect(FACT_KEYS).not.toContain('representedPersons');
+  });
+
   it('is frozen', () => {
     expect(Object.isFrozen(FACT_KEYS)).toBe(true);
   });
@@ -129,6 +133,13 @@ describe('setFact', () => {
     expect(() => setFact(AGENT_ID, created.transactionId, 'clientSatisfactions', {}, {
       at: AT, actor: 'agent', baseDir, now: LATER,
     })).toThrow(/^setFact: unknown fact key 'clientSatisfactions'/);
+  });
+
+  it('throws on representedPersons specifically, pinning the deliberate exclusion', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'representedPersons', ['Jane Smith'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow(/^setFact: unknown fact key 'representedPersons'/);
   });
 
   it('throws when evidence is passed with actor agent', () => {
@@ -225,6 +236,13 @@ describe('confirmFact', () => {
       at: AT, actor: 'agent', baseDir, now: LATER,
     })).toThrow(/^confirmFact: unknown fact key 'notARealFact'/);
   });
+
+  it('throws on representedPersons specifically, pinning the deliberate exclusion', () => {
+    const created = create();
+    expect(() => confirmFact(AGENT_ID, created.transactionId, 'representedPersons', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow(/^confirmFact: unknown fact key 'representedPersons'/);
+  });
 });
 
 describe('correctFact', () => {
@@ -289,5 +307,12 @@ describe('correctFact', () => {
     expect(() => correctFact(AGENT_ID, created.transactionId, 'notARealFact', 'x', {
       at: AT, actor: 'agent', baseDir, now: LATER,
     })).toThrow(/^correctFact: unknown fact key 'notARealFact'/);
+  });
+
+  it('throws on representedPersons specifically, pinning the deliberate exclusion', () => {
+    const created = create();
+    expect(() => correctFact(AGENT_ID, created.transactionId, 'representedPersons', ['Jane Smith'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow(/^correctFact: unknown fact key 'representedPersons'/);
   });
 });
