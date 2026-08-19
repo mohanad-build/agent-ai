@@ -4,6 +4,21 @@
 // initial states. Thin wrapper over store.createTransaction with
 // type/state validation from src/transactions/states.js.
 //
+// When no --listing-id is given, a successful create is followed by a
+// report of any matching listing found via store.findListingCandidates:
+// names the id(s) and the flag to link one by hand. It is a report, not an
+// automatic link, and this is deliberate, not an oversight to "fix" later.
+// findListingCandidates' address matching goes through compareAddresses
+// (src/transactions/address.js), which is absence-tolerant by design: an
+// absent street type, directional or city on either side is not treated as
+// a mismatch. That is correct for the document-matching job it was built
+// for, where a missed match is free. Here the output would be a listingId
+// written onto a compliance record that a later document-filing tiebreak
+// routes on, and '14 Bonacres Rd' would tolerantly match a listing at '14
+// Bonacres Rd E'. A wrong silent link is durable and hard to notice; a
+// report the agent confirms with --listing-id is not. Do not make this
+// write listingId automatically under any condition.
+//
 // Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>]
 
 'use strict';
@@ -117,6 +132,26 @@ if (require.main === module) {
     const filePath = store._internal.transactionPath(baseDir, agentId, transaction.transactionId);
     console.log(`Transaction created: ${transaction.transactionId}`);
     console.log(`File: ${filePath}`);
+
+    // Convenience only, and the transaction above is already written: a
+    // failure here must not turn a successful create into a nonzero exit.
+    // An explicit --listing-id is the agent's own decision and is not
+    // second-guessed by looking anything up.
+    if (!listingIdFromFlag) {
+      try {
+        const candidates = store.findListingCandidates(agentId, type, addressFromFlag, { baseDir });
+        if (candidates.length === 1) {
+          const [only] = candidates;
+          console.log(`Matching listing found: ${only.transactionId} (${only.address}, ${only.state}). Link it with: --listing-id ${only.transactionId}`);
+        } else if (candidates.length > 1) {
+          const lines = candidates.map((c) => `  ${c.transactionId}  ${c.address}  ${c.state}`);
+          console.log([`${candidates.length} matching listings found. Pick one and pass --listing-id:`, ...lines].join('\n'));
+        }
+      } catch (err) {
+        console.error(`open-transaction: could not check for candidate listings: ${err.message}`);
+      }
+    }
+
     process.exit(0);
   } catch (err) {
     console.error(err.message);

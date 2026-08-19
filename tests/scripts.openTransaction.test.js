@@ -3,10 +3,10 @@
 const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 const { openTransaction } = require('../scripts/open-transaction');
-const { readTransaction } = require('../src/transactions/store');
+const { readTransaction, createTransaction } = require('../src/transactions/store');
 const states = require('../src/transactions/states');
 
 const AGENT_ID = 'test-agent';
@@ -170,5 +170,154 @@ describe('CLI argument handling (spawned subprocess)', () => {
     const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
     expect(written.address).toBe('12 Main St');
     expect(written).not.toHaveProperty('unit');
+  });
+});
+
+describe('CLI: candidate listing report', () => {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'open-transaction.js');
+
+  // Fixture listings go straight through store.createTransaction, not
+  // openTransaction: openTransaction enforces initial states, and the
+  // terminal-listing fixture below needs a terminal one.
+  function createListing(type, addressText, opts = {}) {
+    const { state = 'live', unit } = opts;
+    const fields = { type, state, address: addressText };
+    if (unit !== undefined) fields.unit = unit;
+    return createTransaction(AGENT_ID, fields, { baseDir, now: CLOCK });
+  }
+
+  function run(args) {
+    return execFileSync('node', [scriptPath, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+
+  function extractCreatedId(stdout) {
+    const match = stdout.match(/Transaction created: (txn-\d{8}-[0-9a-f]{8})/);
+    return match ? match[1] : undefined;
+  }
+
+  test('a seller_sale opened at a matching address reports the one non-terminal seller_listing found', () => {
+    const listing = createListing('seller_listing', '14 Bonacres Rd');
+
+    const stdout = run([AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    expect(stdout).toContain(listing.transactionId);
+    expect(stdout).toContain('Matching listing found');
+  });
+
+  test('a landlord_lease opened at a matching address reports the one non-terminal landlord_listing found', () => {
+    const listing = createListing('landlord_listing', '14 Bonacres Rd');
+
+    const stdout = run([AGENT_ID, 'landlord_lease', 'accepted', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    expect(stdout).toContain(listing.transactionId);
+    expect(stdout).toContain('Matching listing found');
+  });
+
+  test('two matching listings are both reported', () => {
+    const first = createListing('seller_listing', '14 Bonacres Rd');
+    const second = createListing('seller_listing', '14 Bonacres Rd');
+
+    const stdout = run([AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    expect(stdout).toContain(first.transactionId);
+    expect(stdout).toContain(second.transactionId);
+    expect(stdout).toContain('2 matching listings found');
+  });
+
+  test('a terminal listing at the same address is not reported', () => {
+    const listing = createListing('seller_listing', '14 Bonacres Rd', { state: 'terminated' });
+
+    const stdout = run([AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    expect(stdout).not.toContain(listing.transactionId);
+    expect(stdout).not.toContain('Matching listing found');
+  });
+
+  test('a matching seller_listing is not reported for a buyer_purchase: wrong pairing, and buyer_purchase carries no listingId', () => {
+    const listing = createListing('seller_listing', '14 Bonacres Rd');
+
+    const stdout = run([AGENT_ID, 'buyer_purchase', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    expect(stdout).not.toContain(listing.transactionId);
+    expect(stdout).not.toContain('Matching listing found');
+  });
+
+  test('a listing at a different address is not reported', () => {
+    const listing = createListing('seller_listing', '99 Other Ave');
+
+    const stdout = run([AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    expect(stdout).not.toContain(listing.transactionId);
+    expect(stdout).not.toContain('Matching listing found');
+  });
+
+  test('an explicit --listing-id suppresses the report even though a matching listing exists', () => {
+    const listing = createListing('seller_listing', '14 Bonacres Rd');
+
+    const stdout = run([
+      AGENT_ID, 'seller_sale', 'conditional',
+      '--address', '14 Bonacres Rd',
+      '--listing-id', 'txn-20260101-aaaaaaaa',
+      '--base-dir', baseDir,
+    ]);
+
+    expect(stdout).not.toContain('Matching listing found');
+    expect(stdout).not.toContain(listing.transactionId);
+  });
+
+  test('address variants match: a listing stored as "14 Bonacres" is reported when opening a deal at "14 Bonacres Rd"', () => {
+    const listing = createListing('seller_listing', '14 Bonacres');
+
+    const stdout = run([AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    expect(stdout).toContain(listing.transactionId);
+  });
+
+  test('the exit code is 0 when a candidate is reported', () => {
+    createListing('seller_listing', '14 Bonacres Rd');
+
+    const result = spawnSync(
+      'node',
+      [scriptPath, AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir],
+      { encoding: 'utf8' }
+    );
+
+    expect(result.status).toBe(0);
+  });
+
+  test('the exit code is 0 when two candidates are reported', () => {
+    createListing('seller_listing', '14 Bonacres Rd');
+    createListing('seller_listing', '14 Bonacres Rd');
+
+    const result = spawnSync(
+      'node',
+      [scriptPath, AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir],
+      { encoding: 'utf8' }
+    );
+
+    expect(result.status).toBe(0);
+  });
+
+  test('CRITICAL: no listingId is written to the created transaction when a candidate is reported', () => {
+    createListing('seller_listing', '14 Bonacres Rd');
+
+    const stdout = run([AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    const createdId = extractCreatedId(stdout);
+    expect(createdId).toBeDefined();
+    const onDisk = readTransaction(AGENT_ID, createdId, { baseDir });
+    expect('listingId' in onDisk).toBe(false);
+  });
+
+  test('CRITICAL: no listingId is written to the created transaction when two candidates are reported', () => {
+    createListing('seller_listing', '14 Bonacres Rd');
+    createListing('seller_listing', '14 Bonacres Rd');
+
+    const stdout = run([AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir]);
+
+    const createdId = extractCreatedId(stdout);
+    expect(createdId).toBeDefined();
+    const onDisk = readTransaction(AGENT_ID, createdId, { baseDir });
+    expect('listingId' in onDisk).toBe(false);
   });
 });

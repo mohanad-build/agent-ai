@@ -93,6 +93,19 @@ deepFreeze(TABLE);
 
 const TRANSACTION_TYPES = Object.freeze(Object.keys(TABLE));
 
+// Which listing type sits behind each deal type. seller_sale and
+// landlord_lease are the two deal types a listing can sit under (store.js's
+// LISTING_ELIGIBLE_TYPES already agrees on that set; a test pins the two
+// lists together so they cannot drift apart). buyer_purchase and
+// tenant_lease open at the deal with nothing behind them, and the listing
+// types themselves are not deals, so neither has an entry here. Flat string
+// map, no nested values, so a plain Object.freeze is enough; TABLE needs
+// deepFreeze only because it nests arrays.
+const DEAL_TO_LISTING_TYPE = Object.freeze({
+  seller_sale: 'seller_listing',
+  landlord_lease: 'landlord_listing',
+});
+
 function assertKnownType(fnName, type) {
   if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(TABLE, type)) {
     throw new Error(`${fnName}: unknown type '${type}'`);
@@ -133,6 +146,14 @@ function isTerminal(type, state) {
   return TABLE[type].terminal.includes(state);
 }
 
+// Returns the listing type paired with a deal type, or undefined for a deal
+// type with no listing behind it. Unlike a missing pairing, an unknown type
+// is a caller bug: throws, matching every other lookup in this file.
+function listingTypeForDeal(dealType) {
+  assertKnownType('listingTypeForDeal', dealType);
+  return DEAL_TO_LISTING_TYPE[dealType];
+}
+
 function canTransition(type, fromState, toState) {
   assertKnownType('canTransition', type);
   assertStateArg('canTransition', 'fromState', fromState);
@@ -171,8 +192,9 @@ module.exports = {
   isValidInitialState,
   isValidState,
   isTerminal,
+  listingTypeForDeal,
   canTransition,
   listTransitions,
 };
 
-module.exports._internal = { TABLE };
+module.exports._internal = { TABLE, DEAL_TO_LISTING_TYPE };

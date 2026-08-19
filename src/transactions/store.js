@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 
 const { getStorageRoot } = require('../storagePaths');
 const states = require('./states');
+const { parseAddress, compareAddresses } = require('./address');
 
 // -- Error classes -----------------------------------------------------------
 
@@ -261,6 +262,49 @@ function listTransactionIds(agentId, opts = {}) {
     .sort();
 }
 
+// Candidate listings for a deal about to be opened: every transaction that
+// is the listing type paired with dealType, not terminal, and whose address
+// compares as a match against addressText. Read only, same as
+// listTransactionIds and readTransaction beneath it: writes nothing, never
+// touches a transaction.
+//
+// Enumerates with listTransactionIds, then reads every id it gets back --
+// one file read per transaction, an O(n) scan of the agent's whole
+// transaction directory. That is acceptable because opening a deal is a
+// once-per-transaction human action at a terminal, not a hot path; this is
+// not a shape to reuse anywhere that runs per-request or in a loop.
+//
+// Address matching goes through parseAddress/compareAddresses
+// (address.js), which is deliberately absence-tolerant: an absent street
+// type, directional or city on either side is not a mismatch. That is the
+// right call for the document-matching job that pair was built for, where a
+// miss is free. It is also why this function only ever reports candidates
+// rather than writing listingId itself -- see open-transaction.js's header
+// for the reasoning; do not change that here.
+function findListingCandidates(agentId, dealType, addressText, opts = {}) {
+  const listingType = states.listingTypeForDeal(dealType);
+  if (listingType === undefined) {
+    return [];
+  }
+
+  const baseDir = opts.baseDir || getStorageRoot();
+  const target = parseAddress(addressText);
+
+  const candidates = listTransactionIds(agentId, { baseDir })
+    .map((transactionId) => readTransaction(agentId, transactionId, { baseDir }))
+    .filter((transaction) => transaction.type === listingType)
+    .filter((transaction) => !states.isTerminal(transaction.type, transaction.state))
+    .filter((transaction) => compareAddresses(target, parseAddress(transaction.address)).match)
+    .map((transaction) => ({
+      transactionId: transaction.transactionId,
+      address: transaction.address,
+      unit: transaction.unit,
+      state: transaction.state,
+    }));
+
+  return candidates.sort((a, b) => a.transactionId.localeCompare(b.transactionId));
+}
+
 // -- Exports ------------------------------------------------------------------
 
 module.exports = {
@@ -270,6 +314,7 @@ module.exports = {
   readTransaction,
   writeTransaction,
   listTransactionIds,
+  findListingCandidates,
 };
 
 module.exports._internal = {
@@ -278,4 +323,5 @@ module.exports._internal = {
   transactionPath,
   generateTransactionId,
   validateEnvelope,
+  LISTING_ELIGIBLE_TYPES,
 };

@@ -7,11 +7,13 @@ const {
   isValidInitialState,
   isValidState,
   isTerminal,
+  listingTypeForDeal,
   canTransition,
   listTransitions,
 } = require('../src/transactions/states');
 
-const { TABLE } = require('../src/transactions/states')._internal;
+const { TABLE, DEAL_TO_LISTING_TYPE } = require('../src/transactions/states')._internal;
+const { LISTING_ELIGIBLE_TYPES } = require('../src/transactions/store')._internal;
 
 describe('TRANSACTION_TYPES', () => {
   it('lists exactly the six locked transaction types in order', () => {
@@ -419,5 +421,42 @@ describe('locked spec content (listing types)', () => {
       expect(isValidInitialState(type, 'suspended')).toBe(false);
       expect(isValidInitialState(type, 'terminated')).toBe(false);
     });
+  });
+});
+
+describe('listingTypeForDeal', () => {
+  it('pairs seller_sale with seller_listing', () => {
+    expect(listingTypeForDeal('seller_sale')).toBe('seller_listing');
+  });
+
+  it('pairs landlord_lease with landlord_listing', () => {
+    expect(listingTypeForDeal('landlord_lease')).toBe('landlord_listing');
+  });
+
+  it('returns undefined for buyer_purchase and tenant_lease: they open with nothing behind them', () => {
+    expect(listingTypeForDeal('buyer_purchase')).toBeUndefined();
+    expect(listingTypeForDeal('tenant_lease')).toBeUndefined();
+  });
+
+  it('returns undefined for the listing types themselves: they are not deals', () => {
+    expect(listingTypeForDeal('seller_listing')).toBeUndefined();
+    expect(listingTypeForDeal('landlord_listing')).toBeUndefined();
+  });
+
+  it('throws for an unknown type, matching every other lookup in this file', () => {
+    expect(() => listingTypeForDeal('not_a_type')).toThrow(/listingTypeForDeal: unknown type/);
+  });
+
+  it('the map is frozen', () => {
+    expect(Object.isFrozen(DEAL_TO_LISTING_TYPE)).toBe(true);
+  });
+
+  it('the map cannot be extended by assignment', () => {
+    expect(() => { DEAL_TO_LISTING_TYPE.buyer_purchase = 'seller_listing'; }).toThrow();
+    expect(Object.prototype.hasOwnProperty.call(DEAL_TO_LISTING_TYPE, 'buyer_purchase')).toBe(false);
+  });
+
+  it('the map\'s keys are exactly the members of store.js\'s LISTING_ELIGIBLE_TYPES: the two lists cannot disagree', () => {
+    expect(new Set(Object.keys(DEAL_TO_LISTING_TYPE))).toEqual(LISTING_ELIGIBLE_TYPES);
   });
 });
