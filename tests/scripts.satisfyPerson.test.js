@@ -103,7 +103,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
     expect(stderr).toContain("markPersonSatisfied: 'per-ffffffff' is not a participant on transaction");
   });
 
-  it('the person argument is passed through unmodified: a differently-cased id is not the same participant', () => {
+  it('a differently-cased id no longer matches PARTICIPANT_ID_RE, so it is resolved as a name instead, and fails not_found', () => {
     const created = create();
     const [janeId] = represent(created.transactionId, ['Jane Smith']);
     const differentCase = janeId.toUpperCase();
@@ -111,7 +111,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
     const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, differentCase, 'reco_information_guide', '--base-dir', baseDir]);
 
     expect(status).toBe(1);
-    expect(stderr).toContain(`markPersonSatisfied: '${differentCase}' is not a participant on transaction`);
+    expect(stderr).toContain(`no represented participant named '${differentCase}'`);
   });
 
   it('--undo unsatisfies a previously satisfied person', () => {
@@ -137,5 +137,71 @@ describe('CLI argument handling (spawned subprocess)', () => {
     expect(stderr).toContain('is not satisfied for item');
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(onDisk).toEqual(before);
+  });
+
+  it('satisfying by name succeeds and the file on disk is keyed by the resolved id, not the name', () => {
+    const created = create();
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
+
+    run([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts.clientSatisfactions).toHaveProperty(janeId);
+    expect(onDisk.facts.clientSatisfactions[janeId]).toHaveProperty('reco_information_guide');
+    expect(onDisk.facts.clientSatisfactions).not.toHaveProperty('Jane Smith');
+  });
+
+  it('the success line contains both the name and the resolved id', () => {
+    const created = create();
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
+
+    const stdout = run([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
+
+    expect(stdout).toContain('Jane Smith');
+    expect(stdout).toContain(janeId);
+  });
+
+  it('an ambiguous name exits 1 and stderr contains both candidate ids', () => {
+    const created = create();
+    const [firstId, secondId] = represent(created.transactionId, ['Jane Smith', 'Jane Smith']);
+
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr).toContain(firstId);
+    expect(stderr).toContain(secondId);
+  });
+
+  it('an unknown name exits 1', () => {
+    const created = create();
+    represent(created.transactionId, ['Jane Smith']);
+
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'Nobody Home', 'reco_information_guide', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr).toContain("no represented participant named 'Nobody Home'");
+  });
+
+  it('a name matching a non-represented participant exits 1', () => {
+    const created = create();
+    addParticipant(AGENT_ID, created.transactionId, ['lawyer'], { name: 'Jane Smith', at: AT, actor: 'agent', baseDir, now: CLOCK });
+
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr).toContain("no represented participant named 'Jane Smith'");
+  });
+
+  it('--undo works by name', () => {
+    const created = create();
+    const [janeId] = represent(created.transactionId, ['Jane Smith']);
+    run([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
+
+    const stdout = run([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--undo', '--base-dir', baseDir]);
+
+    expect(stdout).toContain('Jane Smith');
+    expect(stdout).toContain(janeId);
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts.clientSatisfactions).toEqual({});
   });
 });

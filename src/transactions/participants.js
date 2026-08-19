@@ -149,10 +149,15 @@ function addParticipant(agentId, transactionId, roles, opts = {}) {
 
 // A participant counts as represented when their roles include 'client' or
 // 'co_client'. One home for that rule: reused by checklist.js (deriving the
-// representedPersons the resolver sees) and by satisfactions.js (deciding
-// who is eligible to be marked satisfied), so the two lists can never
-// disagree.
+// representedPersons the resolver sees), by satisfactions.js (deciding who
+// is eligible to be marked satisfied) and by resolveParticipantByName below
+// (scoping name lookup to the same set), so none of the three can disagree
+// about who counts.
 const REPRESENTED_ROLES = Object.freeze(['client', 'co_client']);
+
+function isRepresented(participant) {
+  return participant.roles.some((role) => REPRESENTED_ROLES.includes(role));
+}
 
 // Returns undefined, NOT AN EMPTY ARRAY, when the participants map is
 // absent, empty, or contains nobody qualifying. THIS IS THE MOST IMPORTANT
@@ -164,16 +169,66 @@ const REPRESENTED_ROLES = Object.freeze(['client', 'co_client']);
 // as all-clear. Absent means unknown; empty would mean known-to-be-nobody,
 // and this function is never in a position to assert that.
 function deriveRepresentedPersons(participants) {
-  const ids = Object.keys(participants || {}).filter((id) => {
-    return participants[id].roles.some((role) => REPRESENTED_ROLES.includes(role));
-  });
+  const ids = Object.keys(participants || {}).filter((id) => isRepresented(participants[id]));
   return ids.length > 0 ? ids : undefined;
 }
 
-module.exports = { addParticipant, deriveRepresentedPersons };
+// -- resolveParticipantByName ---------------------------------------------------
+
+// Resolves a human-typed name to a participant id, scoped to REPRESENTED
+// participants only: a lawyer or agent sharing a client's name must not
+// resolve here, because satisfactions.js would reject that id one layer
+// down with a different error, and by then the name the caller typed is
+// gone from the message. This is the one place that error belongs.
+//
+// Returns a result object; never throws on a miss. This follows
+// compareAddresses (address.js): the caller decides what a miss means, and
+// a future picker UI needs structured candidate data, not a message string
+// to parse names back out of.
+//
+// Matching is trim-and-lowercase equality, nothing looser. Substring or
+// prefix matching would make today's clean resolution depend on who else
+// gets added to the file later, which is worse than requiring the id
+// up front. There is no shared case-insensitive helper in this repo
+// (src/index.js:332, src/webhook.js:94 each inline .trim().toLowerCase());
+// this follows that.
+function resolveParticipantByName(participants, name) {
+  const target = name.trim().toLowerCase();
+
+  const candidates = [];
+  let namelessCount = 0;
+
+  Object.keys(participants || {}).forEach((id) => {
+    const participant = participants[id];
+    if (!isRepresented(participant)) {
+      return;
+    }
+    // Absence, not an empty string: name is optional on a participant by
+    // design (addParticipant), so a represented participant can exist that
+    // no name lookup can ever reach. Comparing against it would throw
+    // (undefined has no .trim); counting it instead lets the not_found
+    // reason tell the caller such a participant exists.
+    if (participant.name === undefined) {
+      namelessCount += 1;
+      return;
+    }
+    if (participant.name.trim().toLowerCase() === target) {
+      candidates.push({ id, name: participant.name, roles: [...participant.roles] });
+    }
+  });
+
+  if (candidates.length === 1) {
+    return { resolved: true, id: candidates[0].id };
+  }
+  if (candidates.length === 0) {
+    return { resolved: false, reason: 'not_found', namelessCount };
+  }
+  return { resolved: false, reason: 'ambiguous', candidates };
+}
+
+module.exports = { addParticipant, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName };
 
 module.exports._internal = {
   PARTICIPANT_ID_RE,
   generateParticipantId,
-  REPRESENTED_ROLES,
 };

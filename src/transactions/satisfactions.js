@@ -18,9 +18,7 @@
 const store = require('./store');
 const events = require('./events');
 const rules = require('./rules');
-const participants = require('./participants');
-
-const REPRESENTED_ROLES = participants._internal.REPRESENTED_ROLES;
+const { REPRESENTED_ROLES, isRepresented } = require('./participants');
 
 // -- Argument assertions ------------------------------------------------------------
 
@@ -72,7 +70,7 @@ function assertRepresented(fnName, previous, personId) {
     throw new Error(`${fnName}: '${personId}' is not a participant on transaction ${previous.transactionId}`);
   }
 
-  const qualifies = participant.roles.some((role) => REPRESENTED_ROLES.includes(role));
+  const qualifies = isRepresented(participant);
   if (!qualifies) {
     throw new Error(`${fnName}: '${personId}' is a participant on transaction ${previous.transactionId} but holds no role in ${REPRESENTED_ROLES.join(', ')}`);
   }

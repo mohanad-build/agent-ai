@@ -4,8 +4,8 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant, deriveRepresentedPersons } = require('../src/transactions/participants');
-const { PARTICIPANT_ID_RE, REPRESENTED_ROLES } = require('../src/transactions/participants')._internal;
+const { addParticipant, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
+const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const { createTransaction, readTransaction } = require('../src/transactions/store');
 
 const AGENT_ID = 'test-agent';
@@ -247,5 +247,99 @@ describe('REPRESENTED_ROLES', () => {
   it('is client and co_client, and is frozen', () => {
     expect(REPRESENTED_ROLES).toEqual(['client', 'co_client']);
     expect(Object.isFrozen(REPRESENTED_ROLES)).toBe(true);
+  });
+});
+
+describe('isRepresented', () => {
+  it('is true for a participant holding client or co_client', () => {
+    expect(isRepresented({ roles: ['client'] })).toBe(true);
+    expect(isRepresented({ roles: ['co_client'] })).toBe(true);
+    expect(isRepresented({ roles: ['client', 'property_manager'] })).toBe(true);
+  });
+
+  it('is false for a participant holding neither', () => {
+    expect(isRepresented({ roles: ['agent'] })).toBe(false);
+    expect(isRepresented({ roles: ['lawyer', 'property_manager'] })).toBe(false);
+  });
+});
+
+describe('public exports', () => {
+  it('isRepresented and REPRESENTED_ROLES are on the public surface, not _internal', () => {
+    const participantsModule = require('../src/transactions/participants');
+    expect(typeof participantsModule.isRepresented).toBe('function');
+    expect(participantsModule.REPRESENTED_ROLES).toEqual(['client', 'co_client']);
+    expect(Object.isFrozen(participantsModule.REPRESENTED_ROLES)).toBe(true);
+    expect(participantsModule._internal.REPRESENTED_ROLES).toBeUndefined();
+    expect(participantsModule._internal.isRepresented).toBeUndefined();
+  });
+});
+
+describe('resolveParticipantByName', () => {
+  it('resolves an exact match to that participant\'s id', () => {
+    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
+    expect(resolveParticipantByName(map, 'Jane Smith')).toEqual({ resolved: true, id: 'per-11111111' });
+  });
+
+  it('matches case-insensitively', () => {
+    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
+    expect(resolveParticipantByName(map, 'JANE smith')).toEqual({ resolved: true, id: 'per-11111111' });
+  });
+
+  it('trims leading and trailing whitespace on the input', () => {
+    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
+    expect(resolveParticipantByName(map, '  Jane Smith  ')).toEqual({ resolved: true, id: 'per-11111111' });
+  });
+
+  it('matches when the stored name itself has surrounding whitespace', () => {
+    const map = { 'per-11111111': { roles: ['client'], name: '  Jane Smith  ' } };
+    expect(resolveParticipantByName(map, 'Jane Smith')).toEqual({ resolved: true, id: 'per-11111111' });
+  });
+
+  it('returns not_found for a name matching nobody', () => {
+    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
+    expect(resolveParticipantByName(map, 'Nobody Home')).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
+  });
+
+  it('returns ambiguous with both candidates when two represented participants share a name', () => {
+    const map = {
+      'per-11111111': { roles: ['client'], name: 'Jane Smith' },
+      'per-22222222': { roles: ['co_client'], name: 'Jane Smith' },
+    };
+    const result = resolveParticipantByName(map, 'Jane Smith');
+    expect(result.resolved).toBe(false);
+    expect(result.reason).toBe('ambiguous');
+    expect(result.candidates).toEqual([
+      { id: 'per-11111111', name: 'Jane Smith', roles: ['client'] },
+      { id: 'per-22222222', name: 'Jane Smith', roles: ['co_client'] },
+    ]);
+  });
+
+  it('does not resolve a non-represented participant sharing the name, and reports not_found', () => {
+    const map = { 'per-11111111': { roles: ['lawyer'], name: 'Jane Smith' } };
+    expect(resolveParticipantByName(map, 'Jane Smith')).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
+  });
+
+  it('counts only represented, nameless participants in namelessCount', () => {
+    const map = {
+      'per-11111111': { roles: ['client'] },
+      'per-22222222': { roles: ['lawyer'] },
+      'per-33333333': { roles: ['co_client'] },
+    };
+    const result = resolveParticipantByName(map, 'Jane Smith');
+    expect(result).toEqual({ resolved: false, reason: 'not_found', namelessCount: 2 });
+  });
+
+  it('does not throw when a represented participant has no name', () => {
+    const map = { 'per-11111111': { roles: ['client'] } };
+    expect(() => resolveParticipantByName(map, 'Jane Smith')).not.toThrow();
+  });
+
+  it('namelessCount is zero when every represented participant has a name', () => {
+    const map = {
+      'per-11111111': { roles: ['client'], name: 'Jane Smith' },
+      'per-22222222': { roles: ['co_client'], name: 'John Doe' },
+    };
+    const result = resolveParticipantByName(map, 'Nobody Home');
+    expect(result).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
   });
 });
