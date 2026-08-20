@@ -149,6 +149,31 @@ describe('street-type tokens in first position', () => {
   });
 });
 
+describe('parseAddress refuses an empty street', () => {
+  it('does not let a lone token be swallowed as a directional, leaving no street', () => {
+    expect(parseAddress('14 Grove')).toEqual({ civic: '14', street: 'grove' });
+  });
+
+  it('does not let a lone directional-shaped token be swallowed, leaving no street', () => {
+    expect(parseAddress('14 East')).toEqual({ civic: '14', street: 'east' });
+  });
+
+  it('returns null for a bare civic number with no street at all', () => {
+    expect(parseAddress('14')).toBeNull();
+  });
+
+  it('returns null when only a city follows the civic number', () => {
+    expect(parseAddress('14, Toronto')).toBeNull();
+  });
+
+  it('compareAddresses treats a null from an empty street as "no address", not a wildcard match', () => {
+    expect(compareAddresses(parseAddress('14 Grove'), parseAddress('14'))).toEqual({
+      match: false,
+      reason: 'no address',
+    });
+  });
+});
+
 describe('compareAddresses', () => {
   it('matches identical addresses', () => {
     const a = parseAddress('14 Bonacres Rd');

@@ -170,16 +170,22 @@ function parseAddress(text) {
   // Trailing position: directional first, then street type on whatever is
   // now last. Checked before the leading check below so that a single
   // remaining token is claimed by the trailing rule first.
+  //
+  // Neither check may consume a token that is the ONLY one left at the time
+  // it runs: with one token remaining, that token is the street name, not a
+  // directional or street type standing alone. Without this, '14 East'
+  // would read as civic '14' with directional 'e' and no street at all,
+  // instead of a street literally named East.
   let directional;
   const lastIndex = tokens.length - 1;
-  if (lastIndex >= 0 && Object.prototype.hasOwnProperty.call(DIRECTIONAL_LOOKUP, tokens[lastIndex])) {
+  if (lastIndex > 0 && Object.prototype.hasOwnProperty.call(DIRECTIONAL_LOOKUP, tokens[lastIndex])) {
     directional = DIRECTIONAL_LOOKUP[tokens[lastIndex]];
     tokens.splice(lastIndex, 1);
   }
 
   let streetType;
   const newLastIndex = tokens.length - 1;
-  if (newLastIndex >= 0 && Object.prototype.hasOwnProperty.call(STREET_TYPE_LOOKUP, tokens[newLastIndex])) {
+  if (newLastIndex > 0 && Object.prototype.hasOwnProperty.call(STREET_TYPE_LOOKUP, tokens[newLastIndex])) {
     streetType = STREET_TYPE_LOOKUP[tokens[newLastIndex]];
     tokens.splice(newLastIndex, 1);
   }
@@ -196,10 +202,17 @@ function parseAddress(text) {
     tokens[0] = NAME_PREFIX_LOOKUP[tokens[0]];
   }
 
+  // No street name left means no address, regardless of why: a bare civic
+  // number, or a civic number followed only by a city after the comma.
+  const street = tokens.join(' ');
+  if (street === '') {
+    return null;
+  }
+
   // streetType, directional and city are set only when found: absent,
   // never null, for every field with no value, following listingId and
   // unit in store.js.
-  const result = { civic, street: tokens.join(' ') };
+  const result = { civic, street };
   if (streetType !== undefined) {
     result.streetType = streetType;
   }
