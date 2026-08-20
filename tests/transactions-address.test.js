@@ -92,6 +92,63 @@ describe('parseAddress', () => {
   });
 });
 
+// The street-type check in parseAddress inspects only the LAST remaining
+// token, so a street-type word occupying the FIRST position (immediately
+// after the civic number) is never reachable by it and is instead treated
+// as an ordinary street-name token.
+describe('street-type tokens in first position', () => {
+  it('reads a leading Avenue as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Avenue Rd')).toEqual({ civic: '14', street: 'avenue', streetType: 'road' });
+  });
+
+  it('reads a leading Park as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Park Ave')).toEqual({ civic: '14', street: 'park', streetType: 'avenue' });
+  });
+
+  it('reads a leading Court as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Court St')).toEqual({ civic: '14', street: 'court', streetType: 'street' });
+  });
+
+  it('reads a leading Crescent as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Crescent Rd')).toEqual({ civic: '14', street: 'crescent', streetType: 'road' });
+  });
+
+  it('reads a leading Grove as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Grove St')).toEqual({ civic: '14', street: 'grove', streetType: 'street' });
+  });
+
+  it('reads a leading King as part of the street name, not the street type', () => {
+    expect(parseAddress('14 King St W')).toEqual({
+      civic: '14',
+      street: 'king',
+      streetType: 'street',
+      directional: 'w',
+    });
+  });
+
+  it('reads a leading Queen as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Queen St E')).toEqual({
+      civic: '14',
+      street: 'queen',
+      streetType: 'street',
+      directional: 'e',
+    });
+  });
+
+  it('reads a leading Bay as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Bay St')).toEqual({ civic: '14', street: 'bay', streetType: 'street' });
+  });
+
+  it('reads a leading Front as part of the street name, not the street type', () => {
+    expect(parseAddress('14 Front St W')).toEqual({
+      civic: '14',
+      street: 'front',
+      streetType: 'street',
+      directional: 'w',
+    });
+  });
+});
+
 describe('compareAddresses', () => {
   it('matches identical addresses', () => {
     const a = parseAddress('14 Bonacres Rd');
