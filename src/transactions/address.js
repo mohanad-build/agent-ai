@@ -109,19 +109,42 @@ const PROVINCE_RE = /\bon(?:tario)?\b/g;
 // digit-letter-digit. Good enough to recognise and discard one, not to
 // validate one -- this module does no province or postal parsing.
 const POSTAL_RE = /\b[a-z]\d[a-z]\s?\d[a-z]\d\b/g;
+// TRREB-style district code: a single letter followed by two digits,
+// standing alone as its own token (e.g. the C08 in "Toronto C08").
+const DISTRICT_RE = /\b[a-z]\d{2}\b/g;
 
+function stripSegment(segment) {
+  return segment
+    .toLowerCase()
+    .replace(POSTAL_RE, ' ')
+    .replace(PROVINCE_RE, ' ')
+    .replace(DISTRICT_RE, ' ')
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// The blob after the first comma is not one city string -- it is a run of
+// comma-separated segments (unit numbers, district labels, province,
+// postal code) with the city usually the last thing before those trail
+// off. Each segment is stripped independently and the LAST segment that
+// survives stripping is taken as the city; anything before it (a unit
+// number, "All Inclusive Basement", etc.) is discarded rather than
+// merged in.
 function extractCity(blob) {
   if (blob.trim() === '') {
     return null;
   }
 
-  const candidate = blob
-    .toLowerCase()
-    .replace(POSTAL_RE, ' ')
-    .replace(PROVINCE_RE, ' ')
-    .replace(/[^a-z\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const segments = blob.split(',');
+  let candidate = '';
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    const stripped = stripSegment(segments[i]);
+    if (stripped !== '') {
+      candidate = stripped;
+      break;
+    }
+  }
 
   if (candidate === '') {
     return null;

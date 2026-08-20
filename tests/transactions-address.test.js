@@ -276,6 +276,62 @@ describe('compareAddresses', () => {
   });
 });
 
+describe('city extraction from real agreement addresses', () => {
+  it('strips a unit number, a TRREB district code, province and postal code', () => {
+    expect(parseAddress('10 Oak Street, 2101, Toronto C08, ON M5A 0Z1')).toEqual({
+      civic: '10',
+      street: 'oak',
+      streetType: 'street',
+      city: 'toronto',
+    });
+  });
+
+  it('discards a comma-separated unit description and strips a district code', () => {
+    expect(parseAddress('282 Aylesworth Avenue, All Inclusive Basement, Toronto E06, ON M1N 2K2')).toEqual({
+      civic: '282',
+      street: 'aylesworth',
+      streetType: 'avenue',
+      city: 'toronto',
+    });
+  });
+
+  it('discards a leading unit number segment with no district/province/postal present', () => {
+    expect(parseAddress('10 Oak Street, 2101, Toronto')).toEqual({
+      civic: '10',
+      street: 'oak',
+      streetType: 'street',
+      city: 'toronto',
+    });
+  });
+
+  it('discards a trailing province-only segment, taking the segment before it as city', () => {
+    expect(parseAddress('14 Bonacres Rd, Toronto, ON')).toEqual({
+      civic: '14',
+      street: 'bonacres',
+      streetType: 'road',
+      city: 'toronto',
+    });
+  });
+
+  it('matches a fully-decorated address against a bare one once city is normalised', () => {
+    expect(
+      compareAddresses(
+        parseAddress('10 Oak Street, 2101, Toronto C08, ON M5A 0Z1'),
+        parseAddress('10 Oak Street, Toronto')
+      )
+    ).toEqual({ match: true, reason: 'match' });
+  });
+
+  it('discards a comma-separated unit label ("Unit 5") rather than merging it into the city', () => {
+    expect(parseAddress('14 Bonacres Rd, Unit 5, Toronto')).toEqual({
+      civic: '14',
+      street: 'bonacres',
+      streetType: 'road',
+      city: 'toronto',
+    });
+  });
+});
+
 describe('_internal.TABLE', () => {
   it('is frozen at every level, including the nested alias arrays', () => {
     expect(Object.isFrozen(TABLE)).toBe(true);
