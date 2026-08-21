@@ -42,6 +42,7 @@
 const { parseAddress, compareAddresses } = require('./address');
 const { findAddressCandidates } = require('./addressScan');
 const { hasConfirmedFilingOnThread } = require('./filings');
+const states = require('./states');
 
 const SIGNAL_KEYS = Object.freeze(['A', 'B', 'C', 'D']);
 
@@ -162,6 +163,174 @@ function computeMet(signals) {
   return trueCount >= 2;
 }
 
-module.exports = { evaluateSignals };
+// -- matchTransaction ----------------------------------------------------------------
+
+// Candidate-set half of the TC matching rule, TC_SPEC 7.1.2. Takes a set of
+// candidate transactions and one message, filters out terminal candidates,
+// runs each survivor through evaluateSignals above, and resolves the set of
+// candidates that met the bar down to a single winner or a reason the
+// caller cannot pick one. evaluateSignals is not changed by any of this;
+// this function only composes it.
+//
+// THE LISTING LINK IS REQUIRED, NOT INFERRED. A deal only beats its listing
+// when transaction.listingId names that exact listing. It is tempting to
+// widen this to "paired types plus a matching address", since that is
+// almost always the same deal. It is not always the same deal: a
+// landlord_listing on unit 302 and a landlord_lease on unit 505 in the same
+// building compare equal on address (address.js does not read unit) but
+// are two different apartments under one roof. Treating that pair as
+// linked would silently attach a lease to the wrong listing's compliance
+// record. The unit check below (rule b) exists because of exactly this
+// case, and it runs before the paired-type-plus-address check (rule c) so
+// that a real building-level collision is never masked by an address match
+// that was never specific enough to prove anything.
+//
+// UNITS DIFFERING IS EVIDENCE; UNITS ABSENT IS NOT. Two candidates with
+// different stored units are provably different apartments. Two candidates
+// where one or both have no stored unit tell us nothing: most agents type
+// just a street address, so an absent unit is the common case, not a
+// signal that the properties are the same. Treating absence as agreement
+// would turn "we don't know" into "confirmed same building", which is the
+// wrong direction to guess in on a compliance record.
+//
+// THREE OR MORE CANDIDATES IS A NAMED OPEN PROBLEM. A seller_listing, a
+// seller_sale and a buyer_purchase can all legitimately meet the bar on
+// one address at once (the true double-end case: ONE agent representing
+// both sides of the same property, so the same agent's own message can
+// carry signals for the listing, the sale and the purchase all at once).
+// The brokerage's system of record opens ONE deal file on a double-end,
+// not two, so whether three transactions is even the right model here is
+// an open section 3 question, not a matching problem to solve in this
+// module. Nothing below tries to rank or pair three or more candidates;
+// it reports 'ambiguous' and stops. Solving the double-end case is out of
+// scope for this commit.
+
+function normalizeUnit(value) {
+  return String(value).trim().toLowerCase();
+}
+
+// Returns { deal, listing } when exactly one of a, b is a deal type whose
+// paired listing type (states.listingTypeForDeal) equals the other's type.
+// Returns null otherwise, including when neither side is a deal type with
+// a paired listing (buyer_purchase, tenant_lease, and the listing types
+// themselves all resolve to undefined here) and when both or neither side
+// qualifies.
+function pairedDealAndListing(a, b) {
+  const aListingType = states.listingTypeForDeal(a.type);
+  if (aListingType !== undefined && aListingType === b.type) {
+    return { deal: a, listing: b };
+  }
+  const bListingType = states.listingTypeForDeal(b.type);
+  if (bListingType !== undefined && bListingType === a.type) {
+    return { deal: b, listing: a };
+  }
+  return null;
+}
+
+// Rule a: deal beats listing. The listingId link is required; see the
+// module comment above for why paired types plus address is not enough.
+function ruleDealBeatsListing(a, b) {
+  const pair = pairedDealAndListing(a, b);
+  if (pair === null) {
+    return null;
+  }
+  if (pair.deal.listingId !== undefined && pair.deal.listingId === pair.listing.transactionId) {
+    return pair;
+  }
+  return null;
+}
+
+// Rule b: same building. Runs regardless of type pairing; see the module
+// comment above for why absence on either side is not evidence.
+function ruleSameBuilding(a, b) {
+  if (a.unit === undefined || b.unit === undefined) {
+    return false;
+  }
+  return normalizeUnit(a.unit) !== normalizeUnit(b.unit);
+}
+
+// Rule c: unlinked listing. Paired types plus a comparing-equal address,
+// with no listingId link (rule a already failed by the time this runs).
+function ruleUnlinkedListing(a, b) {
+  const pair = pairedDealAndListing(a, b);
+  if (pair === null) {
+    return false;
+  }
+  return compareAddresses(parseAddress(a.address), parseAddress(b.address)).match;
+}
+
+// Resolves exactly two matching-set entries per the ordered rules a
+// through d. entries[*].transaction is the full candidate object;
+// entries[*].result is that candidate's evaluateSignals return value.
+function resolvePair(entries, candidateIds) {
+  const [a, b] = entries.map((entry) => entry.transaction);
+
+  const dealBeatsListing = ruleDealBeatsListing(a, b);
+  if (dealBeatsListing !== null) {
+    const winner = entries.find((entry) => entry.transaction === dealBeatsListing.deal);
+    return {
+      matched: true,
+      transactionId: dealBeatsListing.deal.transactionId,
+      signals: winner.result.signals,
+      resolution: 'deal_over_listing',
+      supersededTransactionId: dealBeatsListing.listing.transactionId,
+    };
+  }
+
+  if (ruleSameBuilding(a, b)) {
+    return { matched: false, reason: 'ambiguous_same_building', candidateIds };
+  }
+
+  if (ruleUnlinkedListing(a, b)) {
+    return { matched: false, reason: 'ambiguous_unlinked_listing', candidateIds };
+  }
+
+  return { matched: false, reason: 'ambiguous', candidateIds };
+}
+
+function matchTransaction(candidates, message) {
+  if (!Array.isArray(candidates)) {
+    throw new Error('matchTransaction: candidates must be an array');
+  }
+
+  // isTerminal throws on an unknown type or empty state and that throw is
+  // deliberately not caught here: a transaction the store wrote that
+  // states.js cannot read is a store bug, and swallowing it would mean a
+  // real deal silently never matches anything, forever.
+  const nonTerminal = candidates.filter(
+    (transaction) => !states.isTerminal(transaction.type, transaction.state)
+  );
+
+  const matchingSet = nonTerminal
+    .map((transaction) => ({ transaction, result: evaluateSignals(transaction, message) }))
+    .filter((entry) => entry.result.met === true);
+
+  if (matchingSet.length === 0) {
+    const reason = nonTerminal.length === 0 ? 'no_candidates' : 'no_bar_met';
+    return { matched: false, reason, candidateIds: [] };
+  }
+
+  if (matchingSet.length === 1) {
+    const [{ transaction, result }] = matchingSet;
+    return {
+      matched: true,
+      transactionId: transaction.transactionId,
+      signals: result.signals,
+      resolution: 'single',
+    };
+  }
+
+  const candidateIds = matchingSet
+    .map((entry) => entry.transaction.transactionId)
+    .sort((a, b) => a.localeCompare(b));
+
+  if (matchingSet.length === 2) {
+    return resolvePair(matchingSet, candidateIds);
+  }
+
+  return { matched: false, reason: 'ambiguous', candidateIds };
+}
+
+module.exports = { evaluateSignals, matchTransaction };
 
 module.exports._internal = { SIGNAL_KEYS, COUNTING_SIGNALS };

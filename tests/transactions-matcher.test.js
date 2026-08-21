@@ -1,6 +1,6 @@
 'use strict';
 
-const { evaluateSignals } = require('../src/transactions/matcher');
+const { evaluateSignals, matchTransaction } = require('../src/transactions/matcher');
 const { SIGNAL_KEYS, COUNTING_SIGNALS } = require('../src/transactions/matcher')._internal;
 
 const THREAD_ID = 'thread-main';
@@ -28,6 +28,13 @@ function baseMessage(overrides = {}) {
     addresses: [],
     ...overrides,
   };
+}
+
+// Drives met via signal D alone, independent of everything else on the
+// transaction, so matchTransaction fixtures can be built without needing
+// A, B or C to line up.
+function metByD(threadId = THREAD_ID) {
+  return { filings: { f1: { threadId, status: 'filed', review: 'confirmed' } } };
 }
 
 describe('evaluateSignals', () => {
@@ -352,6 +359,323 @@ describe('evaluateSignals', () => {
     it('is exactly A, B, C and frozen', () => {
       expect(COUNTING_SIGNALS).toEqual(['A', 'B', 'C']);
       expect(Object.isFrozen(COUNTING_SIGNALS)).toBe(true);
+    });
+  });
+});
+
+describe('matchTransaction', () => {
+  describe('no matching set', () => {
+    it('empty candidates array gives no_candidates', () => {
+      const result = matchTransaction([], baseMessage());
+
+      expect(result).toEqual({ matched: false, reason: 'no_candidates', candidateIds: [] });
+    });
+
+    it('all candidates terminal gives no_candidates', () => {
+      const candidates = [
+        baseTransaction({ transactionId: 'txn-1', state: 'collapsed' }),
+      ];
+
+      const result = matchTransaction(candidates, baseMessage());
+
+      expect(result).toEqual({ matched: false, reason: 'no_candidates', candidateIds: [] });
+    });
+
+    it('one non-terminal candidate, bar not met, gives no_bar_met', () => {
+      const candidates = [baseTransaction({ transactionId: 'txn-1' })];
+
+      const result = matchTransaction(candidates, baseMessage());
+
+      expect(result).toEqual({ matched: false, reason: 'no_bar_met', candidateIds: [] });
+    });
+
+    it('a terminal transaction that would have met the bar is excluded, and the result is no_candidates', () => {
+      const candidates = [
+        baseTransaction({ transactionId: 'txn-1', state: 'closed', ...metByD() }),
+      ];
+
+      const result = matchTransaction(candidates, baseMessage());
+
+      expect(result).toEqual({ matched: false, reason: 'no_candidates', candidateIds: [] });
+    });
+  });
+
+  describe('single match', () => {
+    it('resolution is single, signals passed through', () => {
+      const candidates = [baseTransaction({ transactionId: 'txn-1', ...metByD() })];
+
+      const result = matchTransaction(candidates, baseMessage());
+
+      expect(result).toEqual({
+        matched: true,
+        transactionId: 'txn-1',
+        signals: { D: true },
+        resolution: 'single',
+      });
+    });
+
+    it('has no supersededTransactionId key', () => {
+      const candidates = [baseTransaction({ transactionId: 'txn-solo', ...metByD() })];
+
+      const result = matchTransaction(candidates, baseMessage());
+
+      expect(result).not.toHaveProperty('supersededTransactionId');
+    });
+  });
+
+  describe('deal beats listing', () => {
+    it('seller_sale with listingId pointing at a seller_listing, both matching', () => {
+      const deal = baseTransaction({
+        type: 'seller_sale',
+        transactionId: 'txn-deal',
+        listingId: 'txn-listing',
+        ...metByD(),
+      });
+      const listing = baseTransaction({
+        type: 'seller_listing',
+        state: 'live',
+        transactionId: 'txn-listing',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result).toEqual({
+        matched: true,
+        transactionId: 'txn-deal',
+        signals: { D: true },
+        resolution: 'deal_over_listing',
+        supersededTransactionId: 'txn-listing',
+      });
+    });
+
+    it('landlord_lease with listingId pointing at a landlord_listing, both matching', () => {
+      const deal = baseTransaction({
+        type: 'landlord_lease',
+        state: 'accepted',
+        transactionId: 'txn-lease',
+        listingId: 'txn-llisting',
+        ...metByD(),
+      });
+      const listing = baseTransaction({
+        type: 'landlord_listing',
+        state: 'live',
+        transactionId: 'txn-llisting',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result.matched).toBe(true);
+      expect(result.transactionId).toBe('txn-lease');
+      expect(result.resolution).toBe('deal_over_listing');
+      expect(result.supersededTransactionId).toBe('txn-llisting');
+    });
+  });
+
+  describe('paired types without a proven link', () => {
+    it('addresses equal, listingId absent, gives ambiguous_unlinked_listing with both ids', () => {
+      const deal = baseTransaction({ type: 'seller_sale', transactionId: 'txn-d3', ...metByD() });
+      const listing = baseTransaction({
+        type: 'seller_listing',
+        state: 'live',
+        transactionId: 'txn-l3',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result).toEqual({
+        matched: false,
+        reason: 'ambiguous_unlinked_listing',
+        candidateIds: ['txn-d3', 'txn-l3'],
+      });
+    });
+
+    it('addresses equal, listingId present but pointing at a different transactionId, gives ambiguous_unlinked_listing', () => {
+      const deal = baseTransaction({
+        type: 'seller_sale',
+        transactionId: 'txn-d4',
+        listingId: 'txn-nonexistent',
+        ...metByD(),
+      });
+      const listing = baseTransaction({
+        type: 'seller_listing',
+        state: 'live',
+        transactionId: 'txn-l4',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result.matched).toBe(false);
+      expect(result.reason).toBe('ambiguous_unlinked_listing');
+    });
+
+    it('addresses not equal, no link, gives plain ambiguous', () => {
+      const deal = baseTransaction({
+        type: 'seller_sale',
+        transactionId: 'txn-d5',
+        address: '45 Oak Ave',
+        ...metByD(),
+      });
+      const listing = baseTransaction({
+        type: 'seller_listing',
+        state: 'live',
+        transactionId: 'txn-l5',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result.matched).toBe(false);
+      expect(result.reason).toBe('ambiguous');
+    });
+  });
+
+  describe('same building beats unlinked listing', () => {
+    it('both units present and differing gives ambiguous_same_building, proving rule b runs before rule c', () => {
+      const deal = baseTransaction({
+        type: 'seller_sale',
+        transactionId: 'txn-d6',
+        unit: '302',
+        ...metByD(),
+      });
+      const listing = baseTransaction({
+        type: 'seller_listing',
+        state: 'live',
+        transactionId: 'txn-l6',
+        unit: '505',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result).toEqual({
+        matched: false,
+        reason: 'ambiguous_same_building',
+        candidateIds: ['txn-d6', 'txn-l6'],
+      });
+    });
+
+    it('both units present and equal gives ambiguous_unlinked_listing, not same_building', () => {
+      const deal = baseTransaction({
+        type: 'seller_sale',
+        transactionId: 'txn-d7',
+        unit: '302',
+        ...metByD(),
+      });
+      const listing = baseTransaction({
+        type: 'seller_listing',
+        state: 'live',
+        transactionId: 'txn-l7',
+        unit: '302',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result.matched).toBe(false);
+      expect(result.reason).toBe('ambiguous_unlinked_listing');
+    });
+
+    it('one unit present, one absent, gives ambiguous_unlinked_listing: absence is not evidence', () => {
+      const deal = baseTransaction({
+        type: 'seller_sale',
+        transactionId: 'txn-d8',
+        unit: '302',
+        ...metByD(),
+      });
+      const listing = baseTransaction({
+        type: 'seller_listing',
+        state: 'live',
+        transactionId: 'txn-l8',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([deal, listing], baseMessage());
+
+      expect(result.matched).toBe(false);
+      expect(result.reason).toBe('ambiguous_unlinked_listing');
+    });
+
+    it('two landlord_lease records with differing units gives ambiguous_same_building', () => {
+      const first = baseTransaction({
+        type: 'landlord_lease',
+        state: 'accepted',
+        transactionId: 'txn-la',
+        unit: '1A',
+        ...metByD(),
+      });
+      const second = baseTransaction({
+        type: 'landlord_lease',
+        state: 'signed',
+        transactionId: 'txn-lb',
+        unit: '1B',
+        ...metByD(),
+      });
+
+      const result = matchTransaction([first, second], baseMessage());
+
+      expect(result.matched).toBe(false);
+      expect(result.reason).toBe('ambiguous_same_building');
+    });
+  });
+
+  describe('three or more candidates', () => {
+    it('gives ambiguous with no tiebreak, and candidateIds sorted', () => {
+      const candidates = [
+        baseTransaction({ transactionId: 'txn-z', ...metByD() }),
+        baseTransaction({ transactionId: 'txn-a', ...metByD() }),
+        baseTransaction({ transactionId: 'txn-m', ...metByD() }),
+      ];
+
+      const result = matchTransaction(candidates, baseMessage());
+
+      expect(result).toEqual({
+        matched: false,
+        reason: 'ambiguous',
+        candidateIds: ['txn-a', 'txn-m', 'txn-z'],
+      });
+    });
+  });
+
+  it('buyer_purchase plus seller_listing at one address, both matching, gives ambiguous because buyer_purchase has no paired listing type', () => {
+    const purchase = baseTransaction({ type: 'buyer_purchase', transactionId: 'txn-bp', ...metByD() });
+    const listing = baseTransaction({
+      type: 'seller_listing',
+      state: 'live',
+      transactionId: 'txn-sl',
+      ...metByD(),
+    });
+
+    const result = matchTransaction([purchase, listing], baseMessage());
+
+    expect(result.matched).toBe(false);
+    expect(result.reason).toBe('ambiguous');
+  });
+
+  it('candidateIds is sorted regardless of input order', () => {
+    const candidates = [
+      baseTransaction({ transactionId: 'txn-zzz', ...metByD() }),
+      baseTransaction({ transactionId: 'txn-aaa', ...metByD() }),
+    ];
+
+    const result = matchTransaction(candidates, baseMessage());
+
+    expect(result.matched).toBe(false);
+    expect(result.candidateIds).toEqual(['txn-aaa', 'txn-zzz']);
+  });
+
+  describe('argument validation', () => {
+    it('propagates isTerminal\'s throw on a candidate with an unknown type', () => {
+      const candidates = [baseTransaction({ transactionId: 'txn-bad', type: 'not_a_real_type' })];
+
+      expect(() => matchTransaction(candidates, baseMessage())).toThrow();
+    });
+
+    it('throws when candidates is not an array', () => {
+      expect(() => matchTransaction('not-an-array', baseMessage())).toThrow();
     });
   });
 });
