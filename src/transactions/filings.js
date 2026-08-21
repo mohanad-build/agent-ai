@@ -272,6 +272,39 @@ function rejectFiling(agentId, transactionId, messageId, attachmentId, opts = {}
   return store.writeTransaction(agentId, next, { baseDir, now });
 }
 
+// -- hasConfirmedFilingOnThread ----------------------------------------------------
+
+// Pure read over an already-loaded transaction: no agentId, no readExisting,
+// no store touch - the caller has the transaction in hand, unlike the
+// writers above. The first argument is a transaction object, not an
+// agentId, so assertNonEmptyString does not apply to it; it gets its own
+// non-null-object guard instead, and threadId (a string) is still checked
+// with assertNonEmptyString like every other string argument in this file.
+//
+// status is irrelevant and never read here: a document the agent confirmed
+// belongs to this deal still belongs to it even if the Drive upload was
+// abandoned. Reading status would make an infrastructure failure look like
+// a matching failure. 'needs_review' is not enough - nobody has looked.
+// 'rejected' is evidence the thread does NOT belong to this transaction,
+// never evidence that it does.
+//
+// Returns a boolean, deliberately unlike compareAddresses and
+// resolveParticipantByName, which return result objects: the question here
+// is genuinely yes-or-no, and returning the matching record would invite
+// callers to use this as a filing lookup - a different function, keyed on
+// message/attachment rather than thread.
+function hasConfirmedFilingOnThread(transaction, threadId) {
+  if (transaction === null || typeof transaction !== 'object') {
+    throw new Error('hasConfirmedFilingOnThread: transaction must be a non-null object');
+  }
+  assertNonEmptyString('hasConfirmedFilingOnThread', 'threadId', threadId);
+
+  const filings = transaction.filings || {};
+  return Object.values(filings).some(
+    (record) => record.threadId === threadId && record.review === 'confirmed'
+  );
+}
+
 module.exports = {
   FILING_STATUSES,
   FILING_REVIEW_STATUSES,
@@ -280,6 +313,7 @@ module.exports = {
   abandonDocumentFiling,
   confirmFiling,
   rejectFiling,
+  hasConfirmedFilingOnThread,
 };
 
 module.exports._internal = {

@@ -10,6 +10,7 @@ const {
   abandonDocumentFiling,
   confirmFiling,
   rejectFiling,
+  hasConfirmedFilingOnThread,
   FILING_STATUSES,
   FILING_REVIEW_STATUSES,
 } = require('../src/transactions/filings');
@@ -467,6 +468,99 @@ describe('rejectFiling', () => {
     const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(reread.filings[key].status).toBe('filed');
     expect(reread.filings[key].review).toBe('rejected');
+  });
+});
+
+describe('hasConfirmedFilingOnThread', () => {
+  it('returns false when the transaction has no filings map at all', () => {
+    const created = create();
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID)).toBe(false);
+  });
+
+  it('returns false for a seen-but-unreviewed filing on the thread', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID)).toBe(false);
+  });
+
+  it('returns true for a confirmed filing on the thread', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    confirmFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID)).toBe(true);
+  });
+
+  it('returns false for a rejected filing on the thread', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    rejectFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID)).toBe(false);
+  });
+
+  it('returns false for a confirmed filing on a different thread', () => {
+    const created = create();
+    seeDocument(created.transactionId, { threadId: 'thread-other' });
+    confirmFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID)).toBe(false);
+  });
+
+  it('returns true for a confirmed filing whose status is abandoned - status is irrelevant', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    confirmFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    abandonDocumentFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'drive upload failed', baseDir, now: EVEN_LATER,
+    });
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(transaction.filings[`${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`].status).toBe('abandoned');
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID)).toBe(true);
+  });
+
+  it('returns true when one filing on the thread is rejected and another is confirmed', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    rejectFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, 'att-second', {
+      at: AT, actor: 'system', filename: 'second.pdf', mimeType: 'application/pdf', size: 100, threadId: THREAD_ID, baseDir, now: LATER,
+    });
+    confirmFiling(AGENT_ID, created.transactionId, MESSAGE_ID, 'att-second', {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID)).toBe(true);
+  });
+
+  it('returns false for a threadId differing only in case from a confirmed record - no normalisation', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    confirmFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    const transaction = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(hasConfirmedFilingOnThread(transaction, THREAD_ID.toUpperCase())).toBe(false);
   });
 });
 
