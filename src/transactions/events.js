@@ -19,6 +19,8 @@ const EVENT_KINDS = Object.freeze([
   'document_seen',
   'document_filed',
   'document_filing_abandoned',
+  'document_confirmed',
+  'document_rejected',
   'participant_added',
 ]);
 

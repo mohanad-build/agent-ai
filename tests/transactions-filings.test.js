@@ -4,7 +4,15 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { recordDocumentSeen, recordDocumentFiled, abandonDocumentFiling, FILING_STATUSES } = require('../src/transactions/filings');
+const {
+  recordDocumentSeen,
+  recordDocumentFiled,
+  abandonDocumentFiling,
+  confirmFiling,
+  rejectFiling,
+  FILING_STATUSES,
+  FILING_REVIEW_STATUSES,
+} = require('../src/transactions/filings');
 const { createTransaction, readTransaction } = require('../src/transactions/store');
 
 const AGENT_ID = 'test-agent';
@@ -16,6 +24,7 @@ const AT2 = '2026-07-17T08:00:00.000Z';
 
 const MESSAGE_ID = 'msg-abc123';
 const ATTACHMENT_ID = 'att-def456';
+const THREAD_ID = 'thread-xyz789';
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'transactions-filings-test-'));
@@ -41,6 +50,7 @@ function seeDocument(transactionId, opts = {}) {
     filename: 'agreement.pdf',
     mimeType: 'application/pdf',
     size: 2048,
+    threadId: THREAD_ID,
     baseDir,
     now: LATER,
     ...opts,
@@ -71,7 +81,9 @@ describe('recordDocumentSeen', () => {
       filename: 'agreement.pdf',
       mimeType: 'application/pdf',
       size: 2048,
+      threadId: THREAD_ID,
       status: 'seen',
+      review: 'needs_review',
       seenAt: AT,
       attempts: 0,
     });
@@ -125,7 +137,7 @@ describe('recordDocumentSeen', () => {
     const created = create();
     seeDocument(created.transactionId);
     const result = recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, 'att-other', {
-      at: AT2, actor: 'system', filename: 'disclosure.pdf', mimeType: 'application/pdf', size: 512, baseDir, now: EVEN_LATER,
+      at: AT2, actor: 'system', filename: 'disclosure.pdf', mimeType: 'application/pdf', size: 512, threadId: THREAD_ID, baseDir, now: EVEN_LATER,
     });
 
     expect(Object.keys(result.filings)).toHaveLength(2);
@@ -174,7 +186,9 @@ describe('recordDocumentFiled', () => {
       filename: 'agreement.pdf',
       mimeType: 'application/pdf',
       size: 2048,
+      threadId: THREAD_ID,
       status: 'filed',
+      review: 'needs_review',
       seenAt: AT,
       attempts: 0,
       driveFileId: 'drive-xyz',
@@ -247,7 +261,9 @@ describe('abandonDocumentFiling', () => {
       filename: 'agreement.pdf',
       mimeType: 'application/pdf',
       size: 2048,
+      threadId: THREAD_ID,
       status: 'abandoned',
+      review: 'needs_review',
       seenAt: AT,
       attempts: 0,
       lastError: 'attachment fetch timed out',
@@ -295,6 +311,165 @@ describe('abandonDocumentFiling', () => {
   });
 });
 
+describe('FILING_REVIEW_STATUSES', () => {
+  it('lists exactly the three expected review statuses', () => {
+    expect(FILING_REVIEW_STATUSES).toEqual(['needs_review', 'confirmed', 'rejected']);
+  });
+
+  it('is frozen', () => {
+    expect(Object.isFrozen(FILING_REVIEW_STATUSES)).toBe(true);
+  });
+});
+
+describe('confirmFiling', () => {
+  function confirm(transactionId, opts = {}) {
+    return confirmFiling(AGENT_ID, transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2,
+      actor: 'agent',
+      baseDir,
+      now: EVEN_LATER,
+      ...opts,
+    });
+  }
+
+  it('moves a needs_review record to confirmed, leaving status untouched', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = confirm(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key].review).toBe('confirmed');
+    expect(result.filings[key].status).toBe('seen');
+  });
+
+  it('emits a document_confirmed event with the key and filename', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = confirm(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.events).toHaveLength(2);
+    const event = result.events[result.events.length - 1];
+    expect(event.kind).toBe('document_confirmed');
+    expect(event.at).toBe(AT2);
+    expect(event.actor).toBe('agent');
+    expect(event.payload).toEqual({ key, filename: 'agreement.pdf' });
+  });
+
+  it('throws when there is no filing record at all', () => {
+    const created = create();
+    expect(() => confirm(created.transactionId))
+      .toThrow(/no filing record/);
+  });
+
+  it('throws confirming an already-confirmed record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    confirm(created.transactionId);
+    expect(() => confirm(created.transactionId))
+      .toThrow(/review is 'confirmed', not 'needs_review'/);
+  });
+
+  it('throws confirming an already-rejected record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    rejectFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    expect(() => confirm(created.transactionId))
+      .toThrow(/review is 'rejected', not 'needs_review'/);
+  });
+});
+
+describe('rejectFiling', () => {
+  function reject(transactionId, opts = {}) {
+    return rejectFiling(AGENT_ID, transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2,
+      actor: 'agent',
+      baseDir,
+      now: EVEN_LATER,
+      ...opts,
+    });
+  }
+
+  it('moves a needs_review record to rejected, leaving status untouched', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = reject(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key].review).toBe('rejected');
+    expect(result.filings[key].status).toBe('seen');
+  });
+
+  it('emits a document_rejected event with the key and filename', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = reject(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.events).toHaveLength(2);
+    const event = result.events[result.events.length - 1];
+    expect(event.kind).toBe('document_rejected');
+    expect(event.at).toBe(AT2);
+    expect(event.actor).toBe('agent');
+    expect(event.payload).toEqual({ key, filename: 'agreement.pdf' });
+  });
+
+  it('throws when there is no filing record at all', () => {
+    const created = create();
+    expect(() => reject(created.transactionId))
+      .toThrow(/no filing record/);
+  });
+
+  it('throws rejecting an already-rejected record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    reject(created.transactionId);
+    expect(() => reject(created.transactionId))
+      .toThrow(/review is 'rejected', not 'needs_review'/);
+  });
+
+  it('throws rejecting an already-confirmed record (terminal, one-directional)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    confirmFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    expect(() => reject(created.transactionId))
+      .toThrow(/review is 'confirmed', not 'needs_review'/);
+  });
+
+  it('a record can be status filed AND review rejected, and round-trips through the store', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    recordDocumentFiled(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', driveFileId: 'drive-xyz', contentHash: 'sha256:deadbeef', baseDir, now: EVEN_LATER,
+    });
+    const result = reject(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key]).toEqual({
+      messageId: MESSAGE_ID,
+      attachmentId: ATTACHMENT_ID,
+      filename: 'agreement.pdf',
+      mimeType: 'application/pdf',
+      size: 2048,
+      threadId: THREAD_ID,
+      status: 'filed',
+      review: 'rejected',
+      seenAt: AT,
+      attempts: 0,
+      driveFileId: 'drive-xyz',
+      contentHash: 'sha256:deadbeef',
+    });
+
+    const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(reread.filings[key].status).toBe('filed');
+    expect(reread.filings[key].review).toBe('rejected');
+  });
+});
+
 // Every writer here reads the whole transaction file, patches it in memory,
 // and rewrites the whole file, same as facts.js and items.js. That pattern
 // is only safe under concurrent callers if the read-patch-write cycle
@@ -317,7 +492,7 @@ describe('concurrent writes to one transaction', () => {
         setTimeout(() => {
           try {
             resolve(recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, attachmentId, {
-              at: AT, actor: 'system', filename, mimeType: 'application/pdf', size: 100, baseDir, now: LATER,
+              at: AT, actor: 'system', filename, mimeType: 'application/pdf', size: 100, threadId: THREAD_ID, baseDir, now: LATER,
             }));
           } catch (err) {
             reject(err);
@@ -348,7 +523,7 @@ describe('concurrent writes to one transaction', () => {
         setTimeout(() => {
           try {
             resolve(recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, attachmentId, {
-              at: AT, actor: 'system', filename: `${attachmentId}.pdf`, mimeType: 'application/pdf', size: 1, baseDir, now: LATER,
+              at: AT, actor: 'system', filename: `${attachmentId}.pdf`, mimeType: 'application/pdf', size: 1, threadId: THREAD_ID, baseDir, now: LATER,
             }));
           } catch (err) {
             reject(err);

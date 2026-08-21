@@ -2,8 +2,9 @@
 
 // The record for an attachment on its way from an inbox to Drive. Stored
 // `filings` is a map, the same shape as `facts` and `items`: { [filingKey]:
-// { messageId, attachmentId, filename, mimeType, size, status, seenAt,
-// attempts, lastError?, lastAttemptAt?, contentHash?, driveFileId? } }.
+// { messageId, attachmentId, filename, mimeType, size, threadId, status,
+// review, seenAt, attempts, lastError?, lastAttemptAt?, contentHash?,
+// driveFileId? } }.
 //
 // Key: `${messageId.length}:${messageId}:${attachmentId}`. A plain
 // `${messageId}:${attachmentId}` join is not safe: Gmail does not document
@@ -21,12 +22,25 @@
 // later is worse than shipping them unused now.
 //
 // Absent, never null, for every field that has no value yet: this follows
-// listingId and unit in store.js.
+// listingId and unit in store.js. `review` is the deliberate exception: it
+// is set to 'needs_review' at creation rather than left absent, because
+// "nobody has looked yet" is itself a real state the agent needs to see,
+// not a missing value.
+//
+// `threadId` is stored so signal D ("has this thread been filed against
+// this transaction") can be answered; this commit only stores the field,
+// it does not add a reader for it.
 
 const store = require('./store');
 const events = require('./events');
 
 const FILING_STATUSES = Object.freeze(['seen', 'filed', 'abandoned']);
+
+// A second, independent axis. `status` is what the machine did with the
+// bytes; `review` is what the agent said about the match. A document can be
+// filed AND rejected - it landed in Drive on the wrong deal - so this is a
+// separate field, not new members of `status`.
+const FILING_REVIEW_STATUSES = Object.freeze(['needs_review', 'confirmed', 'rejected']);
 
 // -- Key ------------------------------------------------------------------------
 
@@ -60,13 +74,14 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
 // that would be a transition out of a terminal status through the back
 // door of the seen writer.
 function recordDocumentSeen(agentId, transactionId, messageId, attachmentId, opts = {}) {
-  const { at, actor, filename, mimeType, size, baseDir, now } = opts;
+  const { at, actor, filename, mimeType, size, threadId, baseDir, now } = opts;
 
   assertNonEmptyString('recordDocumentSeen', 'messageId', messageId);
   assertNonEmptyString('recordDocumentSeen', 'attachmentId', attachmentId);
   assertNonEmptyString('recordDocumentSeen', 'at', at);
   assertNonEmptyString('recordDocumentSeen', 'filename', filename);
   assertNonEmptyString('recordDocumentSeen', 'mimeType', mimeType);
+  assertNonEmptyString('recordDocumentSeen', 'threadId', threadId);
   if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
     throw new Error('recordDocumentSeen: size must be a non-negative number');
   }
@@ -89,7 +104,9 @@ function recordDocumentSeen(agentId, transactionId, messageId, attachmentId, opt
     filename,
     mimeType,
     size,
+    threadId,
     status: 'seen',
+    review: 'needs_review',
     seenAt: at,
     attempts: 0,
   };
@@ -185,11 +202,84 @@ function abandonDocumentFiling(agentId, transactionId, messageId, attachmentId, 
   return store.writeTransaction(agentId, next, { baseDir, now });
 }
 
+// -- confirmFiling ----------------------------------------------------------
+
+function confirmFiling(agentId, transactionId, messageId, attachmentId, opts = {}) {
+  const { at, actor, baseDir, now } = opts;
+
+  const previous = readExisting('confirmFiling', agentId, transactionId, baseDir);
+  const previousFilings = previous.filings || {};
+  const key = buildFilingKey(messageId, attachmentId);
+  const existing = previousFilings[key];
+
+  if (!existing) {
+    throw new Error(`confirmFiling: no filing record '${key}' on transaction ${transactionId}`);
+  }
+  if (existing.review !== 'needs_review') {
+    throw new Error(`confirmFiling: filing '${key}' review is '${existing.review}', not 'needs_review'; cannot transition out of a terminal review`);
+  }
+
+  const record = { ...existing, review: 'confirmed' };
+
+  const event = events.makeEvent({
+    at,
+    actor,
+    kind: 'document_confirmed',
+    payload: { key, filename: existing.filename },
+  });
+
+  const next = {
+    ...previous,
+    filings: { ...previousFilings, [key]: record },
+    events: events.appendEvent(previous.events, event),
+  };
+
+  return store.writeTransaction(agentId, next, { baseDir, now });
+}
+
+// -- rejectFiling ----------------------------------------------------------
+
+function rejectFiling(agentId, transactionId, messageId, attachmentId, opts = {}) {
+  const { at, actor, baseDir, now } = opts;
+
+  const previous = readExisting('rejectFiling', agentId, transactionId, baseDir);
+  const previousFilings = previous.filings || {};
+  const key = buildFilingKey(messageId, attachmentId);
+  const existing = previousFilings[key];
+
+  if (!existing) {
+    throw new Error(`rejectFiling: no filing record '${key}' on transaction ${transactionId}`);
+  }
+  if (existing.review !== 'needs_review') {
+    throw new Error(`rejectFiling: filing '${key}' review is '${existing.review}', not 'needs_review'; cannot transition out of a terminal review`);
+  }
+
+  const record = { ...existing, review: 'rejected' };
+
+  const event = events.makeEvent({
+    at,
+    actor,
+    kind: 'document_rejected',
+    payload: { key, filename: existing.filename },
+  });
+
+  const next = {
+    ...previous,
+    filings: { ...previousFilings, [key]: record },
+    events: events.appendEvent(previous.events, event),
+  };
+
+  return store.writeTransaction(agentId, next, { baseDir, now });
+}
+
 module.exports = {
   FILING_STATUSES,
+  FILING_REVIEW_STATUSES,
   recordDocumentSeen,
   recordDocumentFiled,
   abandonDocumentFiling,
+  confirmFiling,
+  rejectFiling,
 };
 
 module.exports._internal = {
