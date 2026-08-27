@@ -459,13 +459,29 @@ describe('listing item catalog (seller_listing, landlord_listing)', () => {
   it('resolves the exact seller_listing id set', () => {
     const result = resolveChecklist('seller_listing', 'live', {});
     const ids = result.map((entry) => entry.id);
-    expect(ids).toEqual(['reco_information_guide', 'listing_agreement']);
+    expect(ids).toEqual(['reco_information_guide', 'listing_agreement', 'data_form']);
   });
 
   it('resolves the exact landlord_listing id set', () => {
     const result = resolveChecklist('landlord_listing', 'live', {});
     const ids = result.map((entry) => entry.id);
-    expect(ids).toEqual(['reco_information_guide', 'listing_agreement_lease']);
+    expect(ids).toEqual(['reco_information_guide', 'listing_agreement_lease', 'data_form']);
+  });
+
+  it('resolves data_form as required on both listing types with empty facts', () => {
+    ['seller_listing', 'landlord_listing'].forEach((type) => {
+      const result = resolveChecklist(type, 'live', {});
+      const item = result.find((entry) => entry.id === 'data_form');
+      expect(item.applicability).toBe('required');
+    });
+  });
+
+  it('does not resolve data_form on any of the four deal types', () => {
+    DEAL_TYPES.forEach((type) => {
+      const result = resolveChecklist(type, NON_COLLAPSED_STATE[type], {});
+      const ids = result.map((entry) => entry.id);
+      expect(ids).not.toContain('data_form');
+    });
   });
 
   it('resolves no item with source FINTRAC for either listing type', () => {

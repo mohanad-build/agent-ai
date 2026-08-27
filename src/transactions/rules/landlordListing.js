@@ -14,6 +14,14 @@ const LANDLORD_LISTING_ITEMS = [
     evidence: 'document',
     reads: [],
   },
+  {
+    id: 'data_form',
+    label: 'Data form or brokerage-equivalent listing data sheet on file',
+    source: 'brokerage',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: [],
+  },
 ];
 
 module.exports = {
