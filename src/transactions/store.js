@@ -292,6 +292,7 @@ function findListingCandidates(agentId, dealType, addressText, opts = {}) {
 
   const candidates = listTransactionIds(agentId, { baseDir })
     .map((transactionId) => readTransaction(agentId, transactionId, { baseDir }))
+    .filter((transaction) => transaction !== null)
     .filter((transaction) => transaction.type === listingType)
     .filter((transaction) => !states.isTerminal(transaction.type, transaction.state))
     .filter((transaction) => compareAddresses(target, parseAddress(transaction.address)).match)

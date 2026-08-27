@@ -11,6 +11,7 @@ const {
   readTransaction,
   writeTransaction,
   listTransactionIds,
+  findListingCandidates,
 } = require('../src/transactions/store');
 
 const { TRANSACTION_ID_RE, transactionsDir, transactionPath, validateEnvelope } =
@@ -393,6 +394,45 @@ describe('listTransactionIds', () => {
     expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual(
       ['txn-20260715-aaaaaaaa', 'txn-20260715-bbbbbbbb', 'txn-20260715-cccccccc']
     );
+  });
+});
+
+// -- findListingCandidates ---------------------------------------------------------
+
+describe('findListingCandidates', () => {
+  let statSpy;
+
+  afterEach(() => {
+    if (statSpy) {
+      statSpy.mockRestore();
+      statSpy = null;
+    }
+  });
+
+  test('skips a listed id whose file vanished before the read, same race readAllTransactions guards against', () => {
+    const now = new Date('2026-07-15T10:00:00.000Z');
+    const vanishing = createTransaction(AGENT_ID, { type: 'seller_listing', state: 'live', address: '12 Main St' }, { baseDir, now });
+    const surviving = createTransaction(AGENT_ID, { type: 'seller_listing', state: 'live', address: '12 Main St' }, { baseDir, now });
+
+    // listTransactionIds' own filter calls fs.statSync per file to confirm
+    // it's a plain file, before findListingCandidates ever reads any of
+    // them. Deleting the vanishing id's file as a side effect of ITS OWN
+    // statSync call, after the real stat has already succeeded, reproduces
+    // the exact race: the id is listed (its stat passed), but its file is
+    // gone by the time readTransaction gets to it.
+    const vanishingPath = transactionPath(baseDir, AGENT_ID, vanishing.transactionId);
+    const originalStatSync = fs.statSync.bind(fs);
+    statSpy = jest.spyOn(fs, 'statSync').mockImplementation((p) => {
+      const result = originalStatSync(p);
+      if (p === vanishingPath) {
+        fs.rmSync(vanishingPath, { force: true });
+      }
+      return result;
+    });
+
+    const result = findListingCandidates(AGENT_ID, 'seller_sale', '12 Main St', { baseDir });
+
+    expect(result.map((c) => c.transactionId)).toEqual([surviving.transactionId]);
   });
 });
 
