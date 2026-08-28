@@ -21,11 +21,20 @@
 // "complete" the enumeration would cement setFact as a second, competing
 // writer for a value that already has its real one. See facts.test.js for
 // the tests pinning both exclusions.
+//
+// representationArrangement (TC_SPEC 7.1.2b) is a different kind of
+// exception to this file's header claim above ("present in some item's
+// reads array or dereferenced inside some item's requiredWhen body"): no
+// catalog item reads it. It is read directly by resolveChecklist itself
+// (resolver.js), to decide which CATALOG entries to union, not by an
+// item's requiredWhen to decide one item's applicability. That is a new
+// role for a fact in this codebase; see resolver.js for where it is read.
 const FACT_KEYS = Object.freeze([
   'hasSelfRepresentedParty',
   'entityType',
   'conditions',
   'brokerageReceivedFunds',
+  'representationArrangement',
 ]);
 
 module.exports = {

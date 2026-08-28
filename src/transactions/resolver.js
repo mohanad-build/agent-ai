@@ -64,12 +64,78 @@ function resolveChecklist(type, state, facts) {
   assertRepresentedPersons('resolveChecklist', facts);
   assertClientSatisfactions('resolveChecklist', facts);
 
+  const baseItems = annotateCatalog(type, state, facts);
+
+  if (facts.representationArrangement !== 'double_ended') {
+    return baseItems;
+  }
+
+  // No pairing entry means this type is not a sell-side deal type (or is a
+  // buy-side/listing type): there is no counterpart catalog to union with.
+  // resolveChecklist stays a total function over any type+state+facts
+  // input and resolves single-side rather than throwing here -- see
+  // facts.js's assertRepresentationArrangementValidForType, which is the
+  // actual enforcement point for data written through the normal API.
+  // Throwing here instead would mean any transaction that reaches this
+  // state through a path other than setFact/correctFact (a hand-edited
+  // record, a future write path, data written before this check existed)
+  // could never resolve its checklist again.
+  const pairedType = states.buySideTypeForSellSide(type);
+  if (!pairedType) {
+    return baseItems;
+  }
+
+  // Reuses `state` for the paired type without a second assertKnownState
+  // pass: the pairing map only pairs types sharing an identical state
+  // vocabulary (see the comment on SELL_SIDE_TO_BUY_SIDE_TYPE in
+  // states.js), and `state` was already validated against the base type's
+  // table above, so it is valid for the paired type too.
+  const pairedItems = annotateCatalog(pairedType, state, facts);
+  return mergeDoubleEnded(baseItems, pairedItems);
+}
+
+function annotateCatalog(type, state, facts) {
   return rules.CATALOG[type]
     // terminalOnly items are the one deliberate exception to "the resolver
     // returns the annotated full set and never filters", see terminal.js for
     // why absence, not not_applicable, is the correct representation.
     .filter((item) => !item.terminalOnly || state === 'collapsed')
     .map((item) => withClientSatisfaction(annotateItem(item, facts), item, facts));
+}
+
+// required > indeterminate > not_applicable. A double-ended deal genuinely
+// carries both sides' obligations, and under-asking on a FINTRAC record is
+// the worse error, so the merge keeps whichever side's row is more
+// demanding rather than deferring to the base (sell) side by default.
+const APPLICABILITY_RANK = { required: 3, indeterminate: 2, not_applicable: 1 };
+
+// Merges two already-annotated arrays by id. A shared id keeps exactly ONE
+// row, taken WHOLESALE from whichever side ranks higher on
+// APPLICABILITY_RANK, never stitched field-by-field: reason and
+// pendingFacts describe why THAT row's applicability came out the way it
+// did, and pairing a winning applicability from one side with a reason or
+// pendingFacts from the other would describe a state neither side actually
+// produced. On a tie (including the common case of two sides producing an
+// identical annotation off a shared predicate, e.g. the condition items),
+// the base-catalog row wins, arbitrarily but deterministically. Order is
+// base catalog order first, exactly as resolveChecklist already returns
+// it, then ids unique to the paired catalog in their own declaration order.
+function mergeDoubleEnded(baseItems, pairedItems) {
+  const baseIds = new Set(baseItems.map((item) => item.id));
+  const pairedById = new Map(pairedItems.map((item) => [item.id, item]));
+
+  const merged = baseItems.map((item) => {
+    const counterpart = pairedById.get(item.id);
+    if (!counterpart) {
+      return item;
+    }
+    return APPLICABILITY_RANK[counterpart.applicability] > APPLICABILITY_RANK[item.applicability]
+      ? counterpart
+      : item;
+  });
+
+  const uniqueToPaired = pairedItems.filter((item) => !baseIds.has(item.id));
+  return [...merged, ...uniqueToPaired];
 }
 
 function annotateItem(item, facts) {

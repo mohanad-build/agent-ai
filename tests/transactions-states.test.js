@@ -8,11 +8,12 @@ const {
   isValidState,
   isTerminal,
   listingTypeForDeal,
+  buySideTypeForSellSide,
   canTransition,
   listTransitions,
 } = require('../src/transactions/states');
 
-const { TABLE, DEAL_TO_LISTING_TYPE } = require('../src/transactions/states')._internal;
+const { TABLE, DEAL_TO_LISTING_TYPE, SELL_SIDE_TO_BUY_SIDE_TYPE } = require('../src/transactions/states')._internal;
 const { LISTING_ELIGIBLE_TYPES } = require('../src/transactions/store')._internal;
 
 describe('TRANSACTION_TYPES', () => {
@@ -458,5 +459,48 @@ describe('listingTypeForDeal', () => {
 
   it('the map\'s keys are exactly the members of store.js\'s LISTING_ELIGIBLE_TYPES: the two lists cannot disagree', () => {
     expect(new Set(Object.keys(DEAL_TO_LISTING_TYPE))).toEqual(LISTING_ELIGIBLE_TYPES);
+  });
+});
+
+describe('buySideTypeForSellSide', () => {
+  it('pairs seller_sale with buyer_purchase', () => {
+    expect(buySideTypeForSellSide('seller_sale')).toBe('buyer_purchase');
+  });
+
+  it('pairs landlord_lease with tenant_lease', () => {
+    expect(buySideTypeForSellSide('landlord_lease')).toBe('tenant_lease');
+  });
+
+  it('returns undefined for buyer_purchase and tenant_lease: they are not sell-side', () => {
+    expect(buySideTypeForSellSide('buyer_purchase')).toBeUndefined();
+    expect(buySideTypeForSellSide('tenant_lease')).toBeUndefined();
+  });
+
+  it('returns undefined for the listing types themselves: they are not deals', () => {
+    expect(buySideTypeForSellSide('seller_listing')).toBeUndefined();
+    expect(buySideTypeForSellSide('landlord_listing')).toBeUndefined();
+  });
+
+  it('throws for an unknown type, matching every other lookup in this file', () => {
+    expect(() => buySideTypeForSellSide('not_a_type')).toThrow(/buySideTypeForSellSide: unknown type/);
+  });
+
+  it('the map is frozen', () => {
+    expect(Object.isFrozen(SELL_SIDE_TO_BUY_SIDE_TYPE)).toBe(true);
+  });
+
+  it('the map cannot be extended by assignment', () => {
+    expect(() => { SELL_SIDE_TO_BUY_SIDE_TYPE.buyer_purchase = 'tenant_lease'; }).toThrow();
+    expect(Object.prototype.hasOwnProperty.call(SELL_SIDE_TO_BUY_SIDE_TYPE, 'buyer_purchase')).toBe(false);
+  });
+
+  it('the map\'s keys are exactly the members of store.js\'s LISTING_ELIGIBLE_TYPES: sell-side and listing-eligible are the same set', () => {
+    expect(new Set(Object.keys(SELL_SIDE_TO_BUY_SIDE_TYPE))).toEqual(LISTING_ELIGIBLE_TYPES);
+  });
+
+  it('every paired sell-side and buy-side type shares an identical state vocabulary, which the union in resolver.js relies on', () => {
+    Object.entries(SELL_SIDE_TO_BUY_SIDE_TYPE).forEach(([sellSide, buySide]) => {
+      expect(getStates(buySide)).toEqual(getStates(sellSide));
+    });
   });
 });

@@ -2,6 +2,7 @@
 
 const store  = require('./store');
 const events = require('./events');
+const states = require('./states');
 const { FACT_KEYS } = require('./rules/factKeys');
 
 // -- Argument assertions ------------------------------------------------------------
@@ -9,6 +10,23 @@ const { FACT_KEYS } = require('./rules/factKeys');
 function assertKnownFactKey(fnName, key) {
   if (typeof key !== 'string' || !FACT_KEYS.includes(key)) {
     throw new Error(`${fnName}: unknown fact key '${key}'`);
+  }
+}
+
+// Refuses representationArrangement: 'double_ended' at the write boundary
+// when the transaction's type has no buy-side counterpart (TC_SPEC 7.1.2b),
+// the same place and shape as store.js's listingId-not-permitted-on-type
+// check (store.js validateEnvelope). This is the only fact whose valid
+// values depend on the transaction's type, so it is the only one that
+// needs a type parameter here; every other key's validity is type-
+// independent. Only 'double_ended' is restricted: 'single' and
+// 'designated' carry no type requirement.
+function assertRepresentationArrangementValidForType(fnName, key, value, type) {
+  if (key !== 'representationArrangement' || value !== 'double_ended') {
+    return;
+  }
+  if (!states.buySideTypeForSellSide(type)) {
+    throw new Error(`${fnName}: representationArrangement 'double_ended' is not permitted on type '${type}'`);
   }
 }
 
@@ -38,6 +56,7 @@ function setFact(agentId, transactionId, key, value, opts = {}) {
   }
 
   const previous = readExisting('setFact', agentId, transactionId, baseDir);
+  assertRepresentationArrangementValidForType('setFact', key, value, previous.type);
   const previousFacts = previous.facts;
   const hadKey = hasFact(previousFacts, key);
 
@@ -102,6 +121,7 @@ function correctFact(agentId, transactionId, key, value, opts = {}) {
   if (!hasFact(previousFacts, key)) {
     throw new Error(`correctFact: no value set for key '${key}'`);
   }
+  assertRepresentationArrangementValidForType('correctFact', key, value, previous.type);
 
   const event = events.makeEvent({
     at,

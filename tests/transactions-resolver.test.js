@@ -1180,3 +1180,190 @@ describe('corporate client identification (fintrac_corporation_identification_re
     });
   });
 });
+
+describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
+  it('with the fact absent, resolves every existing exact-id-set case unchanged', () => {
+    // Not a new assertion of its own: this just re-runs the two union-eligible
+    // types' pinned exact-id-set expectations with an explicit empty facts
+    // object, as a guard that touching resolveChecklist for the union did not
+    // change the absent-fact path. The full pinned arrays already live in the
+    // 'lease item catalog' and 'condition items' describes above; this does
+    // not duplicate them.
+    expect(resolveChecklist('seller_sale', 'conditional', {}).map((i) => i.id)).toEqual(
+      CATALOG.seller_sale.filter((item) => !item.terminalOnly).map((item) => item.id)
+    );
+    expect(resolveChecklist('landlord_lease', 'accepted', {}).map((i) => i.id)).toEqual(
+      CATALOG.landlord_lease.filter((item) => !item.terminalOnly).map((item) => item.id)
+    );
+  });
+
+  it('resolves the exact union id array for seller_sale double_ended with buyer_purchase', () => {
+    const result = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'double_ended' });
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual([
+      'reco_information_guide',
+      'srp_disclosure',
+      'deal_sheet',
+      'fintrac_corporation_identification_record',
+      'fintrac_articles_of_incorporation',
+      'fintrac_individual_identification_record',
+      'fintrac_third_party_determination',
+      'fintrac_receipt_of_funds_record',
+      'fintrac_unrepresented_party_record',
+      'financing_condition',
+      'inspection_condition',
+      'sale_of_property_condition',
+      'solicitor_approval_condition',
+      'insurance_condition',
+      'well_septic_condition',
+      'status_certificate_receipt',
+      'status_certificate_review',
+      'buyer_representation_agreement',
+    ]);
+  });
+
+  it('the seller_sale union id set equals the seller_sale set plus exactly the ids unique to buyer_purchase, computed from CATALOG', () => {
+    // Deliberately not hardcoded: this goes red the moment either catalog
+    // gains or loses an item, forcing an explicit decision about the union
+    // instead of the hardcoded array above silently drifting stale next to it.
+    const sellerIds = CATALOG.seller_sale.filter((item) => !item.terminalOnly).map((item) => item.id);
+    const buyerIds = CATALOG.buyer_purchase.filter((item) => !item.terminalOnly).map((item) => item.id);
+    const sellerIdSet = new Set(sellerIds);
+    const uniqueToBuyer = buyerIds.filter((id) => !sellerIdSet.has(id));
+
+    const result = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'double_ended' });
+    expect(result.map((entry) => entry.id)).toEqual([...sellerIds, ...uniqueToBuyer]);
+  });
+
+  it('resolves the exact union id array for landlord_lease double_ended with tenant_lease', () => {
+    const result = resolveChecklist('landlord_lease', 'accepted', { representationArrangement: 'double_ended' });
+    const ids = result.map((entry) => entry.id);
+    expect(ids).toEqual([
+      'reco_information_guide',
+      'srp_disclosure',
+      'deal_sheet',
+      'agreement_to_lease',
+      'ontario_standard_lease',
+      'signed_lease_copy_delivered',
+      'deposit_slip_received',
+      'deposit_forwarded_to_accounting',
+      'brokerage_deposit_receipt_issued',
+      'first_month_rent_received',
+      'keys_delivered',
+      'tenant_representation_agreement',
+      'signed_lease_copy_received',
+      'deposit_obtained_from_tenant',
+      'deposit_delivered_to_listing_agent',
+      'brokerage_deposit_receipt_received',
+      'first_month_rent_paid',
+      'keys_received',
+    ]);
+  });
+
+  it('the landlord_lease union id set equals the landlord_lease set plus exactly the ids unique to tenant_lease, computed from CATALOG', () => {
+    const landlordIds = CATALOG.landlord_lease.filter((item) => !item.terminalOnly).map((item) => item.id);
+    const tenantIds = CATALOG.tenant_lease.filter((item) => !item.terminalOnly).map((item) => item.id);
+    const landlordIdSet = new Set(landlordIds);
+    const uniqueToTenant = tenantIds.filter((id) => !landlordIdSet.has(id));
+
+    const result = resolveChecklist('landlord_lease', 'accepted', { representationArrangement: 'double_ended' });
+    expect(result.map((entry) => entry.id)).toEqual([...landlordIds, ...uniqueToTenant]);
+  });
+
+  it('ids are unique in the seller_sale/buyer_purchase unioned set', () => {
+    const result = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'double_ended' });
+    const ids = result.map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('ids are unique in the landlord_lease/tenant_lease unioned set', () => {
+    const result = resolveChecklist('landlord_lease', 'accepted', { representationArrangement: 'double_ended' });
+    const ids = result.map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  describe('merge precedence: required > indeterminate > not_applicable, exercised on fintrac_receipt_of_funds_record', () => {
+    // fintrac_receipt_of_funds_record is unconditional on buyer_purchase
+    // (reads: []) and gated on seller_sale (reads hasSelfRepresentedParty and
+    // brokerageReceivedFunds). fintrac_unrepresented_party_record, the other
+    // id named in the design intent as asymmetric, is not: both sides read
+    // the same fact through an identical requiredWhen predicate
+    // (buyerPurchase.js:108-110, sellerSale.js:102-104), so it always
+    // produces the same applicability on both sides and cannot exercise this
+    // precedence rule with differing inputs. It is covered instead by the
+    // uniqueness assertions above, as an ordinary shared duplicate.
+
+    it('buyer_purchase (required, unconditional) beats seller_sale (indeterminate, facts missing)', () => {
+      const result = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'double_ended' });
+      const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+      expect(item.applicability).toBe('required');
+      // Kept wholesale from the winning (buyer) side: that side has no
+      // requiredWhen, so a required row from it carries neither reason nor
+      // pendingFacts. Stitching seller_sale's pendingFacts onto this row
+      // would misreport a required item as still waiting on facts.
+      expect(item).not.toHaveProperty('reason');
+      expect(item).not.toHaveProperty('pendingFacts');
+    });
+
+    it('buyer_purchase (required, unconditional) beats seller_sale (not_applicable, facts false)', () => {
+      const result = resolveChecklist('seller_sale', 'conditional', {
+        representationArrangement: 'double_ended',
+        hasSelfRepresentedParty: false,
+        brokerageReceivedFunds: false,
+      });
+      const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+      expect(item.applicability).toBe('required');
+      expect(item).not.toHaveProperty('reason');
+    });
+
+    it('both sides required is a tie: the base (seller_sale) row is kept, still exactly one row', () => {
+      const result = resolveChecklist('seller_sale', 'conditional', {
+        representationArrangement: 'double_ended',
+        hasSelfRepresentedParty: true,
+        brokerageReceivedFunds: true,
+      });
+      const matches = result.filter((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+      expect(matches).toHaveLength(1);
+      expect(matches[0].applicability).toBe('required');
+    });
+
+    it('without the union (arrangement absent), seller_sale alone still resolves the gated applicability', () => {
+      const result = resolveChecklist('seller_sale', 'conditional', {});
+      const item = result.find((entry) => entry.id === 'fintrac_receipt_of_funds_record');
+      expect(item.applicability).toBe('indeterminate');
+      expect(item.pendingFacts).toEqual(['hasSelfRepresentedParty', 'brokerageReceivedFunds']);
+    });
+  });
+
+  it('single resolves single-side, identically to the fact being absent', () => {
+    const withSingle = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'single' });
+    const withAbsent = resolveChecklist('seller_sale', 'conditional', {});
+    expect(withSingle).toEqual(withAbsent);
+  });
+
+  it('designated resolves single-side, identically to the fact being absent: reserved for a later commit, not wired to union', () => {
+    const withDesignated = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'designated' });
+    const withAbsent = resolveChecklist('seller_sale', 'conditional', {});
+    expect(withDesignated).toEqual(withAbsent);
+  });
+
+  it('double_ended on a type with no pairing entry (buyer_purchase) resolves single-side, ignoring the fact', () => {
+    const withDoubleEnded = resolveChecklist('buyer_purchase', 'conditional', { representationArrangement: 'double_ended' });
+    const withAbsent = resolveChecklist('buyer_purchase', 'conditional', {});
+    expect(withDoubleEnded).toEqual(withAbsent);
+  });
+
+  it('double_ended on tenant_lease, the other type with no pairing entry, resolves single-side, ignoring the fact', () => {
+    const withDoubleEnded = resolveChecklist('tenant_lease', 'accepted', { representationArrangement: 'double_ended' });
+    const withAbsent = resolveChecklist('tenant_lease', 'accepted', {});
+    expect(withDoubleEnded).toEqual(withAbsent);
+  });
+
+  it('double_ended on the listing types (no pairing entry) resolves single-side, ignoring the fact', () => {
+    ['seller_listing', 'landlord_listing'].forEach((type) => {
+      const withDoubleEnded = resolveChecklist(type, 'live', { representationArrangement: 'double_ended' });
+      const withAbsent = resolveChecklist(type, 'live', {});
+      expect(withDoubleEnded).toEqual(withAbsent);
+    });
+  });
+});

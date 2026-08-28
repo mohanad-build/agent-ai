@@ -195,6 +195,58 @@ describe('setFact', () => {
       at: AT, actor: 'agent', baseDir, now: LATER,
     })).toThrow(/^setFact: no transaction txn-20260715-00000000 for agent test-agent/);
   });
+
+  describe('representationArrangement', () => {
+    it('refuses double_ended on buyer_purchase, which has no sell-side pairing, and writes nothing to disk', () => {
+      const created = create(); // type: 'buyer_purchase'
+      expect(() => setFact(AGENT_ID, created.transactionId, 'representationArrangement', 'double_ended', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      })).toThrow(/^setFact: representationArrangement 'double_ended' is not permitted on type 'buyer_purchase'/);
+
+      const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(onDisk).toEqual(created);
+    });
+
+    it('accepts double_ended on seller_sale, which pairs with buyer_purchase', () => {
+      const created = createTransaction(
+        AGENT_ID,
+        { type: 'seller_sale', state: 'conditional', address: '12 Main St' },
+        { baseDir, now: CLOCK }
+      );
+      const result = setFact(AGENT_ID, created.transactionId, 'representationArrangement', 'double_ended', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      });
+      expect(result.facts).toEqual({ representationArrangement: 'double_ended' });
+    });
+
+    it('accepts double_ended on landlord_lease, which pairs with tenant_lease', () => {
+      const created = createTransaction(
+        AGENT_ID,
+        { type: 'landlord_lease', state: 'accepted', address: '12 Main St' },
+        { baseDir, now: CLOCK }
+      );
+      const result = setFact(AGENT_ID, created.transactionId, 'representationArrangement', 'double_ended', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      });
+      expect(result.facts).toEqual({ representationArrangement: 'double_ended' });
+    });
+
+    it('accepts single on buyer_purchase: the type restriction is specific to double_ended', () => {
+      const created = create(); // type: 'buyer_purchase'
+      const result = setFact(AGENT_ID, created.transactionId, 'representationArrangement', 'single', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      });
+      expect(result.facts).toEqual({ representationArrangement: 'single' });
+    });
+
+    it('accepts designated on buyer_purchase: the type restriction is specific to double_ended', () => {
+      const created = create(); // type: 'buyer_purchase'
+      const result = setFact(AGENT_ID, created.transactionId, 'representationArrangement', 'designated', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      });
+      expect(result.facts).toEqual({ representationArrangement: 'designated' });
+    });
+  });
 });
 
 describe('confirmFact', () => {
@@ -314,5 +366,15 @@ describe('correctFact', () => {
     expect(() => correctFact(AGENT_ID, created.transactionId, 'representedPersons', ['Jane Smith'], {
       at: AT, actor: 'agent', baseDir, now: LATER,
     })).toThrow(/^correctFact: unknown fact key 'representedPersons'/);
+  });
+
+  it('refuses correcting representationArrangement to double_ended on buyer_purchase, which has no sell-side pairing', () => {
+    const created = create(); // type: 'buyer_purchase'
+    setFact(AGENT_ID, created.transactionId, 'representationArrangement', 'single', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(() => correctFact(AGENT_ID, created.transactionId, 'representationArrangement', 'double_ended', {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    })).toThrow(/^correctFact: representationArrangement 'double_ended' is not permitted on type 'buyer_purchase'/);
   });
 });

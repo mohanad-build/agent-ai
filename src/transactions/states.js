@@ -106,6 +106,27 @@ const DEAL_TO_LISTING_TYPE = Object.freeze({
   landlord_lease: 'landlord_listing',
 });
 
+// Sell-side deal type to its buy-side counterpart, for the double-ended
+// union in resolver.js (TC_SPEC 7.1.2b): a double-ended deal opens as one
+// sell-side transaction, and its checklist must additionally carry the
+// buy-side catalog's obligations. Keys are exactly LISTING_ELIGIBLE_TYPES
+// (store.js): in this domain "sell-side" and "can have a listing linked"
+// are the same set by construction (only the side listing the property can
+// have a listing attached), so that set is the anchor, the same one
+// DEAL_TO_LISTING_TYPE above is pinned against, and a test pins this map's
+// keys against it too, so the two lists cannot drift apart. The union in
+// resolver.js additionally relies on both sides of each pairing sharing an
+// identical state vocabulary (buyer_purchase/seller_sale both use
+// conditional/firm/closed/collapsed; tenant_lease/landlord_lease both use
+// accepted/signed/possession/closed/collapsed) so that a single `state`
+// argument, already validated against the sell-side type, is valid for the
+// buy-side type too without a second validation pass. A test pins that
+// invariant as well.
+const SELL_SIDE_TO_BUY_SIDE_TYPE = Object.freeze({
+  seller_sale: 'buyer_purchase',
+  landlord_lease: 'tenant_lease',
+});
+
 function assertKnownType(fnName, type) {
   if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(TABLE, type)) {
     throw new Error(`${fnName}: unknown type '${type}'`);
@@ -154,6 +175,15 @@ function listingTypeForDeal(dealType) {
   return DEAL_TO_LISTING_TYPE[dealType];
 }
 
+// Returns the buy-side type paired with a sell-side deal type, or undefined
+// for any type with no pairing (buy-side types themselves, and the listing
+// types). Unlike a missing pairing, an unknown type is a caller bug: throws,
+// matching listingTypeForDeal above.
+function buySideTypeForSellSide(sellSideType) {
+  assertKnownType('buySideTypeForSellSide', sellSideType);
+  return SELL_SIDE_TO_BUY_SIDE_TYPE[sellSideType];
+}
+
 function canTransition(type, fromState, toState) {
   assertKnownType('canTransition', type);
   assertStateArg('canTransition', 'fromState', fromState);
@@ -193,8 +223,9 @@ module.exports = {
   isValidState,
   isTerminal,
   listingTypeForDeal,
+  buySideTypeForSellSide,
   canTransition,
   listTransitions,
 };
 
-module.exports._internal = { TABLE, DEAL_TO_LISTING_TYPE };
+module.exports._internal = { TABLE, DEAL_TO_LISTING_TYPE, SELL_SIDE_TO_BUY_SIDE_TYPE };
