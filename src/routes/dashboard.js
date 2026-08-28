@@ -33,7 +33,28 @@ const { normalizeLeads, landLeads } = require('../leadImport');
 
 function getAgentsDir() { return getStorageRoot(); }
 const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
+// Matches the on-disk filename form (<agentId>.json), used to filter
+// directory listings in discoverAgentIds.
 const AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
+// Matches a bare agentId (no extension), same character class as above.
+// Used to validate req.params/req.query agentId values before they are
+// interpolated into a filesystem path, so a value like "../../etc/passwd"
+// or one containing a null byte is rejected before any fs call.
+const AGENT_ID_BARE_REGEX = /^[a-z0-9-]+$/;
+
+function isValidAgentId(id) {
+  return typeof id === 'string' && AGENT_ID_BARE_REGEX.test(id);
+}
+
+function rejectInvalidAgentId(req, res) {
+  if (isValidAgentId(req.params.agentId)) return false;
+  res.status(400).send(renderErrorPage(
+    'Invalid agent ID',
+    'That agent ID contains characters that are not allowed.',
+    { href: '/dashboard', label: 'Back to dashboard' }
+  ));
+  return true;
+}
 
 function moveAgentFilesToDeleted(agentId, opts = {}) {
   const baseDir = (opts && opts.baseDir) || getAgentsDir();
@@ -434,6 +455,7 @@ ${deletedId ? `<div class="banner-ok">Agent "${escHtml(deletedId)}" removed from
 // ---- Edit agent ----
 
 router.get('/agent/:agentId/edit', (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     let agent;
     try { agent = loadAgent(req.params.agentId); } catch {
@@ -597,6 +619,7 @@ ${contentEngineCardHtml}
 });
 
 router.post('/agent/:agentId/edit', (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     const filePath = path.join(getAgentsDir(), `${agentId}.json`);
@@ -743,6 +766,7 @@ async function extractVoiceConfig(agentId, body, opts = {}) {
 // ---- Content Engine provisioning and config ----
 
 router.post('/agent/:agentId/content/provision', async (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
@@ -764,6 +788,7 @@ router.post('/agent/:agentId/content/provision', async (req, res) => {
 });
 
 router.post('/agent/:agentId/content/save', (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
@@ -785,6 +810,7 @@ router.post('/agent/:agentId/content/save', (req, res) => {
 });
 
 router.post('/agent/:agentId/content/voice', async (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
@@ -808,6 +834,7 @@ router.post('/agent/:agentId/content/voice', async (req, res) => {
 // ---- Delete agent (soft) ----
 
 router.post('/agent/:agentId/delete', (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     const confirmId = req.body.confirmId || '';
@@ -868,6 +895,7 @@ ${manualHtml}
 // ---- Import leads ----
 
 router.post('/agent/:agentId/import', async (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     let agent;
@@ -955,6 +983,7 @@ ${notFoundHtml}
 // ---- Leads table ----
 
 router.get('/agent/:agentId/leads', async (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     let agent;
@@ -1045,6 +1074,7 @@ ${bulkEnableHtml}`));
 // ---- Toggle AI ----
 
 router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', async (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId, rowIndex } = req.params;
     const ri = parseInt(rowIndex, 10);
@@ -1069,6 +1099,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', async (req, res) => {
 // ---- Toggle SOI ----
 
 router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId, rowIndex } = req.params;
     const ri = parseInt(rowIndex, 10);
@@ -1093,6 +1124,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
 // ---- Bulk enable ----
 
 router.post('/agent/:agentId/leads/enable', async (req, res) => {
+  if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
     let agent;
@@ -1123,6 +1155,8 @@ ${renderEnableResult(agentId, result)}`));
 module.exports = router;
 module.exports.discoverAgentIds = discoverAgentIds;
 module.exports.AGENT_ID_REGEX = AGENT_ID_REGEX;
+module.exports.AGENT_ID_BARE_REGEX = AGENT_ID_BARE_REGEX;
+module.exports.isValidAgentId = isValidAgentId;
 module.exports.NON_DASHBOARD_IDS = NON_DASHBOARD_IDS;
 module.exports.filterDashboardIds = filterDashboardIds;
 module.exports.moveAgentFilesToDeleted = moveAgentFilesToDeleted;

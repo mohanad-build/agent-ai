@@ -11,6 +11,7 @@ const { OAUTH_SCOPES } = require('../scopes');
 const { loadAgent } = require('../agentConfig');
 const email = require('../email');
 const { renderWelcomeEmail } = require('../welcomeEmail');
+const { isValidAgentId } = require('./dashboard');
 
 const router = express.Router();
 
@@ -314,6 +315,9 @@ router.get('/oauth/start', (req, res) => {
   if (!agentId) {
     return res.status(400).send('Missing agentId');
   }
+  if (!isValidAgentId(agentId)) {
+    return res.status(400).send('Invalid agentId');
+  }
 
   const nonce = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = { nonce, agentId };
@@ -344,6 +348,17 @@ router.get('/oauth/callback', async (req, res) => {
 
   const { agentId } = pending;
   delete req.session.oauthState;
+
+  // Defense in depth: agentId is session-derived (validated at /oauth/start
+  // before it was stored), but re-check here since this is the point where
+  // it starts getting interpolated into filesystem paths.
+  if (!isValidAgentId(agentId)) {
+    return res.status(400).send(renderErrorPage(
+      "Connection didn't complete",
+      'That agent ID contains characters that are not allowed.',
+      { href: '/onboard', label: 'Start over' }
+    ));
+  }
 
   try {
     const oauth2Client = makeOAuthClient();
@@ -480,7 +495,7 @@ router.get('/done', (req, res) => {
   let gmailAddress = '';
   let googleSheetId = '';
 
-  if (agentId) {
+  if (agentId && isValidAgentId(agentId)) {
     try {
       const config = JSON.parse(
         fs.readFileSync(path.join(getAgentsDir(), `${agentId}.json`), 'utf-8')
