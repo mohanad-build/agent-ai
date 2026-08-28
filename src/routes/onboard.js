@@ -1,5 +1,6 @@
 'use strict';
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -314,12 +315,15 @@ router.get('/oauth/start', (req, res) => {
     return res.status(400).send('Missing agentId');
   }
 
+  const nonce = crypto.randomBytes(16).toString('hex');
+  req.session.oauthState = { nonce, agentId };
+
   const oauth2Client = makeOAuthClient();
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: OAUTH_SCOPES,
-    state: agentId,
+    state: nonce,
   });
 
   res.redirect(authUrl);
@@ -327,14 +331,19 @@ router.get('/oauth/start', (req, res) => {
 
 // GET /onboard/oauth/callback
 router.get('/oauth/callback', async (req, res) => {
-  const { code, state: agentId } = req.query;
-  if (!code || !agentId) {
+  const { code, state } = req.query;
+  const pending = req.session.oauthState;
+
+  if (!code || !state || !pending || state !== pending.nonce) {
     return res.status(400).send(renderErrorPage(
       "Connection didn't complete",
-      "It looks like the Google authorization step didn't finish. This can happen if you closed the window or denied access.",
+      "It looks like the Google authorization step didn't finish. This can happen if you closed the window, denied access, or the link expired. Please start over.",
       { href: '/onboard', label: 'Start over' }
     ));
   }
+
+  const { agentId } = pending;
+  delete req.session.oauthState;
 
   try {
     const oauth2Client = makeOAuthClient();
