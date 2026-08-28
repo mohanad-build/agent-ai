@@ -26,6 +26,27 @@ const TENANT_LEASE_ITEMS = [
     evidence: 'document',
     reads: [],
   },
+  // Required only when representationArrangement is 'double_ended': TRESA
+  // requires written, informed consent from both clients before an agent
+  // may act as a multiple representative, so this is statutory rather than
+  // a brokerage-internal record -- the same justification as
+  // tenant_representation_agreement's TRESA source just below.
+  // Deliberately does NOT fire on 'designated': whether a two-agent,
+  // same-brokerage deal needs this form depends on the brokerage's own
+  // designated-representation arrangement, a brokerage-level property this
+  // file does not record (decision 33 kept that out of the catalog).
+  // Nothing in this codebase creates a 'designated' transaction today, so
+  // under-asking here is deliberate and documented, not an oversight.
+  {
+    id: 'multiple_representation_agreement',
+    label: 'Multiple representation consent form or agreement, signed by both clients, on file',
+    source: 'TRESA',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: ['representationArrangement'],
+    requiredWhen: (facts) => facts.representationArrangement === 'double_ended',
+    notApplicableReason: 'Representation arrangement is not double-ended',
+  },
   {
     id: 'tenant_representation_agreement',
     label: 'Tenant Representation Agreement, in writing with remuneration method stated',

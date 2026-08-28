@@ -318,6 +318,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'tenant_representation_agreement',
       'agreement_to_lease',
       'ontario_standard_lease',
@@ -337,6 +338,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_delivered',
@@ -391,6 +393,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
@@ -415,6 +418,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'buyer_representation_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_articles_of_incorporation',
@@ -526,6 +530,7 @@ describe('terminal items (mutual_release)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'tenant_representation_agreement',
       'agreement_to_lease',
       'ontario_standard_lease',
@@ -546,6 +551,7 @@ describe('terminal items (mutual_release)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_delivered',
@@ -565,6 +571,7 @@ describe('terminal items (mutual_release)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
@@ -590,6 +597,7 @@ describe('terminal items (mutual_release)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'buyer_representation_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_articles_of_incorporation',
@@ -1207,6 +1215,7 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'fintrac_corporation_identification_record',
       'fintrac_articles_of_incorporation',
       'fintrac_individual_identification_record',
@@ -1245,6 +1254,7 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
       'reco_information_guide',
       'srp_disclosure',
       'deal_sheet',
+      'multiple_representation_agreement',
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_delivered',
@@ -1338,28 +1348,87 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
     });
   });
 
-  it('single resolves single-side, identically to the fact being absent', () => {
+  // These four used to assert full toEqual identity with the fact absent.
+  // Since multiple_representation_agreement started reading
+  // representationArrangement directly in its own requiredWhen, that is no
+  // longer true item-for-item: that one id's own applicability now depends
+  // on the exact value (present-but-not-double_ended resolves confidently
+  // to not_applicable/required, where absent stays indeterminate, waiting
+  // on the fact). "Resolves single-side" -- no catalog union fires -- is
+  // still true and is what the union routing in resolveChecklist itself
+  // controls; that is the part these tests pin. Everything except
+  // multiple_representation_agreement is untouched, which each test also
+  // checks explicitly.
+  it('single produces the same id set (single-side, no union) as the fact being absent, but resolves multiple_representation_agreement confidently to not_applicable where absent is indeterminate', () => {
     const withSingle = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'single' });
     const withAbsent = resolveChecklist('seller_sale', 'conditional', {});
-    expect(withSingle).toEqual(withAbsent);
+
+    expect(withSingle.map((entry) => entry.id)).toEqual(withAbsent.map((entry) => entry.id));
+
+    const singleItem = withSingle.find((entry) => entry.id === 'multiple_representation_agreement');
+    const absentItem = withAbsent.find((entry) => entry.id === 'multiple_representation_agreement');
+    expect(singleItem.applicability).toBe('not_applicable');
+    expect(absentItem.applicability).toBe('indeterminate');
+
+    withSingle
+      .filter((entry) => entry.id !== 'multiple_representation_agreement')
+      .forEach((entry) => {
+        expect(entry).toEqual(withAbsent.find((other) => other.id === entry.id));
+      });
   });
 
-  it('designated resolves single-side, identically to the fact being absent: reserved for a later commit, not wired to union', () => {
+  it('designated produces the same id set (single-side, no union) as the fact being absent, but resolves multiple_representation_agreement confidently to not_applicable where absent is indeterminate: the two-agent form is reserved for a later commit, not wired here', () => {
     const withDesignated = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'designated' });
     const withAbsent = resolveChecklist('seller_sale', 'conditional', {});
-    expect(withDesignated).toEqual(withAbsent);
+
+    expect(withDesignated.map((entry) => entry.id)).toEqual(withAbsent.map((entry) => entry.id));
+
+    const designatedItem = withDesignated.find((entry) => entry.id === 'multiple_representation_agreement');
+    const absentItem = withAbsent.find((entry) => entry.id === 'multiple_representation_agreement');
+    expect(designatedItem.applicability).toBe('not_applicable');
+    expect(absentItem.applicability).toBe('indeterminate');
+
+    withDesignated
+      .filter((entry) => entry.id !== 'multiple_representation_agreement')
+      .forEach((entry) => {
+        expect(entry).toEqual(withAbsent.find((other) => other.id === entry.id));
+      });
   });
 
-  it('double_ended on a type with no pairing entry (buyer_purchase) resolves single-side, ignoring the fact', () => {
+  it('double_ended on a type with no pairing entry (buyer_purchase) produces the same id set (no union fires) as the fact being absent, but multiple_representation_agreement\'s own requiredWhen still reads the fact directly and resolves required regardless of union routing', () => {
     const withDoubleEnded = resolveChecklist('buyer_purchase', 'conditional', { representationArrangement: 'double_ended' });
     const withAbsent = resolveChecklist('buyer_purchase', 'conditional', {});
-    expect(withDoubleEnded).toEqual(withAbsent);
+
+    expect(withDoubleEnded.map((entry) => entry.id)).toEqual(withAbsent.map((entry) => entry.id));
+
+    const doubleEndedItem = withDoubleEnded.find((entry) => entry.id === 'multiple_representation_agreement');
+    const absentItem = withAbsent.find((entry) => entry.id === 'multiple_representation_agreement');
+    expect(doubleEndedItem.applicability).toBe('required');
+    expect(absentItem.applicability).toBe('indeterminate');
+
+    withDoubleEnded
+      .filter((entry) => entry.id !== 'multiple_representation_agreement')
+      .forEach((entry) => {
+        expect(entry).toEqual(withAbsent.find((other) => other.id === entry.id));
+      });
   });
 
-  it('double_ended on tenant_lease, the other type with no pairing entry, resolves single-side, ignoring the fact', () => {
+  it('double_ended on tenant_lease, the other type with no pairing entry, behaves the same way: no union, but multiple_representation_agreement still independently resolves required', () => {
     const withDoubleEnded = resolveChecklist('tenant_lease', 'accepted', { representationArrangement: 'double_ended' });
     const withAbsent = resolveChecklist('tenant_lease', 'accepted', {});
-    expect(withDoubleEnded).toEqual(withAbsent);
+
+    expect(withDoubleEnded.map((entry) => entry.id)).toEqual(withAbsent.map((entry) => entry.id));
+
+    const doubleEndedItem = withDoubleEnded.find((entry) => entry.id === 'multiple_representation_agreement');
+    const absentItem = withAbsent.find((entry) => entry.id === 'multiple_representation_agreement');
+    expect(doubleEndedItem.applicability).toBe('required');
+    expect(absentItem.applicability).toBe('indeterminate');
+
+    withDoubleEnded
+      .filter((entry) => entry.id !== 'multiple_representation_agreement')
+      .forEach((entry) => {
+        expect(entry).toEqual(withAbsent.find((other) => other.id === entry.id));
+      });
   });
 
   it('double_ended on the listing types (no pairing entry) resolves single-side, ignoring the fact', () => {
@@ -1452,5 +1521,85 @@ describe('mergeDoubleEnded: the wholesale-row invariant', () => {
     expect(merged[0].satisfiedPersons).toEqual(['carol']);
     expect(merged[0].outstandingPersons).toEqual(['dave']);
     expect(merged[0]).not.toHaveProperty('reason');
+  });
+});
+
+describe('multiple_representation_agreement', () => {
+  DEAL_TYPES.forEach((type) => {
+    const state = NON_COLLAPSED_STATE[type];
+
+    it(`required on ${type} when representationArrangement is double_ended`, () => {
+      const result = resolveChecklist(type, state, { representationArrangement: 'double_ended' });
+      const item = result.find((entry) => entry.id === 'multiple_representation_agreement');
+      expect(item).toBeDefined();
+      expect(item.applicability).toBe('required');
+    });
+
+    it(`not required (not_applicable) on ${type} when representationArrangement is single`, () => {
+      const result = resolveChecklist(type, state, { representationArrangement: 'single' });
+      const item = result.find((entry) => entry.id === 'multiple_representation_agreement');
+      expect(item.applicability).toBe('not_applicable');
+      expect(item.reason).toBe('Representation arrangement is not double-ended');
+    });
+
+    // Pinned explicitly, not left incidental: a two-agent, same-brokerage
+    // deal's need for this form depends on the brokerage's own designated-
+    // representation arrangement, a brokerage-level property this catalog
+    // does not record (decision 33). Under-asking here is deliberate.
+    it(`not required (not_applicable) on ${type} when representationArrangement is designated, deliberately: the two-agent form depends on a brokerage-level property this catalog does not record`, () => {
+      const result = resolveChecklist(type, state, { representationArrangement: 'designated' });
+      const item = result.find((entry) => entry.id === 'multiple_representation_agreement');
+      expect(item.applicability).toBe('not_applicable');
+      expect(item.reason).toBe('Representation arrangement is not double-ended');
+    });
+
+    it(`indeterminate on ${type} with pendingFacts naming representationArrangement when the fact is absent`, () => {
+      const result = resolveChecklist(type, state, {});
+      const item = result.find((entry) => entry.id === 'multiple_representation_agreement');
+      expect(item.applicability).toBe('indeterminate');
+      expect(item.pendingFacts).toEqual(['representationArrangement']);
+    });
+  });
+
+  it('is absent from both listing catalogs', () => {
+    ['seller_listing', 'landlord_listing'].forEach((type) => {
+      const result = resolveChecklist(type, 'live', { representationArrangement: 'double_ended' });
+      expect(result.some((entry) => entry.id === 'multiple_representation_agreement')).toBe(false);
+    });
+  });
+
+  it('is absent from universal.js: declared per deal type, not spread from the spine', () => {
+    const { UNIVERSAL_ITEMS } = require('../src/transactions/rules/universal');
+    expect(UNIVERSAL_ITEMS.some((item) => item.id === 'multiple_representation_agreement')).toBe(false);
+  });
+
+  it('on a double-ended seller_sale the row appears exactly once, merged rather than duplicated across the union', () => {
+    const result = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'double_ended' });
+    const matches = result.filter((entry) => entry.id === 'multiple_representation_agreement');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].applicability).toBe('required');
+  });
+
+  it('on a double-ended landlord_lease the row appears exactly once, merged rather than duplicated across the union', () => {
+    const result = resolveChecklist('landlord_lease', 'accepted', { representationArrangement: 'double_ended' });
+    const matches = result.filter((entry) => entry.id === 'multiple_representation_agreement');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].applicability).toBe('required');
+  });
+
+  it('source is TRESA, matching VALID_SOURCES and the same statutory justification as buyer_representation_agreement/tenant_representation_agreement', () => {
+    DEAL_TYPES.forEach((type) => {
+      const item = CATALOG[type].find((entry) => entry.id === 'multiple_representation_agreement');
+      expect(item.source).toBe('TRESA');
+      expect(VALID_SOURCES.has(item.source)).toBe(true);
+    });
+  });
+
+  it('scope is transaction, not client: one agreement covers the situation, not one per person', () => {
+    DEAL_TYPES.forEach((type) => {
+      const item = CATALOG[type].find((entry) => entry.id === 'multiple_representation_agreement');
+      expect(item.scope).toBe('transaction');
+      expect(item).not.toHaveProperty('clientScope');
+    });
   });
 });

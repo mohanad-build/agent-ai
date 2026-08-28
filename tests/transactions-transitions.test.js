@@ -50,6 +50,10 @@ function clearIndeterminates(transactionId) {
   setFact(AGENT_ID, transactionId, 'hasSelfRepresentedParty', false, { at: AT, actor: 'agent', baseDir, now: CLOCK });
   setFact(AGENT_ID, transactionId, 'entityType', 'individual', { at: AT, actor: 'agent', baseDir, now: CLOCK });
   setFact(AGENT_ID, transactionId, 'conditions', [], { at: AT, actor: 'agent', baseDir, now: CLOCK });
+  // Added alongside multiple_representation_agreement: without this,
+  // representationArrangement stays absent and that item stays
+  // indeterminate, waiting on the fact, same as any other reads-based item.
+  setFact(AGENT_ID, transactionId, 'representationArrangement', 'single', { at: AT, actor: 'agent', baseDir, now: CLOCK });
 }
 
 function completeUnconditionalRequired(transactionId, exceptId) {

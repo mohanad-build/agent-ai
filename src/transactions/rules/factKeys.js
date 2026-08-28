@@ -22,13 +22,17 @@
 // writer for a value that already has its real one. See facts.test.js for
 // the tests pinning both exclusions.
 //
-// representationArrangement (TC_SPEC 7.1.2b) is a different kind of
-// exception to this file's header claim above ("present in some item's
-// reads array or dereferenced inside some item's requiredWhen body"): no
-// catalog item reads it. It is read directly by resolveChecklist itself
-// (resolver.js), to decide which CATALOG entries to union, not by an
-// item's requiredWhen to decide one item's applicability. That is a new
-// role for a fact in this codebase; see resolver.js for where it is read.
+// representationArrangement (TC_SPEC 7.1.2b) is read in two different ways,
+// which is worth spelling out since they look alike but are not: (1)
+// resolveChecklist itself reads it directly (resolver.js) to decide which
+// CATALOG entries to union -- a fact deciding an item SET, not one item's
+// applicability, which was a new role for a fact in this codebase when it
+// shipped. (2) Separately, multiple_representation_agreement's requiredWhen
+// (buyerPurchase.js, sellerSale.js, tenantLease.js, landlordLease.js) reads
+// it the ordinary way, same as any other requiredWhen, to decide that one
+// item's applicability. Both readings coexist: the fact first decides
+// whether a catalog gets unioned in, then, independently, decides whether
+// this one item within the (possibly unioned) result is required.
 const FACT_KEYS = Object.freeze([
   'hasSelfRepresentedParty',
   'entityType',
