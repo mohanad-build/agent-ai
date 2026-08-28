@@ -3,6 +3,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const { loadAgent } = require('../agentConfig');
@@ -247,7 +248,14 @@ router.get('/login', (req, res) => {
 </html>`);
 });
 
-router.post('/login', (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post('/login', loginLimiter, (req, res) => {
   if (req.body.password === process.env.DASHBOARD_PASSWORD) {
     req.session.authenticated = true;
     return res.redirect('/dashboard');
@@ -256,7 +264,10 @@ router.post('/login', (req, res) => {
 });
 
 router.get('/logout', (req, res) => {
-  req.session.destroy(() => res.redirect('/dashboard/login'));
+  req.session.destroy(() => {
+    res.clearCookie('connect.sid');
+    res.redirect('/dashboard/login');
+  });
 });
 
 // ---- Auth gate ----

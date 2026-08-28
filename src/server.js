@@ -10,21 +10,28 @@ const dashboardRouter = require('./routes/dashboard');
 
 const app = express();
 
-// Trust the Cloudflare/Railway proxy layer so req.protocol honours
-// X-Forwarded-Proto and resolves to https behind the proxy, instead of
-// falling back to the plain-http socket scheme.
-app.set('trust proxy', true);
+// Trust exactly one proxy hop (Railway's edge) so req.protocol/req.ip honour
+// X-Forwarded-Proto/X-Forwarded-For from that hop, instead of falling back to
+// the plain-http socket scheme or trusting an arbitrary forwarded chain.
+app.set('trust proxy', 1);
 
 // Body parsing
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 app.use(express.json());
 
 // Sessions (for dashboard auth only)
+if (!process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET must be set — refusing to start with an insecure default.');
+}
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false }, // set true behind HTTPS proxy on Railway
+  cookie: {
+    secure: 'auto', // requires trust proxy above; true when HTTPS is detected via req.secure, false for local http dev
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 12, // 12 hours
+  },
 }));
 
 // Static files
