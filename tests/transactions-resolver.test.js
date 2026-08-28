@@ -906,7 +906,10 @@ describe('reResolve', () => {
     expect(item.applicability).toBe('no_longer_applicable');
     expect(item.completed).toBe(true);
     expect(item.documents).toEqual(['lmr-receipt.pdf']);
-    expect(item.reason).toMatch(/buyer_purchase/);
+    // Cause-agnostic, deliberately: reResolve has no previous type or facts
+    // to compare against, so the reason states only what it actually knows,
+    // not that a type change caused the drop. See resolver.js.
+    expect(item.reason).toBe('no longer applicable: not part of the current checklist for this transaction');
   });
 
   it('keeps a note for an item present in both sets', () => {
@@ -1365,6 +1368,18 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
       const withAbsent = resolveChecklist(type, 'live', {});
       expect(withDoubleEnded).toEqual(withAbsent);
     });
+  });
+
+  it('a double_ended-to-single flip drops the paired-only item as no_longer_applicable with a cause-agnostic reason, not one claiming the type changed', () => {
+    const doubleEndedItems = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'double_ended' });
+    expect(doubleEndedItems.some((entry) => entry.id === 'buyer_representation_agreement')).toBe(true);
+
+    const result = reResolve(doubleEndedItems, 'seller_sale', 'conditional', { representationArrangement: 'single' });
+    const item = result.find((entry) => entry.id === 'buyer_representation_agreement');
+
+    expect(item.applicability).toBe('no_longer_applicable');
+    expect(item.reason).toBe('no longer applicable: not part of the current checklist for this transaction');
+    expect(item.reason).not.toMatch(/type/i);
   });
 });
 

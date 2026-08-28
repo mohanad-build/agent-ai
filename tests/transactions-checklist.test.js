@@ -114,7 +114,10 @@ describe('resolveTransactionChecklist', () => {
     expect(item).toBeDefined();
     expect(item.applicability).toBe('no_longer_applicable');
     expect(item.completed).toBe(true);
-    expect(item.reason).toMatch(/buyer_purchase/);
+    // Cause-agnostic, deliberately: reResolve has no previous type or facts
+    // to compare against, so the reason states only what it actually knows.
+    // See resolver.js.
+    expect(item.reason).toBe('no longer applicable: not part of the current checklist for this transaction');
   });
 
   it('a missing transaction throws', () => {

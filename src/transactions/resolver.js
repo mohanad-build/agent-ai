@@ -274,18 +274,22 @@ function reResolve(previousItems, type, state, facts) {
       const appended = {
         ...item,
         applicability: 'no_longer_applicable',
-        // This reason assumes the only way an item falls out of the new set is a
-        // type change, which was true when resolveChecklist returned every
-        // catalog item for the type unconditionally. terminalOnly items are now a
-        // second way an item can fall out: they are filtered out of the new set
-        // whenever state is not 'collapsed'. The string below is still safe today
-        // only because 'collapsed' is terminal in all four state tables, so no
-        // transition ever leaves it: a terminalOnly item that was present
-        // (state was 'collapsed') can never later be re-resolved at a
-        // non-collapsed state, since there is no edge out of 'collapsed' to reach.
-        // If a state table ever adds one, this string will misreport why the item
-        // disappeared.
-        reason: `no longer applicable: transaction changed to type '${type}'`,
+        // Cause-agnostic, deliberately. An item can now fall out of the new
+        // set for more than one reason: a type change (the original case),
+        // a terminalOnly item whose state moved off 'collapsed' (though
+        // that path is dead today since 'collapsed' is terminal in all four
+        // state tables), and now a representationArrangement flip out of
+        // 'double_ended' dropping the paired catalog's items, which is
+        // freely reversible via correctFact, unlike the terminalOnly case.
+        // reResolve receives only the CURRENT type, state and facts, plus
+        // previousItems: it has no previous type and no previous facts, so
+        // it cannot tell these causes apart, and a signature change to give
+        // it that context would ripple through the roughly ninety call
+        // sites across the test suite that construct calls to this
+        // function's signature. The string says what reResolve actually
+        // knows to be true -- the item is not part of the current
+        // checklist for this transaction -- rather than guessing a cause.
+        reason: 'no longer applicable: not part of the current checklist for this transaction',
       };
       delete appended.pendingFacts;
       return appended;
