@@ -10,6 +10,7 @@
 require('dotenv').config();
 const { google } = require('googleapis');
 const { loadAgent } = require('../src/agentConfig');
+const { decryptToken } = require('../src/tokenCrypto');
 
 const COLUMN_HEADERS = [
   'Lead ID',
@@ -57,7 +58,7 @@ async function main() {
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
-  oauth2Client.setCredentials({ refresh_token: agent.googleRefreshToken });
+  oauth2Client.setCredentials({ refresh_token: decryptToken(agent.googleRefreshToken) });
 
   const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
 

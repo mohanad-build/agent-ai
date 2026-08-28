@@ -9,6 +9,7 @@ const { google } = require('googleapis');
 const { getNowIso } = require('./time');
 const { getStorageRoot } = require('./storagePaths');
 const { parseRecipientList } = require('./recipientParsing');
+const { decryptToken } = require('./tokenCrypto');
 
 // Module state
 const oauthClientCache = new Map();
@@ -58,7 +59,7 @@ function getOAuthClient(agentConfig) {
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
-  client.setCredentials({ refresh_token: agentConfig.googleRefreshToken });
+  client.setCredentials({ refresh_token: decryptToken(agentConfig.googleRefreshToken) });
   oauthClientCache.set(agentConfig.agentId, client);
   return client;
 }

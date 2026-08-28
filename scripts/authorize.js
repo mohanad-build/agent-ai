@@ -16,6 +16,7 @@ const http = require('http');
 const url = require('url');
 const { google } = require('googleapis');
 const { OAUTH_SCOPES } = require('../src/scopes');
+const { encryptToken } = require('../src/tokenCrypto');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const AGENTS_DIR = path.join(PROJECT_ROOT, 'agents');
@@ -100,7 +101,7 @@ const server = http.createServer(async (req, res) => {
 
     // Write refresh token into agent config and restore isActive flag
     const agentConfig = JSON.parse(fs.readFileSync(agentConfigPath, 'utf-8'));
-    agentConfig.googleRefreshToken = tokens.refresh_token;
+    agentConfig.googleRefreshToken = encryptToken(tokens.refresh_token);
     const wasInactive = agentConfig.isActive === false;
     agentConfig.isActive = true;
     fs.writeFileSync(

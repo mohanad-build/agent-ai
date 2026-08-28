@@ -12,6 +12,7 @@ const { loadAgent } = require('../agentConfig');
 const email = require('../email');
 const { renderWelcomeEmail } = require('../welcomeEmail');
 const { isValidAgentId } = require('./dashboard');
+const { encryptToken } = require('../tokenCrypto');
 
 const router = express.Router();
 
@@ -375,7 +376,7 @@ router.get('/oauth/callback', async (req, res) => {
 
     const agentPath = path.join(getAgentsDir(), `${agentId}.json`);
     const config = JSON.parse(fs.readFileSync(agentPath, 'utf-8'));
-    config.googleRefreshToken = tokens.refresh_token;
+    config.googleRefreshToken = encryptToken(tokens.refresh_token);
     config.isActive = true;
     writeAgentAtomic(agentId, config);
 

@@ -23,6 +23,30 @@ app.use(express.json());
 if (!process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET must be set. Refusing to start with an insecure default.');
 }
+
+// Not a throw: existing agents already have plaintext tokens on the Volume,
+// and gmail.js's decryptToken() passes those through untouched. Only a
+// startup nudge for whoever forgot to set it before real encryption/
+// decryption is needed. Lives here (not in tokenCrypto.js) so it never runs
+// during Jest test collection, same scoping as the SESSION_SECRET throw above.
+if (!process.env.TOKEN_ENCRYPTION_KEY) {
+  console.warn('TOKEN_ENCRYPTION_KEY is not set. Token encryption/decryption will fail if invoked.');
+} else {
+  // Migrate any plaintext refresh tokens left on the Volume, so the
+  // standalone script never has to be run by hand against real data.
+  // Idempotent (already-migrated agents are skipped), so this is safe to
+  // run on every boot. A failure here must never take the whole server
+  // down - it degrades to "some agents still have plaintext tokens," which
+  // decryptToken already handles via passthrough.
+  try {
+    const { migrateExistingTokens } = require('./tokenMigration');
+    console.log('[server] running token migration check...');
+    migrateExistingTokens();
+  } catch (err) {
+    console.error('[server] token migration failed:', err.message);
+    if (err.stack) console.error(err.stack);
+  }
+}
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
