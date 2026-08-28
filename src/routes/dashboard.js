@@ -1,5 +1,6 @@
 'use strict';
 require('dotenv').config();
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -9,6 +10,7 @@ const router = express.Router();
 const { loadAgent } = require('../agentConfig');
 const agentState = require('../agentState');
 const email = require('../email');
+const twilioModule = require('../twilio');
 const { SheetAccessError } = require('../gmail');
 const {
   readContentProfile,
@@ -227,16 +229,7 @@ function pageWrap(title, body) {
 
 // ---- Login ----
 
-router.get('/login', (req, res) => {
-  const error = req.query.error === '1';
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sign in: GetKlosed Dashboard</title>
-  ${SHARED_HEAD_LINKS}
-  <style>
+const LOGIN_STYLE = `
     ${ROOT_TOKENS}
     .login-shell { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 200px); padding: 32px 24px; }
     .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 32px; max-width: 400px; width: 100%; }
@@ -248,7 +241,25 @@ router.get('/login', (req, res) => {
     .login-card button { width: 100%; margin-top: 16px; padding: 12px; border-radius: 8px; background: var(--violet); color: #fff; font-size: 15px; font-weight: 600; border: none; cursor: pointer; font-family: inherit; }
     .login-card button:hover { background: var(--violet-bright); }
     .login-card .err { color: #DC2626; font-size: 13px; margin-top: 8px; }
-  </style>
+`;
+
+const LOGIN_ERROR_MESSAGES = {
+  1: 'Incorrect password.',
+  mfa_send_failed: 'Could not send the verification code. Please try again.',
+  mfa_expired: 'Your verification code expired. Please sign in again.',
+  mfa_failed: 'Too many incorrect codes. Please sign in again.',
+};
+
+router.get('/login', (req, res) => {
+  const errorMessage = LOGIN_ERROR_MESSAGES[req.query.error] || null;
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in: GetKlosed Dashboard</title>
+  ${SHARED_HEAD_LINKS}
+  <style>${LOGIN_STYLE}</style>
 </head>
 <body>
   ${SHARED_HEADER}
@@ -259,7 +270,7 @@ router.get('/login', (req, res) => {
       <form method="POST" action="/dashboard/login">
         <label for="password">Password</label>
         <input type="password" name="password" id="password" required autofocus />
-        ${error ? '<p class="err">Incorrect password.</p>' : ''}
+        ${errorMessage ? `<p class="err">${escHtml(errorMessage)}</p>` : ''}
         <button type="submit">Sign in</button>
       </form>
     </div>
@@ -276,12 +287,106 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-router.post('/login', loginLimiter, (req, res) => {
-  if (req.body.password === process.env.DASHBOARD_PASSWORD) {
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const MFA_CODE_TTL_MS = 5 * 60 * 1000;
+const MFA_MAX_ATTEMPTS = 5;
+
+router.post('/login', loginLimiter, async (req, res) => {
+  if (req.body.password !== process.env.DASHBOARD_PASSWORD) {
+    return res.redirect('/dashboard/login?error=1');
+  }
+
+  // Break-glass: MFA_ENABLED must be explicitly 'false' to skip it. Unset or
+  // any other value means MFA is required.
+  if (process.env.MFA_ENABLED === 'false') {
     req.session.authenticated = true;
     return res.redirect('/dashboard');
   }
-  res.redirect('/dashboard/login?error=1');
+
+  const code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
+
+  try {
+    await twilioModule.sendSMSTo(
+      process.env.DASHBOARD_MFA_PHONE,
+      `Your GetKlosed dashboard verification code is ${code}. It expires in 5 minutes.`
+    );
+  } catch (err) {
+    console.error('[dashboard] MFA SMS send failed:', err.message);
+    return res.redirect('/dashboard/login?error=mfa_send_failed');
+  }
+
+  req.session.pendingMfa = {
+    code,
+    expiresAt: Date.now() + MFA_CODE_TTL_MS,
+    attempts: 0,
+  };
+  res.redirect('/dashboard/verify');
+});
+
+router.get('/verify', (req, res) => {
+  if (!req.session.pendingMfa) {
+    return res.redirect('/dashboard/login');
+  }
+  const error = req.query.error === '1';
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verify: GetKlosed Dashboard</title>
+  ${SHARED_HEAD_LINKS}
+  <style>${LOGIN_STYLE}</style>
+</head>
+<body>
+  ${SHARED_HEADER}
+  <main class="login-shell">
+    <div class="login-card">
+      <h2>Enter your code</h2>
+      <p class="sub">We texted a 6-digit code to the dashboard phone. It expires in 5 minutes.</p>
+      <form method="POST" action="/dashboard/verify">
+        <label for="code">Verification code</label>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" name="code" id="code" required autofocus />
+        ${error ? '<p class="err">Incorrect code. Please try again.</p>' : ''}
+        <button type="submit">Verify</button>
+      </form>
+    </div>
+  </main>
+  ${SHARED_FOOTER}
+</body>
+</html>`);
+});
+
+router.post('/verify', verifyLimiter, (req, res) => {
+  const pending = req.session.pendingMfa;
+  if (!pending) {
+    return res.redirect('/dashboard/login');
+  }
+
+  if (Date.now() > pending.expiresAt) {
+    delete req.session.pendingMfa;
+    return res.redirect('/dashboard/login?error=mfa_expired');
+  }
+
+  const submitted = (req.body.code || '').trim();
+  if (submitted === pending.code) {
+    req.session.authenticated = true;
+    delete req.session.pendingMfa;
+    return res.redirect('/dashboard');
+  }
+
+  pending.attempts += 1;
+  if (pending.attempts >= MFA_MAX_ATTEMPTS) {
+    delete req.session.pendingMfa;
+    return res.redirect('/dashboard/login?error=mfa_failed');
+  }
+
+  res.redirect('/dashboard/verify?error=1');
 });
 
 router.get('/logout', (req, res) => {
