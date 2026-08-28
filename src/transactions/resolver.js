@@ -115,11 +115,23 @@ const APPLICABILITY_RANK = { required: 3, indeterminate: 2, not_applicable: 1 };
 // pendingFacts describe why THAT row's applicability came out the way it
 // did, and pairing a winning applicability from one side with a reason or
 // pendingFacts from the other would describe a state neither side actually
-// produced. On a tie (including the common case of two sides producing an
-// identical annotation off a shared predicate, e.g. the condition items),
-// the base-catalog row wins, arbitrarily but deterministically. Order is
-// base catalog order first, exactly as resolveChecklist already returns
-// it, then ids unique to the paired catalog in their own declaration order.
+// produced. The same is true of satisfiedPersons/outstandingPersons on a
+// scope:'client'/clientScope:'event' item: withClientSatisfaction already
+// paired those arrays with their own side's applicability per the
+// session-62 emission rule (required emits both, not_applicable emits
+// satisfiedPersons only, indeterminate emits neither) before this function
+// ever runs, so taking the winning row wholesale is what keeps that
+// pairing intact; stitching would let a not_applicable side's
+// satisfiedPersons or a required side's outstandingPersons leak onto the
+// other's winning row. See the 'wholesale-row invariant' tests in
+// transactions-resolver.test.js, which pin this directly since no id in
+// the real catalog can currently produce a required-vs-not_applicable
+// split on a client-scoped item to exercise it end to end. On a tie
+// (including the common case of two sides producing an identical
+// annotation off a shared predicate, e.g. the condition items), the
+// base-catalog row wins, arbitrarily but deterministically. Order is base
+// catalog order first, exactly as resolveChecklist already returns it,
+// then ids unique to the paired catalog in their own declaration order.
 function mergeDoubleEnded(baseItems, pairedItems) {
   const baseIds = new Set(baseItems.map((item) => item.id));
   const pairedById = new Map(pairedItems.map((item) => [item.id, item]));
@@ -286,3 +298,11 @@ module.exports = {
   resolveChecklist,
   reResolve,
 };
+
+// Test-only, following this codebase's established _internal convention
+// (states.js, store.js, participants.js, ...): mergeDoubleEnded is exported
+// so its wholesale-row invariant can be pinned directly with hand-built
+// rows, without fabricating a real catalog item that does not exist. Do not
+// import this in production code -- resolveChecklist is the only sanctioned
+// caller.
+module.exports._internal = { mergeDoubleEnded };

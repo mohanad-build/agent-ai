@@ -1367,3 +1367,75 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
     });
   });
 });
+
+describe('mergeDoubleEnded: the wholesale-row invariant', () => {
+  // This pins a CODE INVARIANT of mergeDoubleEnded itself, not a deal
+  // scenario: a merged row's fields all come from ONE side, wholesale,
+  // never stitched field-by-field across sides. No id in the real catalog
+  // can exercise this today: every scope:'client'/clientScope:'event' item
+  // shared between a sell-side and buy-side catalog has an identical
+  // requiredWhen predicate on both sides (or none at all, unconditionally
+  // required on both), so real resolveChecklist output never has to choose
+  // between two differing per-person annotations for a client-scoped item.
+  // A future reader should not go looking for a real transaction that
+  // triggers this -- there isn't one yet, which is exactly why this needs a
+  // synthetic fixture instead of an end-to-end resolveChecklist call.
+  //
+  // mergeDoubleEnded is reached via resolver.js's _internal export, which
+  // exists for this test only; do not import it from production code.
+  const { mergeDoubleEnded } = require('../src/transactions/resolver')._internal;
+
+  it('a required row beats a not_applicable row on a client-scoped item: the merged row keeps the required side\'s satisfiedPersons/outstandingPersons wholesale, per the session-62 emission rule, and carries nothing from the losing side', () => {
+    const requiredRow = {
+      id: 'synthetic_client_item',
+      scope: 'client',
+      clientScope: 'event',
+      applicability: 'required',
+      satisfiedPersons: ['alice'],
+      outstandingPersons: ['bob'],
+    };
+    const notApplicableRow = {
+      id: 'synthetic_client_item',
+      scope: 'client',
+      clientScope: 'event',
+      applicability: 'not_applicable',
+      reason: 'Not applicable on the paired side',
+      satisfiedPersons: ['carol'], // not_applicable emits satisfiedPersons only (session-62)
+    };
+
+    const merged = mergeDoubleEnded([requiredRow], [notApplicableRow]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toEqual(requiredRow);
+    expect(merged[0].satisfiedPersons).toEqual(['alice']);
+    expect(merged[0].outstandingPersons).toEqual(['bob']);
+    expect(merged[0]).not.toHaveProperty('reason');
+  });
+
+  it('the reverse: a not_applicable base row loses to a required paired row, which supplies the merged satisfiedPersons/outstandingPersons entirely', () => {
+    const notApplicableBaseRow = {
+      id: 'synthetic_client_item',
+      scope: 'client',
+      clientScope: 'event',
+      applicability: 'not_applicable',
+      reason: 'Not applicable on the base side',
+      satisfiedPersons: ['alice'],
+    };
+    const requiredPairedRow = {
+      id: 'synthetic_client_item',
+      scope: 'client',
+      clientScope: 'event',
+      applicability: 'required',
+      satisfiedPersons: ['carol'],
+      outstandingPersons: ['dave'],
+    };
+
+    const merged = mergeDoubleEnded([notApplicableBaseRow], [requiredPairedRow]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toEqual(requiredPairedRow);
+    expect(merged[0].satisfiedPersons).toEqual(['carol']);
+    expect(merged[0].outstandingPersons).toEqual(['dave']);
+    expect(merged[0]).not.toHaveProperty('reason');
+  });
+});
