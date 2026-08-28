@@ -448,7 +448,7 @@ ${deletedId ? `<div class="banner-ok">Agent "${escHtml(deletedId)}" removed from
 <div class="agent-grid">${cards.join('')}</div>`));
   } catch (err) {
     console.error('[dashboard] GET /:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -614,7 +614,7 @@ ${contentEngineCardHtml}
 </div>`));
   } catch (err) {
     console.error('[dashboard] GET /agent/:id/edit:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -681,7 +681,7 @@ router.post('/agent/:agentId/edit', (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?saved=1`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/edit:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -783,7 +783,7 @@ router.post('/agent/:agentId/content/provision', async (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_provisioned=1`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/content/provision:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -805,7 +805,7 @@ router.post('/agent/:agentId/content/save', (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_saved=1`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/content/save:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -827,7 +827,7 @@ router.post('/agent/:agentId/content/voice', async (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?ce_voice=extracted`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/content/voice:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -855,7 +855,7 @@ router.post('/agent/:agentId/delete', (req, res) => {
     res.redirect(`/dashboard?deleted=${encodeURIComponent(agentId)}`);
   } catch (err) {
     console.error('[dashboard] POST /agent/:id/delete:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -922,7 +922,7 @@ ${renderImportResult(agentId, normalized, result)}`));
     console.error('[dashboard] POST /agent/:id/import:', err.message);
     res.status(400).send(renderErrorPage(
       'Import failed',
-      escHtml(err.message),
+      'Something went wrong processing that file. Please check the format and try again.',
       { href: `/dashboard/agent/${encodeURIComponent(req.params.agentId)}/edit`, label: 'Back to edit page' }
     ));
   }
@@ -1067,7 +1067,7 @@ ${sheetErrorBlock}
 ${bulkEnableHtml}`));
   } catch (err) {
     console.error('[dashboard] GET /agent/:id/leads:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -1092,7 +1092,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', async (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/leads`);
   } catch (err) {
     console.error('[dashboard] POST toggle-ai:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -1117,7 +1117,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/leads`);
   } catch (err) {
     console.error('[dashboard] POST toggle-soi:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 
@@ -1148,7 +1148,7 @@ router.post('/agent/:agentId/leads/enable', async (req, res) => {
 ${renderEnableResult(agentId, result)}`));
   } catch (err) {
     console.error('[dashboard] POST leads/enable:', err.message);
-    res.status(500).send(err.message);
+    res.status(500).send('Something went wrong. Please try again.');
   }
 });
 

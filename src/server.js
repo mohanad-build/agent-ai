@@ -21,7 +21,7 @@ app.use(express.json());
 
 // Sessions (for dashboard auth only)
 if (!process.env.SESSION_SECRET) {
-  throw new Error('SESSION_SECRET must be set — refusing to start with an insecure default.');
+  throw new Error('SESSION_SECRET must be set. Refusing to start with an insecure default.');
 }
 app.use(session({
   secret: process.env.SESSION_SECRET,
@@ -48,6 +48,17 @@ app.use('/dashboard', dashboardRouter);
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
+// Global error handler. Must be registered after all other app.use()/route
+// mounts (Express picks it out by its 4-argument arity). Never send
+// err.message or err.stack to the client; log the full error server-side
+// and respond with a generic message instead.
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  console.error('[server] unhandled error:', err.message);
+  if (err.stack) console.error(err.stack);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).send('Something went wrong. Please try again.');
+});
 
 // Start server
 const PORT = process.env.PORT || 3000;

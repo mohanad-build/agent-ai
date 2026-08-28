@@ -301,6 +301,7 @@ router.post('/', (req, res) => {
     writeAgentAtomic(agentId, config);
     res.redirect(`/onboard/oauth/start?agentId=${encodeURIComponent(agentId)}`);
   } catch (err) {
+    console.error('[onboard] POST /:', err.message);
     res.status(500).send(renderErrorPage(
       "We couldn't save your details",
       'Something went wrong saving your onboarding info. Please try again, or email mohanad@getklosed.ca if it keeps happening.',
@@ -480,9 +481,10 @@ router.get('/oauth/callback', async (req, res) => {
 
     res.redirect(`/onboard/done?agentId=${encodeURIComponent(agentId)}`);
   } catch (err) {
+    console.error('[onboard] GET /oauth/callback:', err.message);
     res.status(500).send(renderErrorPage(
       'Something went wrong',
-      'We hit an error while finishing your setup. Please try again, or email mohanad@getklosed.ca with this error: ' + (err && err.message ? err.message : 'unknown'),
+      'We hit an error while finishing your setup. Please try again, or email mohanad@getklosed.ca if it keeps happening.',
       { href: '/onboard', label: 'Try again' }
     ));
   }
