@@ -102,6 +102,36 @@ function requireAuth(req, res, next) {
   res.redirect('/dashboard/login');
 }
 
+// ---- CSRF (session-backed synchronizer token) ----
+//
+// csurf is deprecated, so this is a small hand-rolled equivalent rather than
+// adding a new dependency for something this size: a random token is
+// generated once per session, rendered into every state-changing form as a
+// hidden field, and checked against the session's copy on POST. Applied to
+// the 9 authenticated dashboard POST routes only - not /login or /verify
+// (out of scope here), and never the Twilio webhook, which is a third party
+// posting to a signature-validated endpoint, not a browser session.
+
+function ensureCsrfToken(req, res, next) {
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+  }
+  next();
+}
+
+function verifyCsrfToken(req, res, next) {
+  const sessionToken = req.session.csrfToken;
+  const submitted = req.body && req.body._csrf;
+  if (typeof sessionToken === 'string' && typeof submitted === 'string' && sessionToken === submitted) {
+    return next();
+  }
+  res.status(403).send(renderErrorPage(
+    'Form expired',
+    'This page\'s security token is invalid or expired. Please refresh the page and try again.',
+    { href: '/dashboard', label: 'Back to dashboard' }
+  ));
+}
+
 // ---- HTML helpers ----
 
 function escHtml(s) {
@@ -122,6 +152,21 @@ function select(name, options, current) {
 
 function field(label, name, inputHtml) {
   return `<div class="form-row"><label for="${name}">${label}</label>${inputHtml}</div>`;
+}
+
+function csrfField(req) {
+  return `<input type="hidden" name="_csrf" value="${escHtml(req.session.csrfToken)}">`;
+}
+
+// Constant-time string comparison. crypto.timingSafeEqual throws if the two
+// buffers differ in length, and a naive catch-and-return-false around that
+// would itself leak length information through which branch executes - so
+// both sides are hashed to a fixed 32-byte digest first, and it's the
+// digests (always equal length) that get compared.
+function safeCompare(a, b) {
+  const hashA = crypto.createHash('sha256').update(String(a)).digest();
+  const hashB = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
 }
 
 function pageWrap(title, body) {
@@ -298,7 +343,12 @@ const MFA_CODE_TTL_MS = 5 * 60 * 1000;
 const MFA_MAX_ATTEMPTS = 5;
 
 router.post('/login', loginLimiter, async (req, res) => {
-  if (req.body.password !== process.env.DASHBOARD_PASSWORD) {
+  const submittedPassword = req.body.password;
+  // Fail closed: an unset DASHBOARD_PASSWORD, or an empty submission,
+  // must never be treated as a match. (The old `!==` comparison had a real
+  // gap here - if DASHBOARD_PASSWORD were ever unset or empty, an empty
+  // submitted password would satisfy `'' !== ''` being false and pass.)
+  if (!submittedPassword || !process.env.DASHBOARD_PASSWORD || !safeCompare(submittedPassword, process.env.DASHBOARD_PASSWORD)) {
     return res.redirect('/dashboard/login?error=1');
   }
 
@@ -399,6 +449,7 @@ router.get('/logout', (req, res) => {
 // ---- Auth gate ----
 
 router.use(requireAuth);
+router.use(ensureCsrfToken);
 
 // ---- Main overview ----
 
@@ -592,6 +643,7 @@ router.get('/agent/:agentId/edit', (req, res) => {
   <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Content Engine</h2>
   <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">Not provisioned for this agent. Provisioning creates a live content profile with default settings.</p>
   <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/content/provision">
+    ${csrfField(req)}
     <div class="form-actions">
       <button type="submit" class="btn">Provision Content Engine</button>
     </div>
@@ -600,6 +652,7 @@ router.get('/agent/:agentId/edit', (req, res) => {
       : `<div class="edit-card" style="margin-top: 20px;">
   <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700;">Content Engine</h2>
   <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/content/save">
+    ${csrfField(req)}
     ${field('Enabled', 'contentEngineEnabled', select('contentEngineEnabled', ['false', 'true'], String(contentProfile.contentEngineEnabled)))}
     ${field('Primary focus', 'primaryFocus', select('primaryFocus', ['buyers', 'sellers', 'both'], contentProfile.primaryFocus))}
     ${field('Content volume', 'contentVolume', select('contentVolume', ['max', 'balanced', 'minimum'], contentProfile.contentVolume))}
@@ -615,6 +668,7 @@ router.get('/agent/:agentId/edit', (req, res) => {
     ? `<div class="form-row"><label>Current voice (tier: ${escHtml(contentProfile.voiceDescriptorTier)})</label><div class="readonly-field" style="color: var(--muted); white-space: pre-wrap;">${escHtml(contentProfile.voiceDescriptor)}</div></div>`
     : '<p style="color: var(--muted); font-size: 14px;">No voice descriptor yet.</p>'}
   <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/content/voice">
+    ${csrfField(req)}
     ${field('Self description', 'selfDescription', `<textarea name="selfDescription" maxlength="1000" rows="4">${escHtml(contentProfile.selfDescription || '')}</textarea><small>2 to 3 sentences describing this agent's voice. Leave blank to keep the default voice.</small>`)}
     <div class="form-actions">
       <button type="submit" class="btn">Extract / refresh voice</button>
@@ -641,6 +695,7 @@ ${ceError ? `<p class="err-banner">Content Engine error: ${escHtml(ceError)}</p>
   <div class="form-row"><label>Google Sheet ID</label><span class="readonly-field">${escHtml(agent.googleSheetId || '')}</span></div>
 
   <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/edit">
+    ${csrfField(req)}
     ${field('Mode', 'mode', select('mode', ['shadow', 'live'], agent.mode))}
     ${field('Agent Active', 'isActive', select('isActive', ['true', 'false'], String(agent.isActive)))}
     ${field('Agent Phone', 'agentPhone', `<input type="text" name="agentPhone" value="${escHtml(agent.agentPhone || '')}" />`)}
@@ -665,6 +720,7 @@ ${contentEngineCardHtml}
   <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">Imported rows land inert (AI disabled) in the Sheet -- enable them from the leads table before the agent will work them.</p>
   ${importErrorEmpty ? '<p class="err-banner">No CSV was provided.</p>' : ''}
   <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/import">
+    ${csrfField(req)}
     ${field('Choose a CSV file (optional)', 'csvFile', '<input type="file" id="csvFile" accept=".csv,.tsv,.txt" />')}
     ${field('CSV / TSV Paste', 'csvText', '<textarea name="csvText" rows="10" placeholder="Paste CSV or TSV here, or choose a file above"></textarea>')}
     <p id="importClientError" class="err-banner" style="display: none;"></p>
@@ -711,6 +767,7 @@ ${contentEngineCardHtml}
   <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">Removing this agent takes it off the dashboard and stops processing. The Google Sheet and Google authorization for this agent are left intact.</p>
   ${deleteError ? '<p class="err" style="margin-bottom: 16px;">Agent ID did not match. Nothing was removed.</p>' : ''}
   <form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/delete">
+    ${csrfField(req)}
     ${field('Type the agent ID to confirm', 'confirmId', `<input type="text" name="confirmId" placeholder="${escHtml(agentId)}" autocomplete="off" />`)}
     <div class="form-actions">
       <button type="submit" class="btn btn-danger">Delete agent</button>
@@ -723,7 +780,7 @@ ${contentEngineCardHtml}
   }
 });
 
-router.post('/agent/:agentId/edit', (req, res) => {
+router.post('/agent/:agentId/edit', verifyCsrfToken, (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
@@ -870,7 +927,7 @@ async function extractVoiceConfig(agentId, body, opts = {}) {
 
 // ---- Content Engine provisioning and config ----
 
-router.post('/agent/:agentId/content/provision', async (req, res) => {
+router.post('/agent/:agentId/content/provision', verifyCsrfToken, async (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
@@ -892,7 +949,7 @@ router.post('/agent/:agentId/content/provision', async (req, res) => {
   }
 });
 
-router.post('/agent/:agentId/content/save', (req, res) => {
+router.post('/agent/:agentId/content/save', verifyCsrfToken, (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
@@ -914,7 +971,7 @@ router.post('/agent/:agentId/content/save', (req, res) => {
   }
 });
 
-router.post('/agent/:agentId/content/voice', async (req, res) => {
+router.post('/agent/:agentId/content/voice', verifyCsrfToken, async (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
@@ -938,7 +995,7 @@ router.post('/agent/:agentId/content/voice', async (req, res) => {
 
 // ---- Delete agent (soft) ----
 
-router.post('/agent/:agentId/delete', (req, res) => {
+router.post('/agent/:agentId/delete', verifyCsrfToken, (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
@@ -999,7 +1056,7 @@ ${manualHtml}
 
 // ---- Import leads ----
 
-router.post('/agent/:agentId/import', async (req, res) => {
+router.post('/agent/:agentId/import', verifyCsrfToken, async (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
@@ -1128,16 +1185,17 @@ router.get('/agent/:agentId/leads', async (req, res) => {
   <td>${escHtml(row.name || '')}</td>
   <td>${escHtml(row.leadId || '')}</td>
   <td><span class="status-badge status-badge--${sc}">${escHtml(row.status || '')}</span></td>
-  <td>${aiOn ? 'Yes' : 'No'}<form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-ai" class="inline-form"><button type="submit">[toggle]</button></form></td>
+  <td>${aiOn ? 'Yes' : 'No'}<form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-ai" class="inline-form">${csrfField(req)}<button type="submit">[toggle]</button></form></td>
   <td>${escHtml(row.source || '')}</td>
   <td>${escHtml(String(row.followUpCount || ''))}</td>
   <td>${escHtml(lastAction)}</td>
-  <td><form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-soi" class="inline-form"><button type="submit">${isSoi ? '[unmark SOI]' : '[mark SOI]'}</button></form></td>
+  <td><form method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/${row.rowIndex}/toggle-soi" class="inline-form">${csrfField(req)}<button type="submit">${isSoi ? '[unmark SOI]' : '[mark SOI]'}</button></form></td>
 </tr>`;
     }).join('');
 
     const bulkEnableHtml = anyEligible
       ? `<form id="bulkEnableForm" method="POST" action="/dashboard/agent/${encodeURIComponent(agentId)}/leads/enable">
+  ${csrfField(req)}
   ${enableError ? '<p class="err-banner">No leads were selected.</p>' : ''}
   <div class="form-actions">
     <button type="submit" class="btn">Enable selected</button>
@@ -1178,7 +1236,7 @@ ${bulkEnableHtml}`));
 
 // ---- Toggle AI ----
 
-router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', async (req, res) => {
+router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', verifyCsrfToken, async (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId, rowIndex } = req.params;
@@ -1203,7 +1261,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', async (req, res) => {
 
 // ---- Toggle SOI ----
 
-router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
+router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', verifyCsrfToken, async (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId, rowIndex } = req.params;
@@ -1228,7 +1286,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', async (req, res) => {
 
 // ---- Bulk enable ----
 
-router.post('/agent/:agentId/leads/enable', async (req, res) => {
+router.post('/agent/:agentId/leads/enable', verifyCsrfToken, async (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;

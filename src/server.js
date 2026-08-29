@@ -54,6 +54,16 @@ app.use(session({
   cookie: {
     secure: 'auto', // requires trust proxy above; true when HTTPS is detected via req.secure, false for local http dev
     httpOnly: true,
+    // 'lax', not 'strict': the OAuth callback (onboard.js) depends on the
+    // session cookie being sent when Google redirects the browser back to
+    // /onboard/oauth/callback via a top-level GET navigation from
+    // accounts.google.com. That's a cross-site top-level navigation, which
+    // 'strict' drops the cookie on entirely - it would silently break the
+    // OAuth state-nonce check (commit 86431e8) since req.session.oauthState
+    // would never be readable on the return trip. 'lax' still sends the
+    // cookie on that navigation while blocking it on cross-site POST, which
+    // is what actually matters for the dashboard's CSRF-protected forms.
+    sameSite: 'lax',
     maxAge: 1000 * 60 * 60 * 12, // 12 hours
   },
 }));
