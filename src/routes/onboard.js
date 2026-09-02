@@ -27,7 +27,7 @@ const COLUMN_HEADERS = [
 ];
 
 function writeAgentAtomic(agentId, config) {
-  const tmpPath = path.join(getAgentsDir(), `${agentId}.tmp.json`);
+  const tmpPath = path.join(getAgentsDir(), `${agentId}.json.tmp`);
   const finalPath = path.join(getAgentsDir(), `${agentId}.json`);
   fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n');
   fs.renameSync(tmpPath, finalPath);

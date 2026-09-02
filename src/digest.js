@@ -551,6 +551,54 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
  * @param {object[]} agentConfigs
  * @returns {Promise<{emailSent: boolean, sections: object}>}
  */
+// Discovers agent ids in the agents/ directory and splits them into "every
+// id discovered" and "just the active ones". Both are needed by
+// runWeeklyDigestForOperator: activeAgents drives the main digest content,
+// allAgentIds is scanned again further down for recently-deactivated agents
+// (an agent that just flipped isActive: false is, by definition, excluded
+// from activeAgents but is exactly what that section wants to find).
+//
+// Mirrors discoverAgentIds in src/index.js; not imported to avoid circular
+// -- index.js requires this module (src/digest.js), so a require of
+// ./index from here would see index.js's module.exports before it finishes
+// evaluating. Anchored, not a loose endsWith('.json'): a loose filter
+// accepts agents/<id>.contentProfile.json, <id>.contentState.json and
+// <id>.state.json (real files, confirmed present in agents/ today) as well
+// as any orphaned <id>.json.tmp or legacy <id>.tmp.json left by a writer
+// that crashed between its writeFileSync and renameSync -- none of those
+// are agents, and the orphaned ones carry a live copy of
+// googleRefreshToken. This is now the THIRD independent copy of this exact
+// filter (src/index.js, src/routes/dashboard.js, here); the right
+// long-term fix is extracting it to a shared leaf module all three can
+// import without a cycle, not done in this commit.
+const DIGEST_AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
+const DIGEST_AGENT_BLOCKLIST = new Set(['example.json', '.gitkeep']);
+
+function discoverAgentConfigs(operatorId) {
+  const agentsDir = getStorageRoot();
+  let allAgentIds = [];
+  if (fs.existsSync(agentsDir)) {
+    allAgentIds = fs.readdirSync(agentsDir)
+      .filter(f => DIGEST_AGENT_ID_REGEX.test(f) && !DIGEST_AGENT_BLOCKLIST.has(f))
+      .map(f => f.replace(/\.json$/, ''))
+      .sort();
+  }
+
+  const activeAgents = [];
+  for (const agentId of allAgentIds) {
+    let cfg;
+    try {
+      cfg = loadAgent(agentId);
+    } catch (err) {
+      console.warn(`[operator:${operatorId}] skipping ${agentId}: ${err.message}`);
+      continue;
+    }
+    if (cfg.isActive !== true) continue;
+    activeAgents.push(cfg);
+  }
+  return { allAgentIds, activeAgents };
+}
+
 async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
   const dryRun = options.dryRun === true;
   const _pollFn = (typeof options.pollFn === 'function') ? options.pollFn : pollSentFolderForDraftResolution;
@@ -561,30 +609,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
   const startIso = new Date(endMs - MS_7D).toISOString();
   const startMs  = new Date(startIso).getTime();
 
-  // Discover all agent IDs (mirrors discoverAgentIds in src/index.js; not imported to avoid circular)
-  const AGENT_BLOCKLIST = new Set(['example.json', '.gitkeep']);
-  const agentsDir = getStorageRoot();
-  let allAgentIds = [];
-  if (fs.existsSync(agentsDir)) {
-    allAgentIds = fs.readdirSync(agentsDir)
-      .filter(f => f.endsWith('.json') && !AGENT_BLOCKLIST.has(f))
-      .map(f => f.replace(/\.json$/, ''))
-      .sort();
-  }
-
-  // Load active agents
-  const activeAgents = [];
-  for (const agentId of allAgentIds) {
-    let cfg;
-    try {
-      cfg = loadAgent(agentId);
-    } catch (err) {
-      console.warn(`[operator:${operatorConfig.operatorId}] skipping ${agentId}: ${err.message}`);
-      continue;
-    }
-    if (cfg.isActive !== true) continue;
-    activeAgents.push(cfg);
-  }
+  const { allAgentIds, activeAgents } = discoverAgentConfigs(operatorConfig.operatorId);
 
   // Gather window data for each active agent
   const gatheredByAgent = {};
@@ -1921,5 +1946,7 @@ module.exports = {
     parseShadowDraftBody,
     computeJaccardOverlap,
     STYLE_TOKENS,
+    discoverAgentConfigs,
+    DIGEST_AGENT_ID_REGEX,
   },
 };

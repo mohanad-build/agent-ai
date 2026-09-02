@@ -236,7 +236,7 @@ describe('patchAgent', () => {
   // the ACTUAL path patchAgent wrote to, and runs the ACTUAL AGENT_ID_REGEX
   // exported by both discoverAgentIds implementations against it, so the
   // test stays meaningful if either side is ever renamed independently.
-  test('the temp file it writes cannot be discovered as an agent by either discoverAgentIds implementation', () => {
+  test('the temp file it writes cannot be discovered as an agent by any of the three discovery filters', () => {
     writeConfig('agent-a', { agentId: 'agent-a', isActive: true });
 
     const writeSpy = jest.spyOn(fs, 'writeFileSync');
@@ -253,9 +253,11 @@ describe('patchAgent', () => {
 
     const { AGENT_ID_REGEX: indexRegex } = require('../src/index');
     const { AGENT_ID_REGEX: dashboardRegex } = require('../src/routes/dashboard');
+    const { DIGEST_AGENT_ID_REGEX: digestRegex } = require('../src/digest')._internal;
 
     expect(indexRegex.test(tmpBasename)).toBe(false);
     expect(dashboardRegex.test(tmpBasename)).toBe(false);
+    expect(digestRegex.test(tmpBasename)).toBe(false);
   });
 
   test('returns the full merged object, not just the patch', () => {

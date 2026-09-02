@@ -18,7 +18,7 @@ const { encryptToken, ENC_PREFIX } = require('./tokenCrypto');
 // Same tmp-file-then-rename shape as onboard.js's writeAgentAtomic, just
 // parameterized by directory so this can point at a scratch copy in tests.
 function writeAgentAtomic(agentId, config, agentsDir) {
-  const tmpPath = path.join(agentsDir, `${agentId}.tmp.json`);
+  const tmpPath = path.join(agentsDir, `${agentId}.json.tmp`);
   const finalPath = path.join(agentsDir, `${agentId}.json`);
   fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n');
   fs.renameSync(tmpPath, finalPath);
