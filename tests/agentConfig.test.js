@@ -10,6 +10,7 @@ const {
   isLeadCategoryActionable,
   getFollowUpCadence,
   isInboxCleaningEnabled,
+  patchAgent,
 } = require('../src/agentConfig');
 
 let tmpDir;
@@ -163,5 +164,124 @@ describe('isInboxCleaningEnabled', () => {
 
   test('field entirely absent from agentConfig → false', () => {
     expect(isInboxCleaningEnabled({ agentId: 'x' })).toBe(false);
+  });
+});
+
+// ── patchAgent ────────────────────────────────────────────────────────────────
+
+describe('patchAgent', () => {
+  function writeConfig(agentId, cfg) {
+    fs.writeFileSync(path.join(tmpDir, `${agentId}.json`), JSON.stringify(cfg));
+  }
+
+  function readConfig(agentId) {
+    return JSON.parse(fs.readFileSync(path.join(tmpDir, `${agentId}.json`), 'utf8'));
+  }
+
+  test('merges the patch onto the existing file and persists it', () => {
+    writeConfig('agent-a', { agentId: 'agent-a', isActive: true, tone: 'friendly' });
+
+    const result = patchAgent('agent-a', { isActive: false });
+
+    expect(result).toEqual({ agentId: 'agent-a', isActive: false, tone: 'friendly' });
+    expect(readConfig('agent-a')).toEqual({ agentId: 'agent-a', isActive: false, tone: 'friendly' });
+  });
+
+  // This is the assertion that actually protects the token: googleRefreshToken
+  // is AES-256-GCM ciphertext (since f92a834) that exists nowhere else, and a
+  // writer that only wrote the patched key instead of the whole merged object
+  // would silently destroy it on every unrelated patch (e.g. handleAuthFailure
+  // flipping isActive). Same reasoning for googleSheetId: losing it breaks the
+  // agent's Sheet link with no separate copy to recover from.
+  test('a patch to one field does not drop googleRefreshToken or googleSheetId', () => {
+    writeConfig('agent-a', {
+      agentId: 'agent-a',
+      isActive: true,
+      googleRefreshToken: 'enc:v1:deadbeef',
+      googleSheetId: 'sheet-123',
+    });
+
+    patchAgent('agent-a', { isActive: false });
+
+    const onDisk = readConfig('agent-a');
+    expect(onDisk.googleRefreshToken).toBe('enc:v1:deadbeef');
+    expect(onDisk.googleSheetId).toBe('sheet-123');
+    expect(onDisk.isActive).toBe(false);
+  });
+
+  test('writes via a temp file and renames into place, never writing the real path directly', () => {
+    writeConfig('agent-a', { agentId: 'agent-a', isActive: true });
+    const realPath = path.join(tmpDir, 'agent-a.json');
+    const tmpPath = path.join(tmpDir, 'agent-a.json.tmp');
+
+    const writeSpy = jest.spyOn(fs, 'writeFileSync');
+    const renameSpy = jest.spyOn(fs, 'renameSync');
+    try {
+      patchAgent('agent-a', { isActive: false });
+
+      expect(writeSpy).toHaveBeenCalledWith(tmpPath, expect.any(String), 'utf8');
+      expect(writeSpy).not.toHaveBeenCalledWith(realPath, expect.anything(), expect.anything());
+      expect(renameSpy).toHaveBeenCalledWith(tmpPath, realPath);
+    } finally {
+      writeSpy.mockRestore();
+      renameSpy.mockRestore();
+    }
+  });
+
+  // A crash between the writeFileSync and the renameSync above leaves this
+  // temp file sitting on disk. If its name satisfied discoverAgentIds' own
+  // filter, the next boot would pick it up as a phantom agent carrying a
+  // live copy of googleRefreshToken (this project's session-39 phantom-agent
+  // bug). This does not hardcode the temp filename or the regex: it captures
+  // the ACTUAL path patchAgent wrote to, and runs the ACTUAL AGENT_ID_REGEX
+  // exported by both discoverAgentIds implementations against it, so the
+  // test stays meaningful if either side is ever renamed independently.
+  test('the temp file it writes cannot be discovered as an agent by either discoverAgentIds implementation', () => {
+    writeConfig('agent-a', { agentId: 'agent-a', isActive: true });
+
+    const writeSpy = jest.spyOn(fs, 'writeFileSync');
+    let tmpBasename;
+    try {
+      patchAgent('agent-a', { isActive: false });
+      const realPath = path.join(tmpDir, 'agent-a.json');
+      const tmpCall = writeSpy.mock.calls.find((call) => call[0] !== realPath);
+      expect(tmpCall).toBeDefined();
+      tmpBasename = path.basename(tmpCall[0]);
+    } finally {
+      writeSpy.mockRestore();
+    }
+
+    const { AGENT_ID_REGEX: indexRegex } = require('../src/index');
+    const { AGENT_ID_REGEX: dashboardRegex } = require('../src/routes/dashboard');
+
+    expect(indexRegex.test(tmpBasename)).toBe(false);
+    expect(dashboardRegex.test(tmpBasename)).toBe(false);
+  });
+
+  test('returns the full merged object, not just the patch', () => {
+    writeConfig('agent-a', { agentId: 'agent-a', isActive: true, tone: 'friendly' });
+
+    const result = patchAgent('agent-a', { isActive: false });
+
+    expect(Object.keys(result).sort()).toEqual(['agentId', 'isActive', 'tone']);
+  });
+
+  test('throws a clear error when the agent config does not exist', () => {
+    expect(() => patchAgent('missing-agent', { isActive: false })).toThrow('patchAgent: agent config not found');
+  });
+
+  test('throws on a missing agentId', () => {
+    expect(() => patchAgent(undefined, { isActive: false })).toThrow('patchAgent');
+  });
+
+  test('throws on an empty agentId', () => {
+    expect(() => patchAgent('', { isActive: false })).toThrow('patchAgent');
+  });
+
+  test('throws when patch is not a plain object', () => {
+    writeConfig('agent-a', { agentId: 'agent-a' });
+    expect(() => patchAgent('agent-a', null)).toThrow('patchAgent: patch must be a plain object');
+    expect(() => patchAgent('agent-a', 'isActive')).toThrow('patchAgent: patch must be a plain object');
+    expect(() => patchAgent('agent-a', ['isActive'])).toThrow('patchAgent: patch must be a plain object');
   });
 });

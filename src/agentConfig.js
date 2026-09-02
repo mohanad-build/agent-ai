@@ -79,4 +79,50 @@ function isInboxCleaningEnabled(agentConfig) {
   return false;
 }
 
-module.exports = { loadAgent, findAgentByPhone, isLeadCategoryActionable, getFollowUpCadence, isInboxCleaningEnabled };
+// The one canonical writer for agents/<id>.json. Every other write to this
+// file (routes/onboard.js, routes/dashboard.js, tokenMigration.js) is still
+// its own inline tmp-file-then-rename implementation; this function does
+// not replace those yet, only handleAuthFailure (src/gmail.js) calls it so
+// far.
+//
+// Read-patch-write, not "caller reads, mutates, and hands back a full
+// object": `patch` is merged onto whatever is currently on disk, so a
+// caller that only knows about one field (handleAuthFailure only knows
+// isActive) cannot accidentally drop every other field on the file --
+// including googleRefreshToken, which since f92a834 is AES-256-GCM
+// ciphertext that exists nowhere else. Losing it here is a full
+// re-authorization for that agent, not a retry.
+//
+// Synchronous throughout, no await between the read and the write: same
+// tmp-file-then-renameSync shape the other three writers already use, so a
+// crash mid-write leaves the original file untouched instead of truncated.
+function patchAgent(agentId, patch) {
+  if (typeof agentId !== 'string' || agentId.trim() === '') {
+    throw new Error('patchAgent: agentId must be a non-empty string');
+  }
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error('patchAgent: patch must be a plain object');
+  }
+
+  const filePath = path.join(getStorageRoot(), `${agentId}.json`);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`patchAgent: agent config not found: ${agentId} (looked for ${filePath})`);
+  }
+
+  const current = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const next = { ...current, ...patch };
+
+  // .json.tmp, not .tmp.json: a crash between writeFileSync and renameSync
+  // leaves this file on disk, and .tmp.json would still end in .json --
+  // discoverAgentIds' own AGENT_ID_REGEX rejects it (confirmed empirically),
+  // but src/digest.js's separate, unanchored `f.endsWith('.json')` agent
+  // sweep does not, and would load it as a phantom agent carrying a live
+  // copy of googleRefreshToken. .json.tmp matches neither.
+  const tmpPath = path.join(getStorageRoot(), `${agentId}.json.tmp`);
+  fs.writeFileSync(tmpPath, JSON.stringify(next, null, 2) + '\n', 'utf8');
+  fs.renameSync(tmpPath, filePath);
+
+  return next;
+}
+
+module.exports = { loadAgent, findAgentByPhone, isLeadCategoryActionable, getFollowUpCadence, isInboxCleaningEnabled, patchAgent };

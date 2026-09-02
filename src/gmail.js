@@ -10,6 +10,7 @@ const { getNowIso } = require('./time');
 const { getStorageRoot } = require('./storagePaths');
 const { parseRecipientList } = require('./recipientParsing');
 const { decryptToken } = require('./tokenCrypto');
+const { patchAgent } = require('./agentConfig');
 
 // Module state
 const oauthClientCache = new Map();
@@ -82,11 +83,8 @@ function sheetAccessStatus(err) {
 }
 
 function handleAuthFailure(agentConfig, originalError) {
-  const configPath = path.join(getStorageRoot(), `${agentConfig.agentId}.json`);
   try {
-    const current = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    current.isActive = false;
-    fs.writeFileSync(configPath, JSON.stringify(current, null, 2));
+    patchAgent(agentConfig.agentId, { isActive: false });
   } catch (writeErr) {
     console.error(`Failed to flip isActive=false for ${agentConfig.agentId}:`, writeErr.message);
   }
