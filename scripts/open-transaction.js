@@ -19,12 +19,27 @@
 // report the agent confirms with --listing-id is not. Do not make this
 // write listingId automatically under any condition.
 //
-// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>]
+// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder]
+//
+// After a successful create, this also ensures a Drive folder exists for the
+// transaction (TC_SPEC 10.1/10.2), creating the agent's app-owned parent
+// folder first if this is that agent's first transaction folder. Order is
+// always createTransaction first, then the folder: a folder created before a
+// failed transaction write would be an orphan in the agent's Drive with
+// nothing on disk pointing at it, the reverse of the failure mode this
+// ordering avoids. Folder creation is NON-FATAL and best-effort: a network or
+// auth failure prints a clear line and the command still exits 0, because a
+// deal must never fail to open over a Drive 500, and the drain pass creates
+// the folder lazily on first filing if this attempt never ran or failed.
+// --no-folder skips the attempt entirely, for running this command with no
+// network access at all.
 
 'use strict';
 
 const states = require('../src/transactions/states');
 const store = require('../src/transactions/store');
+const { loadAgent } = require('../src/agentConfig');
+const driveFolders = require('../src/driveFolders');
 
 function openTransaction(agentId, fields, opts = {}) {
   if (typeof agentId !== 'string' || agentId.trim() === '') {
@@ -75,6 +90,7 @@ if (require.main === module) {
   let listingIdFromFlag;
   let addressFromFlag;
   let unitFromFlag;
+  let noFolder = false;
   const positional = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--base-dir') {
@@ -89,13 +105,15 @@ if (require.main === module) {
     } else if (args[i] === '--unit') {
       unitFromFlag = args[i + 1];
       i++;
+    } else if (args[i] === '--no-folder') {
+      noFolder = true;
     } else {
       positional.push(args[i]);
     }
   }
   const [agentId, type, state] = positional;
 
-  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>]';
+  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder]';
 
   if (!agentId || !type || !state) {
     console.error(usage);
@@ -127,11 +145,36 @@ if (require.main === module) {
     process.exit(1);
   }
 
-  try {
-    const transaction = openTransaction(agentId, { type, state, address: addressFromFlag, listingId: listingIdFromFlag, unit: unitFromFlag }, { baseDir });
+  (async () => {
+    let transaction;
+    try {
+      transaction = openTransaction(agentId, { type, state, address: addressFromFlag, listingId: listingIdFromFlag, unit: unitFromFlag }, { baseDir });
+    } catch (err) {
+      console.error(err.message);
+      process.exit(1);
+      return;
+    }
+
     const filePath = store._internal.transactionPath(baseDir, agentId, transaction.transactionId);
     console.log(`Transaction created: ${transaction.transactionId}`);
     console.log(`File: ${filePath}`);
+
+    // Order is createTransaction (above, already done and written) THEN the
+    // folder, never the reverse -- see the file header. Best-effort and
+    // non-fatal: any failure here, Drive or otherwise (including this
+    // agent's config not being found under STORAGE_ROOT when --base-dir
+    // points somewhere else -- see driveFolders.js), is caught, reported,
+    // and left for the drain pass to retry lazily. It must never turn a
+    // successful transaction create into a nonzero exit.
+    if (!noFolder) {
+      try {
+        const agentConfig = loadAgent(agentId);
+        const folderId = await driveFolders.ensureTransactionFolder(agentConfig, transaction, { baseDir });
+        console.log(`Drive folder ready: ${folderId}`);
+      } catch (err) {
+        console.error(`open-transaction: could not create Drive folder, will be created on first filing: ${err.message}`);
+      }
+    }
 
     // Convenience only, and the transaction above is already written: a
     // failure here must not turn a successful create into a nonzero exit.
@@ -153,8 +196,5 @@ if (require.main === module) {
     }
 
     process.exit(0);
-  } catch (err) {
-    console.error(err.message);
-    process.exit(1);
-  }
+  })();
 }

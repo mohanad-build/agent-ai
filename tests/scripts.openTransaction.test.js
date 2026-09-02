@@ -127,7 +127,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
     try {
       execFileSync(
         'node',
-        [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--base-dir', baseDir],
+        [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--base-dir', baseDir, '--no-folder'],
         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
       );
     } catch (err) {
@@ -143,7 +143,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
   test('a full valid invocation with --unit succeeds and writes a file', () => {
     const stdout = execFileSync(
       'node',
-      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--unit', 'Basement', '--base-dir', baseDir],
+      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--unit', 'Basement', '--base-dir', baseDir, '--no-folder'],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
     );
 
@@ -159,7 +159,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
   test('the same invocation without --unit still succeeds', () => {
     const stdout = execFileSync(
       'node',
-      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir],
+      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir, '--no-folder'],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
     );
 
@@ -170,6 +170,53 @@ describe('CLI argument handling (spawned subprocess)', () => {
     const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
     expect(written.address).toBe('12 Main St');
     expect(written).not.toHaveProperty('unit');
+  });
+});
+
+describe('CLI: Drive folder creation is non-fatal', () => {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'open-transaction.js');
+
+  // No agents/<AGENT_ID>.json exists under this subprocess's STORAGE_ROOT
+  // (unset, so agentConfig.js falls back to process.cwd()), so loadAgent
+  // inside the folder-creation attempt throws naturally -- the same
+  // failure shape a real Drive 500 or an auth failure would produce from
+  // the CLI's point of view, since both are caught by the same non-fatal
+  // try/catch. This is the assertion that matters: a deal must never fail
+  // to open because Drive (or anything downstream of it) failed.
+  test('Drive/agent-config failure: transaction is still created, driveFolderId is absent, exit is success', () => {
+    const result = spawnSync(
+      'node',
+      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir],
+      { encoding: 'utf8' }
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Transaction created:');
+    expect(result.stderr).toContain('could not create Drive folder');
+
+    const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    expect(files).toHaveLength(1);
+    const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    expect('driveFolderId' in written).toBe(false); // absent, not null
+  });
+
+  test('--no-folder skips the attempt entirely: no success message, no failure message', () => {
+    const result = spawnSync(
+      'node',
+      [scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir, '--no-folder'],
+      { encoding: 'utf8' }
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Transaction created:');
+    expect(result.stdout).not.toContain('Drive folder ready');
+    expect(result.stderr).not.toContain('could not create Drive folder');
+
+    const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    expect('driveFolderId' in written).toBe(false);
   });
 });
 
@@ -186,8 +233,11 @@ describe('CLI: candidate listing report', () => {
     return createTransaction(AGENT_ID, fields, { baseDir, now: CLOCK });
   }
 
+  // --no-folder: none of the tests in this describe block are testing Drive
+  // folder behaviour, so none of them should depend on the folder-creation
+  // try/catch swallowing a loadAgent failure they never meant to trigger.
   function run(args) {
-    return execFileSync('node', [scriptPath, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    return execFileSync('node', [scriptPath, ...args, '--no-folder'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   }
 
   function extractCreatedId(stdout) {
@@ -278,7 +328,7 @@ describe('CLI: candidate listing report', () => {
 
     const result = spawnSync(
       'node',
-      [scriptPath, AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir],
+      [scriptPath, AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir, '--no-folder'],
       { encoding: 'utf8' }
     );
 
@@ -291,7 +341,7 @@ describe('CLI: candidate listing report', () => {
 
     const result = spawnSync(
       'node',
-      [scriptPath, AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir],
+      [scriptPath, AGENT_ID, 'seller_sale', 'conditional', '--address', '14 Bonacres Rd', '--base-dir', baseDir, '--no-folder'],
       { encoding: 'utf8' }
     );
 
