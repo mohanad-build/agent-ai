@@ -18,6 +18,7 @@ const prompts = require('./prompts');
 const agentState = require('./agentState');
 const { isInboxCleaningEnabled } = require('./agentConfig');
 const { getNowDate, getNowIso } = require('./time');
+const { matchAndFileAttachments } = require('./transactions/intake');
 
 const LEAD_INTAKE_MAX_PER_CYCLE = 20;
 const LABEL_PROCESSING = 'agent-ai/processing';
@@ -401,6 +402,28 @@ async function runLeadIntake(agentConfig) {
   } catch (err) {
     console.error('[' + agentId + '] Lead Intake: fetchUnreadInboxEmails failed: ' + err.message);
     throw err;
+  }
+
+  // TC orchestrator arrival pass (TC_SPEC 14 tier 2 item 5): match each
+  // attachment on every fetched message against this agent's transactions
+  // and record a filing for every match. Runs here, over the full fetched
+  // list, deliberately BEFORE the pre-filter/dedup loop and classification
+  // below: an executed APS from a lawyer classifies as
+  // business_correspondence, so a hook placed inside applyPreFilter's
+  // branches or downstream of the classifier would never see it. Running
+  // early costs a few sync matcher calls on messages that turn out to be
+  // noise; an unmatched attachment does nothing (matchAndFileAttachments),
+  // so that cost is the only price. Per-message try/catch so one malformed
+  // attachment can't abort intake for every other message this cycle.
+  for (const msg of messages) {
+    if (!msg.hasAttachments) continue;
+    try {
+      matchAndFileAttachments(agentConfig, msg, { at: getNowIso(), actor: 'system' });
+    } catch (err) {
+      console.error(
+        '[' + agentId + '] Lead Intake: TC attachment matching failed for ' + msg.messageId + ': ' + err.message
+      );
+    }
   }
 
   // Read Sheet once, before the pre-filter loop, so applyPreFilter can skip
