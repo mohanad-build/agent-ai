@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   recordDocumentSeen,
   recordDocumentFiled,
+  recordFilingAttemptFailure,
   abandonDocumentFiling,
   confirmFiling,
   rejectFiling,
@@ -52,6 +53,9 @@ function seeDocument(transactionId, opts = {}) {
     mimeType: 'application/pdf',
     size: 2048,
     threadId: THREAD_ID,
+    sender: 'Lawyer <lawyer@firm.com>',
+    receivedAt: '2026-07-16T09:00:00.000Z',
+    subject: 'Purchase Agreement',
     baseDir,
     now: LATER,
     ...opts,
@@ -83,6 +87,9 @@ describe('recordDocumentSeen', () => {
       mimeType: 'application/pdf',
       size: 2048,
       threadId: THREAD_ID,
+      sender: 'Lawyer <lawyer@firm.com>',
+      receivedAt: '2026-07-16T09:00:00.000Z',
+      subject: 'Purchase Agreement',
       status: 'seen',
       review: 'needs_review',
       seenAt: AT,
@@ -134,11 +141,56 @@ describe('recordDocumentSeen', () => {
     expect(second.filings[key].seenAt).toBe(AT);
   });
 
+  // THE CASE THAT ACTUALLY MATTERS: not the oversized-and-abandoned edge
+  // case, but the ORDINARY successful path. TC_SPEC 7.14's Pass 1 re-runs
+  // over the same message every cycle until it falls out of the fetch
+  // window (intake.js's header comment); once the drain pass successfully
+  // uploads a document, the very next cycle re-observes the same message
+  // and attachment, now sitting at 'filed'. This has to be a clean no-op
+  // exactly like re-seeing a still-'seen' record above, not a throw --
+  // recordDocumentSeen is a re-observation, not a transition, and applies
+  // at every status a filing can be in, not only 'seen'.
+  it('re-seeing an already-filed record is a clean no-op: no throw, no second event, every field on the record unchanged', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const filed = recordDocumentFiled(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', driveFileId: 'drive-xyz', contentHash: 'sha256:deadbeef', baseDir, now: EVEN_LATER,
+    });
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const recordBefore = filed.filings[key];
+
+    let result;
+    expect(() => {
+      result = seeDocument(created.transactionId, { at: '2026-07-18T10:00:00.000Z', filename: 'renamed.pdf', now: new Date('2026-07-18T10:00:00.000Z') });
+    }).not.toThrow();
+
+    expect(result.events).toHaveLength(filed.events.length);
+    expect(result.filings[key]).toEqual(recordBefore);
+  });
+
+  it('re-seeing an already-abandoned record is a clean no-op: no throw, no second event, every field on the record unchanged', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const abandoned = abandonDocumentFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'attachment fetch timed out', baseDir, now: EVEN_LATER,
+    });
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const recordBefore = abandoned.filings[key];
+
+    let result;
+    expect(() => {
+      result = seeDocument(created.transactionId, { at: '2026-07-18T10:00:00.000Z', filename: 'renamed.pdf', now: new Date('2026-07-18T10:00:00.000Z') });
+    }).not.toThrow();
+
+    expect(result.events).toHaveLength(abandoned.events.length);
+    expect(result.filings[key]).toEqual(recordBefore);
+  });
+
   it('two different attachments on the same message each get their own record', () => {
     const created = create();
     seeDocument(created.transactionId);
     const result = recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, 'att-other', {
-      at: AT2, actor: 'system', filename: 'disclosure.pdf', mimeType: 'application/pdf', size: 512, threadId: THREAD_ID, baseDir, now: EVEN_LATER,
+      at: AT2, actor: 'system', filename: 'disclosure.pdf', mimeType: 'application/pdf', size: 512, threadId: THREAD_ID, sender: '', receivedAt: '', subject: '', baseDir, now: EVEN_LATER,
     });
 
     expect(Object.keys(result.filings)).toHaveLength(2);
@@ -159,6 +211,25 @@ describe('recordDocumentSeen', () => {
     const created = create();
     expect(() => seeDocument(created.transactionId, { at: undefined }))
       .toThrow(/at must be a non-empty string/);
+  });
+
+  // Required-but-tolerant: sender, receivedAt and subject must be present
+  // as strings, but an empty string is a legitimate value (Gmail sent
+  // nothing in that header). Missing the key entirely is a different
+  // problem -- a caller that forgot to thread it through -- and must throw
+  // immediately rather than silently storing undefined.
+  it.each(['sender', 'receivedAt', 'subject'])('throws when %s is missing from opts entirely', (field) => {
+    const created = create();
+    expect(() => seeDocument(created.transactionId, { [field]: undefined }))
+      .toThrow(new RegExp(`${field} must be present in opts as a string`));
+  });
+
+  it.each(['sender', 'receivedAt', 'subject'])('accepts an empty string for %s', (field) => {
+    const created = create();
+    const result = seeDocument(created.transactionId, { [field]: '' });
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key][field]).toBe('');
   });
 });
 
@@ -188,6 +259,9 @@ describe('recordDocumentFiled', () => {
       mimeType: 'application/pdf',
       size: 2048,
       threadId: THREAD_ID,
+      sender: 'Lawyer <lawyer@firm.com>',
+      receivedAt: '2026-07-16T09:00:00.000Z',
+      subject: 'Purchase Agreement',
       status: 'filed',
       review: 'needs_review',
       seenAt: AT,
@@ -238,6 +312,119 @@ describe('recordDocumentFiled', () => {
   });
 });
 
+describe('recordFilingAttemptFailure', () => {
+  function fail(transactionId, opts = {}) {
+    return recordFilingAttemptFailure(AGENT_ID, transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2,
+      actor: 'system',
+      lastError: 'attachment fetch timed out',
+      baseDir,
+      now: EVEN_LATER,
+      ...opts,
+    });
+  }
+
+  it('increments attempts by 1 and sets lastError and lastAttemptAt, leaving status at seen', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = fail(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key]).toEqual({
+      messageId: MESSAGE_ID,
+      attachmentId: ATTACHMENT_ID,
+      filename: 'agreement.pdf',
+      mimeType: 'application/pdf',
+      size: 2048,
+      threadId: THREAD_ID,
+      sender: 'Lawyer <lawyer@firm.com>',
+      receivedAt: '2026-07-16T09:00:00.000Z',
+      subject: 'Purchase Agreement',
+      status: 'seen',
+      review: 'needs_review',
+      seenAt: AT,
+      attempts: 1,
+      lastError: 'attachment fetch timed out',
+      lastAttemptAt: AT2,
+    });
+  });
+
+  it('a second failure increments attempts to 2 and overwrites lastError and lastAttemptAt', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    fail(created.transactionId, { at: AT2, lastError: 'first failure' });
+    const result = fail(created.transactionId, { at: AT2, lastError: 'second failure' });
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key].attempts).toBe(2);
+    expect(result.filings[key].lastError).toBe('second failure');
+  });
+
+  // Break-the-fix instrument: if an event is ever added to this function,
+  // this must go red. Every OTHER writer in this file emits an event on a
+  // successful write; this one deliberately does not (TC_SPEC 7.7 -- a
+  // failed-then-retried fetch is machinery, not deal history), and that
+  // asymmetry is easy to "fix" by accident.
+  it('emits no event at all', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const beforeCount = readTransaction(AGENT_ID, created.transactionId, { baseDir }).events.length;
+
+    const result = fail(created.transactionId);
+
+    expect(result.events).toHaveLength(beforeCount);
+  });
+
+  it('does not change status', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const result = fail(created.transactionId);
+
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    expect(result.filings[key].status).toBe('seen');
+  });
+
+  it('throws when there is no filing record at all', () => {
+    const created = create();
+    expect(() => fail(created.transactionId))
+      .toThrow(/no filing record/);
+  });
+
+  it('throws recording an attempt against an already-filed record (terminal)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    recordDocumentFiled(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', driveFileId: 'drive-xyz', contentHash: 'sha256:deadbeef', baseDir, now: EVEN_LATER,
+    });
+    expect(() => fail(created.transactionId))
+      .toThrow(/is 'filed', not 'seen'/);
+  });
+
+  it('throws recording an attempt against an already-abandoned record (terminal)', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    abandonDocumentFiling(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'fetch failed', baseDir, now: EVEN_LATER,
+    });
+    expect(() => fail(created.transactionId))
+      .toThrow(/is 'abandoned', not 'seen'/);
+  });
+
+  it('throws when lastError is empty', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    expect(() => fail(created.transactionId, { lastError: '' }))
+      .toThrow(/lastError must be a non-empty string/);
+  });
+
+  it('throws when at is absent', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    expect(() => fail(created.transactionId, { at: undefined }))
+      .toThrow(/at must be a non-empty string/);
+  });
+});
+
 describe('abandonDocumentFiling', () => {
   function abandon(transactionId, opts = {}) {
     return abandonDocumentFiling(AGENT_ID, transactionId, MESSAGE_ID, ATTACHMENT_ID, {
@@ -250,9 +437,17 @@ describe('abandonDocumentFiling', () => {
     });
   }
 
-  it('transitions seen to abandoned and sets lastError', () => {
+  it('transitions seen to abandoned and sets lastError, carrying forward whatever attempts count already accrued', () => {
     const created = create();
     seeDocument(created.transactionId);
+    // Two real failed attempts before the drain pass gives up, so this
+    // pins a real accrued count, not the untouched-since-creation 0.
+    recordFilingAttemptFailure(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'fetch failed (attempt 1)', baseDir, now: EVEN_LATER,
+    });
+    recordFilingAttemptFailure(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'fetch failed (attempt 2)', baseDir, now: EVEN_LATER,
+    });
     const result = abandon(created.transactionId);
 
     const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
@@ -263,10 +458,14 @@ describe('abandonDocumentFiling', () => {
       mimeType: 'application/pdf',
       size: 2048,
       threadId: THREAD_ID,
+      sender: 'Lawyer <lawyer@firm.com>',
+      receivedAt: '2026-07-16T09:00:00.000Z',
+      subject: 'Purchase Agreement',
       status: 'abandoned',
       review: 'needs_review',
       seenAt: AT,
-      attempts: 0,
+      attempts: 2,
+      lastAttemptAt: AT2,
       lastError: 'attachment fetch timed out',
     });
   });
@@ -274,6 +473,12 @@ describe('abandonDocumentFiling', () => {
   it('emits a document_filing_abandoned event with the key, filename, attempts and lastError', () => {
     const created = create();
     seeDocument(created.transactionId);
+    recordFilingAttemptFailure(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'fetch failed (attempt 1)', baseDir, now: EVEN_LATER,
+    });
+    recordFilingAttemptFailure(AGENT_ID, created.transactionId, MESSAGE_ID, ATTACHMENT_ID, {
+      at: AT2, actor: 'system', lastError: 'fetch failed (attempt 2)', baseDir, now: EVEN_LATER,
+    });
     const result = abandon(created.transactionId);
 
     const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
@@ -282,7 +487,7 @@ describe('abandonDocumentFiling', () => {
     expect(event.payload).toEqual({
       key,
       filename: 'agreement.pdf',
-      attempts: 0,
+      attempts: 2,
       lastError: 'attachment fetch timed out',
     });
   });
@@ -457,6 +662,9 @@ describe('rejectFiling', () => {
       mimeType: 'application/pdf',
       size: 2048,
       threadId: THREAD_ID,
+      sender: 'Lawyer <lawyer@firm.com>',
+      receivedAt: '2026-07-16T09:00:00.000Z',
+      subject: 'Purchase Agreement',
       status: 'filed',
       review: 'rejected',
       seenAt: AT,
@@ -542,7 +750,7 @@ describe('hasConfirmedFilingOnThread', () => {
       at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
     });
     recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, 'att-second', {
-      at: AT, actor: 'system', filename: 'second.pdf', mimeType: 'application/pdf', size: 100, threadId: THREAD_ID, baseDir, now: LATER,
+      at: AT, actor: 'system', filename: 'second.pdf', mimeType: 'application/pdf', size: 100, threadId: THREAD_ID, sender: '', receivedAt: '', subject: '', baseDir, now: LATER,
     });
     confirmFiling(AGENT_ID, created.transactionId, MESSAGE_ID, 'att-second', {
       at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
@@ -586,7 +794,7 @@ describe('concurrent writes to one transaction', () => {
         setTimeout(() => {
           try {
             resolve(recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, attachmentId, {
-              at: AT, actor: 'system', filename, mimeType: 'application/pdf', size: 100, threadId: THREAD_ID, baseDir, now: LATER,
+              at: AT, actor: 'system', filename, mimeType: 'application/pdf', size: 100, threadId: THREAD_ID, sender: '', receivedAt: '', subject: '', baseDir, now: LATER,
             }));
           } catch (err) {
             reject(err);
@@ -617,7 +825,7 @@ describe('concurrent writes to one transaction', () => {
         setTimeout(() => {
           try {
             resolve(recordDocumentSeen(AGENT_ID, created.transactionId, MESSAGE_ID, attachmentId, {
-              at: AT, actor: 'system', filename: `${attachmentId}.pdf`, mimeType: 'application/pdf', size: 1, threadId: THREAD_ID, baseDir, now: LATER,
+              at: AT, actor: 'system', filename: `${attachmentId}.pdf`, mimeType: 'application/pdf', size: 1, threadId: THREAD_ID, sender: '', receivedAt: '', subject: '', baseDir, now: LATER,
             }));
           } catch (err) {
             reject(err);

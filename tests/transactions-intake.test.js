@@ -82,6 +82,7 @@ function message(overrides = {}) {
     subject: '',
     body: '',
     from: 'lawyer@firm.com',
+    receivedAt: '2026-07-16T08:00:00.000Z',
     to: [],
     cc: [],
     hasAttachments: true,
@@ -138,6 +139,9 @@ describe('matchAndFileAttachments', () => {
       mimeType: 'application/pdf',
       size: 37399,
       threadId: THREAD_ID,
+      sender: 'lawyer@firm.com',
+      receivedAt: '2026-07-16T08:00:00.000Z',
+      subject: '',
       status: 'seen',
       review: 'needs_review',
       seenAt: AT,
@@ -219,5 +223,100 @@ describe('matchAndFileAttachments', () => {
 
     expect(afterSecond.filings[key].seenAt).toBe(seenAtAfterFirst);
     expect(afterSecond.filings[key].seenAt).not.toBe(AT2);
+  });
+
+  // TC_SPEC 10.x hygiene guard: an attachment over Gmail's own ceiling never
+  // gets fetched. It still gets a filing record (deal history), immediately
+  // abandoned with a reason naming both numbers.
+  describe('the byte cap', () => {
+    const OVERSIZED = 26214401; // ATTACHMENT_BYTE_CAP + 1
+
+    it('records the filing, then abandons it immediately, for an attachment over the cap', () => {
+      const created = create(withConfirmedFiling());
+      const att = attachment({ size: OVERSIZED });
+      const msg = message({ attachmentInfo: [att] });
+
+      const results = matchAndFileAttachments(agentConfig(), msg, opts());
+
+      expect(results).toHaveLength(1);
+      expect(results[0].matched).toBe(true);
+
+      const key = filings.buildFilingKey(msg.messageId, att.attachmentId);
+      const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(reread.filings[key].status).toBe('abandoned');
+      expect(reread.filings[key].attempts).toBe(0); // honest: never attempted, only rejected on sight
+      expect(reread.filings[key].lastError).toBe('size 26214401 bytes exceeds cap 26214400 bytes');
+    });
+
+    it('does not abandon an attachment exactly at the cap', () => {
+      const created = create(withConfirmedFiling());
+      const att = attachment({ size: 26214400 });
+      const msg = message({ attachmentInfo: [att] });
+
+      matchAndFileAttachments(agentConfig(), msg, opts());
+
+      const key = filings.buildFilingKey(msg.messageId, att.attachmentId);
+      const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(reread.filings[key].status).toBe('seen');
+    });
+
+    // THE RE-ENTRANCY TRAP: recordDocumentSeen throws attempting to re-seen
+    // any terminal filing, not just an abandoned one, and abandonDocumentFiling
+    // is itself one-directional too. Without checking the filing's current
+    // status before ever calling recordDocumentSeen, this exact sequence
+    // (an oversized attachment on a message that stays unread, re-entering
+    // Pass 1 on the next cycle) would throw every cycle, silently, forever,
+    // since leadIntake.js swallows this call in a try/catch and only logs.
+    // This is the whole point of that paragraph: assert the SECOND run is a
+    // clean no-op, not merely that it doesn't crash the test process.
+    it('running Pass 1 twice over the same oversized attachment is a clean no-op on the second run', () => {
+      const created = create(withConfirmedFiling());
+      const att = attachment({ size: OVERSIZED });
+      const msg = message({ attachmentInfo: [att] });
+      const key = filings.buildFilingKey(msg.messageId, att.attachmentId);
+
+      matchAndFileAttachments(agentConfig(), msg, opts());
+      const afterFirst = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(afterFirst.filings[key].status).toBe('abandoned');
+
+      expect(() => {
+        matchAndFileAttachments(agentConfig(), msg, opts({ at: AT2, now: new Date(AT2) }));
+      }).not.toThrow();
+
+      const afterSecond = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(afterSecond.filings[key].status).toBe('abandoned');
+      expect(afterSecond.filings[key].lastError).toBe('size 26214401 bytes exceeds cap 26214400 bytes');
+      // No second document_filing_abandoned event: the second run never
+      // reaches the cap check at all, since the terminal-status guard skips
+      // straight past recordDocumentSeen.
+      const abandonEvents = afterSecond.events.filter((e) => e.kind === 'document_filing_abandoned');
+      expect(abandonEvents).toHaveLength(1);
+    });
+  });
+
+  // This is the SAME re-entrancy trap as the oversized-cap case above, but
+  // triggered by the ordinary successful path instead: once the drain pass
+  // (src/drain.js) transitions a filing to 'filed', a message that is still
+  // unread keeps re-entering this function every cycle (this function's own
+  // header comment documents that re-entrancy as deliberate). Without the
+  // status guard, recordDocumentSeen would throw on that re-entry exactly
+  // as it would for an abandoned one.
+  it('re-entrant re-processing of an already-filed filing is a clean no-op, not a throw', () => {
+    const created = create(withConfirmedFiling());
+    const msg = message();
+    const key = filings._internal.buildFilingKey(msg.messageId, msg.attachmentInfo[0].attachmentId);
+
+    matchAndFileAttachments(agentConfig(), msg, opts());
+    filings.recordDocumentFiled(AGENT_ID, created.transactionId, msg.messageId, msg.attachmentInfo[0].attachmentId, {
+      at: AT2, actor: 'system', driveFileId: 'drive-xyz', contentHash: 'sha256:deadbeef', baseDir, now: new Date(AT2),
+    });
+
+    expect(() => {
+      matchAndFileAttachments(agentConfig(), msg, opts({ at: AT2, now: new Date(AT2) }));
+    }).not.toThrow();
+
+    const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(reread.filings[key].status).toBe('filed');
+    expect(reread.filings[key].driveFileId).toBe('drive-xyz');
   });
 });

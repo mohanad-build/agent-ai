@@ -31,6 +31,12 @@ function assertNonEmptyString(fnName, name, value) {
   }
 }
 
+// 25MB, Gmail's own attachment ceiling: nothing Gmail hands us should ever
+// report a larger size, so this never fires in normal operation. It is a
+// hygiene guard against a malformed or hostile size value, not a memory
+// limit -- Railway's headroom here is roughly 7.8GB.
+const ATTACHMENT_BYTE_CAP = 26214400;
+
 // -- matchAndFileAttachments ----------------------------------------------------
 
 // Reads the agent's transactions ONCE, right here, and reuses that array for
@@ -54,10 +60,12 @@ function assertNonEmptyString(fnName, name, value) {
 //
 // Re-entrant by design: this message will be seen again on every
 // orchestrator cycle until it falls out of the caller's fetch window.
-// recordDocumentSeen is documented as an idempotent no-op on an
-// already-'seen' filing (no second event, no field reset), which is why
-// nothing here tracks "have I already looked at this message" itself -- the
-// filing record already is that guard, independent of any Gmail label.
+// recordDocumentSeen is documented as an idempotent no-op on an existing
+// filing AT ANY STATUS (no second event, no field reset, whether the filing
+// is still 'seen' or has since moved to 'filed' or 'abandoned' by the drain
+// pass), which is why nothing here tracks "have I already looked at this
+// message" itself -- the filing record already is that guard, independent
+// of any Gmail label.
 function matchAndFileAttachments(agentConfig, message, opts = {}) {
   const { at, actor, baseDir, now } = opts;
 
@@ -101,13 +109,54 @@ function matchAndFileAttachments(agentConfig, message, opts = {}) {
         mimeType: attachment.mimeType,
         size: attachment.size,
         threadId: message.threadId,
+        sender: message.from,
+        // parseGmailMessage (gmail.js) uses null, not '', when Gmail's
+        // internalDate is absent; recordDocumentSeen's required-but-tolerant
+        // sender/receivedAt/subject fields are typed as strings, so that
+        // sentinel is translated to '' at this boundary.
+        receivedAt: message.receivedAt || '',
+        subject: message.subject,
         baseDir,
         now,
       }
     );
 
+    // TC_SPEC 10.x hygiene guard: an attachment over Gmail's own ceiling is
+    // never fetched -- the record above is written first (it is deal
+    // history: the document arrived, whether or not it can ever reach
+    // Drive), then abandoned immediately with a reason naming both numbers.
+    // attempts stays 0, which is honest: nothing was ever attempted, only
+    // rejected on sight.
+    //
+    // The status check below is still needed even though recordDocumentSeen
+    // itself is now re-entry-safe at every status: abandonDocumentFiling is
+    // a TRANSITION, not a re-observation, and still throws leaving a
+    // terminal filing. On a re-entrant cycle over the same oversized
+    // attachment, recordDocumentSeen just returned the existing record
+    // unchanged (already 'abandoned' from the first cycle that saw it), and
+    // calling abandonDocumentFiling again on it would hit that throw. Only
+    // abandon a record that recordDocumentSeen just now confirmed is still
+    // 'seen'.
+    const key = filings.buildFilingKey(message.messageId, attachment.attachmentId);
+    if (attachment.size > ATTACHMENT_BYTE_CAP && transaction.filings[key].status === 'seen') {
+      const abandoned = filings.abandonDocumentFiling(
+        agentId,
+        matchResult.transactionId,
+        message.messageId,
+        attachment.attachmentId,
+        {
+          at,
+          actor,
+          lastError: `size ${attachment.size} bytes exceeds cap ${ATTACHMENT_BYTE_CAP} bytes`,
+          baseDir,
+          now,
+        }
+      );
+      return { attachment, matched: true, transactionId: matchResult.transactionId, transaction: abandoned };
+    }
+
     return { attachment, matched: true, transactionId: matchResult.transactionId, transaction };
   });
 }
 
-module.exports = { matchAndFileAttachments };
+module.exports = { matchAndFileAttachments, ATTACHMENT_BYTE_CAP };

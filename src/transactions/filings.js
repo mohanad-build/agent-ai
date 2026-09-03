@@ -2,9 +2,9 @@
 
 // The record for an attachment on its way from an inbox to Drive. Stored
 // `filings` is a map, the same shape as `facts` and `items`: { [filingKey]:
-// { messageId, attachmentId, filename, mimeType, size, threadId, status,
-// review, seenAt, attempts, lastError?, lastAttemptAt?, contentHash?,
-// driveFileId? } }.
+// { messageId, attachmentId, filename, mimeType, size, threadId, sender,
+// receivedAt, subject, status, review, seenAt, attempts, lastError?,
+// lastAttemptAt?, contentHash?, driveFileId? } }.
 //
 // Key: `${messageId.length}:${messageId}:${attachmentId}`. A plain
 // `${messageId}:${attachmentId}` join is not safe: Gmail does not document
@@ -17,9 +17,9 @@
 //
 // attempts, lastError, lastAttemptAt, contentHash and driveFileId are part
 // of the shape from the first commit even though nothing in this module
-// populates lastError, lastAttemptAt or contentHash beyond what is
-// documented below. Retrofitting fields onto a persisted compliance record
-// later is worse than shipping them unused now.
+// populates lastError or contentHash beyond what is documented below.
+// Retrofitting fields onto a persisted compliance record later is worse
+// than shipping them unused now.
 //
 // Absent, never null, for every field that has no value yet: this follows
 // listingId and unit in store.js. `review` is the deliberate exception: it
@@ -30,6 +30,28 @@
 // `threadId` is stored so signal D ("has this thread been filed against
 // this transaction") can be answered; this commit only stores the field,
 // it does not add a reader for it.
+//
+// sender and subject are the raw, verbatim `From` and `Subject` headers,
+// stored exactly as Gmail returned them: no parsing, no trimming, no
+// lowercasing. This record is a compliance artifact and the verbatim-storage
+// rule for stored addresses (6762e9c) applies here too; anything that needs
+// a parsed sender (a filename, say) parses at read time, not at storage
+// time. Both are required-but-tolerant: the caller must pass the key so a
+// caller that forgot to thread it through fails immediately, but an empty
+// string is a legitimate value meaning the header carried nothing. A
+// missing key and an absent header are different problems and must not
+// produce the same symptom.
+//
+// receivedAt exists alongside seenAt because they answer different
+// questions: seenAt is when THIS SYSTEM saw the message; receivedAt is when
+// the message arrived in the agent's inbox, taken from Gmail's own
+// internalDate. TC_SPEC 7.14 guarantees these diverge -- a document that
+// arrives before its transaction is even opened still gets filed on a later
+// cycle, anywhere inside the matching window, so seenAt can trail
+// receivedAt by days. Anything derived from "when was this received" (a
+// Drive filename, for instance) has to use receivedAt: building it from
+// seenAt instead would be silently wrong by however long the document
+// waited, and would look completely correct.
 
 const store = require('./store');
 const events = require('./events');
@@ -56,6 +78,19 @@ function assertNonEmptyString(fnName, name, value) {
   }
 }
 
+// REQUIRED-BUT-TOLERANT: the key must be present in opts, but an empty
+// string is an accepted value. That separates "a developer forgot to wire
+// this through" (missing key, throws immediately) from "Gmail had nothing
+// in this header" (empty string, a legitimate stored value) -- different
+// problems that must not produce the same symptom. Checking the destructured
+// value's type is enough to catch a missing key too: an omitted opts key
+// destructures to undefined, which is not a string.
+function assertPresentString(fnName, name, value) {
+  if (typeof value !== 'string') {
+    throw new Error(`${fnName}: ${name} must be present in opts as a string (empty string allowed, a missing key is not)`);
+  }
+}
+
 function readExisting(fnName, agentId, transactionId, baseDir) {
   const previous = store.readTransaction(agentId, transactionId, { baseDir });
   if (previous === null) {
@@ -66,15 +101,30 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
 
 // -- recordDocumentSeen ---------------------------------------------------------
 
-// Idempotent on an already-seen record: returns the transaction unchanged,
-// with no second event and no field reset. This is a true no-op, not a
-// rewrite of identical bytes: readers relying on updatedAt to mean "this
-// file changed" would be misled by a write that changes nothing meaningful.
-// Re-seeing a record that has moved on to filed or abandoned is refused:
-// that would be a transition out of a terminal status through the back
-// door of the seen writer.
+// Idempotent on ANY existing record, at ANY status, not only one still at
+// 'seen': this is a RE-OBSERVATION, not a transition, and re-observing
+// something already recorded changes nothing about what was observed, no
+// matter what has happened to it since. No second event, no field reset, at
+// any status. TC_SPEC 7.14's re-entrancy design is a property of the RECORD,
+// not of any one caller's discipline: a guard living in a caller (intake.js,
+// or 7.5's future completion detector) is a rule the NEXT caller has to
+// remember to also implement, forever; a guard here is automatic for every
+// caller, including ones that don't exist yet. This is the same reasoning
+// that put the two-pass split on the sync/async seam rather than inside a
+// single module.
+//
+// This is deliberately NOT the same rule TC_SPEC 7.7 enforces on
+// recordDocumentFiled and abandonDocumentFiling, which DO throw re-entering
+// a terminal filing, and that difference is the load-bearing point, not an
+// inconsistency: those two are TRANSITIONS (seen -> filed, seen ->
+// abandoned), and a transition OUT of a terminal status is illegal by
+// definition -- filed -> seen makes no sense as a state change. Calling
+// recordDocumentSeen on an already-filed or already-abandoned record is not
+// a transition at all; it is the same message being seen again, and the
+// filing's status is exactly what it was before this call, same as it was
+// after.
 function recordDocumentSeen(agentId, transactionId, messageId, attachmentId, opts = {}) {
-  const { at, actor, filename, mimeType, size, threadId, baseDir, now } = opts;
+  const { at, actor, filename, mimeType, size, threadId, sender, receivedAt, subject, baseDir, now } = opts;
 
   assertNonEmptyString('recordDocumentSeen', 'messageId', messageId);
   assertNonEmptyString('recordDocumentSeen', 'attachmentId', attachmentId);
@@ -82,6 +132,9 @@ function recordDocumentSeen(agentId, transactionId, messageId, attachmentId, opt
   assertNonEmptyString('recordDocumentSeen', 'filename', filename);
   assertNonEmptyString('recordDocumentSeen', 'mimeType', mimeType);
   assertNonEmptyString('recordDocumentSeen', 'threadId', threadId);
+  assertPresentString('recordDocumentSeen', 'sender', sender);
+  assertPresentString('recordDocumentSeen', 'receivedAt', receivedAt);
+  assertPresentString('recordDocumentSeen', 'subject', subject);
   if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
     throw new Error('recordDocumentSeen: size must be a non-negative number');
   }
@@ -92,10 +145,7 @@ function recordDocumentSeen(agentId, transactionId, messageId, attachmentId, opt
   const existing = previousFilings[key];
 
   if (existing) {
-    if (existing.status === 'seen') {
-      return previous;
-    }
-    throw new Error(`recordDocumentSeen: filing '${key}' is already '${existing.status}'; cannot re-seen a terminal filing`);
+    return previous;
   }
 
   const record = {
@@ -105,6 +155,9 @@ function recordDocumentSeen(agentId, transactionId, messageId, attachmentId, opt
     mimeType,
     size,
     threadId,
+    sender,
+    receivedAt,
+    subject,
     status: 'seen',
     review: 'needs_review',
     seenAt: at,
@@ -160,6 +213,59 @@ function recordDocumentFiled(agentId, transactionId, messageId, attachmentId, op
     ...previous,
     filings: { ...previousFilings, [key]: record },
     events: events.appendEvent(previous.events, event),
+  };
+
+  return store.writeTransaction(agentId, next, { baseDir, now });
+}
+
+// -- recordFilingAttemptFailure -----------------------------------------------------
+
+// The attempts incrementer. Called by the drain pass after a failed fetch,
+// folder, upload or record step, before it decides whether to give up.
+//
+// IT EMITS NO EVENT, unlike every other writer in this file, and that
+// asymmetry is deliberate, not an oversight. TC_SPEC 7.7: the event log
+// records what happened TO THE DEAL; the record itself carries what the
+// MACHINE is doing about it. A fetch that failed once and then succeeds on
+// the next cycle is machinery working as designed, not deal history -- nobody
+// reviewing this transaction needs a log line for an attempt nothing came of.
+//
+// It throws if the filing is not at status 'seen', same discipline as
+// recordDocumentFiled and abandonDocumentFiling: this is a mid-flight update
+// to an in-progress filing, not a transition, and a terminal filing has
+// nothing left to retry.
+//
+// It does NOT change status. Only the drain pass, by comparing the returned
+// attempts count against its own retry limit, decides when to call
+// abandonDocumentFiling. This function only ever reports what happened.
+//
+// `at` is asserted here (unlike recordDocumentFiled/abandonDocumentFiling,
+// which lean on events.makeEvent to validate their own `at`): since this
+// writer emits no event, makeEvent never runs, so nothing else would ever
+// catch a malformed `at` before it lands in lastAttemptAt.
+function recordFilingAttemptFailure(agentId, transactionId, messageId, attachmentId, opts = {}) {
+  const { at, actor, lastError, baseDir, now } = opts; // eslint-disable-line no-unused-vars
+
+  assertNonEmptyString('recordFilingAttemptFailure', 'at', at);
+  assertNonEmptyString('recordFilingAttemptFailure', 'lastError', lastError);
+
+  const previous = readExisting('recordFilingAttemptFailure', agentId, transactionId, baseDir);
+  const previousFilings = previous.filings || {};
+  const key = buildFilingKey(messageId, attachmentId);
+  const existing = previousFilings[key];
+
+  if (!existing) {
+    throw new Error(`recordFilingAttemptFailure: no filing record '${key}' on transaction ${transactionId}`);
+  }
+  if (existing.status !== 'seen') {
+    throw new Error(`recordFilingAttemptFailure: filing '${key}' is '${existing.status}', not 'seen'; cannot record an attempt against a terminal filing`);
+  }
+
+  const record = { ...existing, attempts: existing.attempts + 1, lastError, lastAttemptAt: at };
+
+  const next = {
+    ...previous,
+    filings: { ...previousFilings, [key]: record },
   };
 
   return store.writeTransaction(agentId, next, { baseDir, now });
@@ -308,8 +414,10 @@ function hasConfirmedFilingOnThread(transaction, threadId) {
 module.exports = {
   FILING_STATUSES,
   FILING_REVIEW_STATUSES,
+  buildFilingKey,
   recordDocumentSeen,
   recordDocumentFiled,
+  recordFilingAttemptFailure,
   abandonDocumentFiling,
   confirmFiling,
   rejectFiling,

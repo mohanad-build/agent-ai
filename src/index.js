@@ -16,6 +16,7 @@ const path = require('path');
 
 const { loadAgent, isLeadCategoryActionable } = require('./agentConfig');
 const { runLeadIntake, transitionToIntaken } = require('./leadIntake');
+const { drainFilings } = require('./drain');
 const { getNow, getNowIso, getNowDate } = require('./time');
 const followUp = require('./followUp');
 const outboundTracking = require('./outboundTracking');
@@ -764,6 +765,10 @@ async function main() {
       }
       await maybeRunDailyDigest(agent);
       await maybeRunContentEngine(agent);
+      // TC_SPEC 7.14 PASS 2: placed after Pass 1 (processAgent -> runLeadIntake,
+      // earlier in this same iteration) so a document seen this cycle drains
+      // this cycle, rather than waiting five minutes for the next one.
+      await drainFilings(agent, { at: getNowIso(), actor: 'system' });
     } catch (err) {
       // One agent's failure must not stop others.
       console.error(`[${id}] uncaught error: ${err.message}`);

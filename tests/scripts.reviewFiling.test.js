@@ -34,6 +34,9 @@ function seedFiling(baseDir, messageId, attachmentId, filename) {
     mimeType: 'application/pdf',
     size: 1234,
     threadId: 'thread-1',
+    sender: '',
+    receivedAt: '',
+    subject: '',
     baseDir,
     now: CLOCK,
   });
@@ -156,6 +159,9 @@ describe('runReviewFiling', () => {
       mimeType: 'application/pdf',
       size: 1234,
       threadId: 'thread-1',
+      sender: '',
+      receivedAt: '',
+      subject: '',
       baseDir,
       now: CLOCK,
     });
@@ -166,6 +172,9 @@ describe('runReviewFiling', () => {
       mimeType: 'application/pdf',
       size: 5678,
       threadId: 'thread-1',
+      sender: '',
+      receivedAt: '',
+      subject: '',
       baseDir,
       now: CLOCK,
     });
