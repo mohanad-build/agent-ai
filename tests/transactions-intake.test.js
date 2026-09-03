@@ -22,23 +22,14 @@ function makeTmpDir() {
 }
 
 let baseDir;
-let spies;
 
 beforeEach(() => {
   baseDir = makeTmpDir();
-  spies = [];
 });
 
 afterEach(() => {
-  spies.forEach((s) => s.mockRestore());
   fs.rmSync(baseDir, { recursive: true, force: true });
 });
-
-function spyOn(obj, method) {
-  const s = jest.spyOn(obj, method);
-  spies.push(s);
-  return s;
-}
 
 function create(overrides = {}) {
   return createTransaction(
@@ -95,22 +86,35 @@ function opts(overrides = {}) {
   return { at: AT, actor: 'system', baseDir, now: LATER, ...overrides };
 }
 
+// Builds candidates the same way leadIntake.js's merged TC loop now does:
+// one readAllTransactions call, reused by whatever needs it for this
+// message. matchAndFileAttachments no longer reads transactions itself --
+// see its header comment in intake.js -- so every call site here supplies
+// its own candidates array, fresh, the same way the real caller must.
+function candidatesFor() {
+  return queries.readAllTransactions(AGENT_ID, { baseDir });
+}
+
 describe('matchAndFileAttachments', () => {
-  it('returns an empty array and never reads transactions when the message has no attachments', () => {
-    const readSpy = spyOn(queries, 'readAllTransactions');
+  it('returns an empty array without ever touching the candidates array when the message has no attachments', () => {
     const msg = message({ hasAttachments: false, attachmentInfo: [] });
 
-    const results = matchAndFileAttachments(agentConfig(), msg, opts());
+    const results = matchAndFileAttachments(agentConfig(), msg, [], opts());
 
     expect(results).toEqual([]);
-    expect(readSpy).not.toHaveBeenCalled();
+  });
+
+  it('throws when candidates is not an array', () => {
+    const msg = message();
+    expect(() => matchAndFileAttachments(agentConfig(), msg, undefined, opts()))
+      .toThrow(/candidates must be an array/);
   });
 
   it('does nothing for an attachment that matches no transaction', () => {
     const created = create(); // no confirmed filing on THREAD_ID, no address signals
     const msg = message();
 
-    const results = matchAndFileAttachments(agentConfig(), msg, opts());
+    const results = matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
 
     expect(results).toHaveLength(1);
     expect(results[0].matched).toBe(false);
@@ -124,7 +128,7 @@ describe('matchAndFileAttachments', () => {
     const att = attachment({ filename: 'aps.pdf', mimeType: 'application/pdf', size: 37399, attachmentId: 'att-1' });
     const msg = message({ attachmentInfo: [att] });
 
-    const results = matchAndFileAttachments(agentConfig(), msg, opts());
+    const results = matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
 
     expect(results).toHaveLength(1);
     expect(results[0].matched).toBe(true);
@@ -149,17 +153,14 @@ describe('matchAndFileAttachments', () => {
     });
   });
 
-  it('reads the agent transactions exactly once per message and files every attachment, not just the first', () => {
+  it('uses the one injected candidates array for every attachment on the message, filing every attachment, not just the first', () => {
     const created = create(withConfirmedFiling());
     const att1 = attachment({ filename: 'aps.pdf', attachmentId: 'att-1' });
     const att2 = attachment({ filename: 'waiver.pdf', attachmentId: 'att-2' });
     const msg = message({ attachmentInfo: [att1, att2] });
 
-    const readSpy = spyOn(queries, 'readAllTransactions');
+    const results = matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
 
-    const results = matchAndFileAttachments(agentConfig(), msg, opts());
-
-    expect(readSpy).toHaveBeenCalledTimes(1);
     expect(results).toHaveLength(2);
     expect(results[0].matched).toBe(true);
     expect(results[1].matched).toBe(true);
@@ -173,16 +174,14 @@ describe('matchAndFileAttachments', () => {
     expect(reread.filings[key2].filename).toBe('waiver.pdf');
   });
 
-  it('records against the matched candidate even when it is not the first candidate read', () => {
+  it('records against the matched candidate even when it is not the first candidate in the array', () => {
     const unmatched = create({ address: '99 Other Ave' }); // no confirmed filing, address won't match
     const matched = create(withConfirmedFiling());
     const msg = message();
 
     // Force the candidate order so `matched` is deliberately second: this is
     // the exact shape a "record against candidates[0]" bug would get wrong.
-    spyOn(queries, 'readAllTransactions').mockReturnValue([unmatched, matched]);
-
-    const results = matchAndFileAttachments(agentConfig(), msg, opts());
+    const results = matchAndFileAttachments(agentConfig(), msg, [unmatched, matched], opts());
 
     expect(results).toHaveLength(1);
     expect(results[0].matched).toBe(true);
@@ -199,15 +198,16 @@ describe('matchAndFileAttachments', () => {
     const msg = message();
     const key = filings._internal.buildFilingKey(msg.messageId, msg.attachmentInfo[0].attachmentId);
 
-    matchAndFileAttachments(agentConfig(), msg, opts());
+    matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
     const afterFirst = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     const keyCountAfterFirst = Object.keys(afterFirst.filings).length;
     const seenAtAfterFirst = afterFirst.filings[key].seenAt;
 
     // Second call deliberately uses a DIFFERENT `at` than the first, so a
     // no-op that incorrectly reseeds seenAt would be observable here rather
-    // than accidentally matching by reusing an identical timestamp.
-    const results = matchAndFileAttachments(agentConfig(), msg, opts({ at: AT2, now: new Date(AT2) }));
+    // than accidentally matching by reusing an identical timestamp. It also
+    // re-reads candidates, the same as a later orchestrator cycle would.
+    const results = matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts({ at: AT2, now: new Date(AT2) }));
 
     expect(results[0].matched).toBe(true);
     const afterSecond = readTransaction(AGENT_ID, created.transactionId, { baseDir });
@@ -236,7 +236,7 @@ describe('matchAndFileAttachments', () => {
       const att = attachment({ size: OVERSIZED });
       const msg = message({ attachmentInfo: [att] });
 
-      const results = matchAndFileAttachments(agentConfig(), msg, opts());
+      const results = matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
 
       expect(results).toHaveLength(1);
       expect(results[0].matched).toBe(true);
@@ -253,7 +253,7 @@ describe('matchAndFileAttachments', () => {
       const att = attachment({ size: 26214400 });
       const msg = message({ attachmentInfo: [att] });
 
-      matchAndFileAttachments(agentConfig(), msg, opts());
+      matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
 
       const key = filings.buildFilingKey(msg.messageId, att.attachmentId);
       const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
@@ -275,12 +275,12 @@ describe('matchAndFileAttachments', () => {
       const msg = message({ attachmentInfo: [att] });
       const key = filings.buildFilingKey(msg.messageId, att.attachmentId);
 
-      matchAndFileAttachments(agentConfig(), msg, opts());
+      matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
       const afterFirst = readTransaction(AGENT_ID, created.transactionId, { baseDir });
       expect(afterFirst.filings[key].status).toBe('abandoned');
 
       expect(() => {
-        matchAndFileAttachments(agentConfig(), msg, opts({ at: AT2, now: new Date(AT2) }));
+        matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts({ at: AT2, now: new Date(AT2) }));
       }).not.toThrow();
 
       const afterSecond = readTransaction(AGENT_ID, created.transactionId, { baseDir });
@@ -306,13 +306,13 @@ describe('matchAndFileAttachments', () => {
     const msg = message();
     const key = filings._internal.buildFilingKey(msg.messageId, msg.attachmentInfo[0].attachmentId);
 
-    matchAndFileAttachments(agentConfig(), msg, opts());
+    matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts());
     filings.recordDocumentFiled(AGENT_ID, created.transactionId, msg.messageId, msg.attachmentInfo[0].attachmentId, {
       at: AT2, actor: 'system', driveFileId: 'drive-xyz', contentHash: 'sha256:deadbeef', baseDir, now: new Date(AT2),
     });
 
     expect(() => {
-      matchAndFileAttachments(agentConfig(), msg, opts({ at: AT2, now: new Date(AT2) }));
+      matchAndFileAttachments(agentConfig(), msg, candidatesFor(), opts({ at: AT2, now: new Date(AT2) }));
     }).not.toThrow();
 
     const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });

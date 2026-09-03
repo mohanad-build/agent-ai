@@ -103,9 +103,9 @@ describe('recordObservedAddresses', () => {
     });
   });
 
-  it('keeps the first name when re-observing an address that already has a different name', () => {
+  it('keeps the first name when re-observing an address that already has a different name, and this is a no-op: no write, no event', () => {
     const created = create();
-    observe(created.transactionId, [{ address: 'jane@firm.com', name: 'Jane Smith' }]);
+    const first = observe(created.transactionId, [{ address: 'jane@firm.com', name: 'Jane Smith' }]);
     const result = observe(created.transactionId, [{ address: 'jane@firm.com', name: 'J. Smith' }], {
       threadId: THREAD_ID_2,
       at: AT2,
@@ -113,6 +113,48 @@ describe('recordObservedAddresses', () => {
     });
 
     expect(result.observedAddresses['jane@firm.com'].name).toBe('Jane Smith');
+    // A second, different name for an address that already has one is
+    // neither an addition nor a backfill (existing.name is already
+    // truthy) -- nothing in the record changes, so this must be the
+    // no-op state: same event count, same updatedAt as after the first call.
+    expect(result).toEqual(first);
+  });
+
+  // STATE 1, nothing changed: every address in this call is already stored
+  // with a name, and the entry offers no name to backfill. Neither the
+  // add-branch nor the backfill-branch fires for any entry, so this must be
+  // a true no-op -- no write, no event, the transaction returned unchanged --
+  // exactly like the literally-empty-array case, reached by a different
+  // route (a non-empty entries array where nothing in it is new information).
+  it('a non-empty entries array where every address is already stored and already named is a no-op: no write, no event', () => {
+    const created = create();
+    const first = observe(created.transactionId, [{ address: 'jane@firm.com', name: 'Jane' }]);
+    const result = observe(created.transactionId, [{ address: 'jane@firm.com' }], {
+      threadId: THREAD_ID_2,
+      at: AT2,
+      now: EVEN_LATER,
+    });
+
+    expect(result).toEqual(first);
+  });
+
+  // Both lists populated from ONE call, independently: proves addedAddresses
+  // and backfilledAddresses are not folded together, and that the payload
+  // can report an addition and a backfill happening in the same observation.
+  it('reports an addition and a backfill from the same call in their own separate payload fields', () => {
+    const created = create();
+    observe(created.transactionId, [{ address: 'jane@firm.com' }]); // no name yet
+    const result = observe(created.transactionId, [
+      { address: 'jane@firm.com', name: 'Jane' }, // backfill
+      { address: 'bob@firm.com' }, // new address
+    ], { threadId: THREAD_ID_2, at: AT2, now: EVEN_LATER });
+
+    const event = result.events[result.events.length - 1];
+    expect(event.payload).toEqual({
+      threadId: THREAD_ID_2,
+      addresses: ['bob@firm.com'],
+      backfilledAddresses: ['jane@firm.com'],
+    });
   });
 
   it('writes nothing and emits no event for an empty entries array', () => {
@@ -122,6 +164,28 @@ describe('recordObservedAddresses', () => {
     expect(result.observedAddresses).toBeUndefined();
     expect(result.events).toBeUndefined();
     expect(result).toEqual(created);
+  });
+
+  // THE TEST THAT WOULD HAVE CAUGHT DEFECT 2: every address in this call is
+  // already stored, and exactly one of them gains a name it didn't have
+  // before. That is a real mutation to the compliance record, but it never
+  // touches addedAddresses, so the event log must not report it under
+  // `addresses` (which stays empty) -- it needs its own field or the audit
+  // trail is claiming nothing changed when something did.
+  it('reports a name backfill in backfilledAddresses, not addresses', () => {
+    const created = create();
+    observe(created.transactionId, [{ address: 'jane@firm.com' }]);
+    const result = observe(created.transactionId, [{ address: 'jane@firm.com', name: 'Jane Smith' }], {
+      threadId: THREAD_ID_2, at: AT2, now: EVEN_LATER,
+    });
+
+    const event = result.events[result.events.length - 1];
+    expect(event.kind).toBe('addresses_observed');
+    expect(event.payload).toEqual({
+      threadId: THREAD_ID_2,
+      addresses: [],
+      backfilledAddresses: ['jane@firm.com'],
+    });
   });
 
   it('lists only newly-added addresses in the event payload, not ones already present', () => {
@@ -137,6 +201,7 @@ describe('recordObservedAddresses', () => {
     expect(event.payload).toEqual({
       threadId: THREAD_ID_2,
       addresses: ['bob@firm.com'],
+      backfilledAddresses: [],
     });
   });
 
@@ -153,6 +218,7 @@ describe('recordObservedAddresses', () => {
     expect(result.events[0].payload).toEqual({
       threadId: THREAD_ID,
       addresses: ['jane@firm.com', 'bob@firm.com', 'carl@firm.com'],
+      backfilledAddresses: [],
     });
   });
 

@@ -67,10 +67,27 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
 // threadId is required: an observed address with no record of where it was
 // seen cannot answer why the system believes it belongs to this deal.
 //
-// An empty entries array is a no-op - a message with only the agent on it
-// is not an observation - and returns the transaction unchanged, with no
-// write and no event, the same idempotent-no-op shape recordDocumentSeen
-// uses for an already-seen record.
+// THREE STATES, not a guard on entries.length alone:
+//   - nothing changed    -> no write, no event, return the transaction unchanged
+//   - addresses added    -> write; event names them in `addresses`
+//   - names backfilled    -> write; event names them in `backfilledAddresses`
+//
+// A literally empty entries array (a message with only the agent on it is
+// not an observation) is one way to reach "nothing changed", checked first
+// below since it needs no read of previousObserved to decide. But it is not
+// the ONLY way: a non-empty entries array where every address is already
+// stored, and none of them gains a name it didn't have, also changes
+// nothing. addedAddresses.length === 0 cannot detect that second case on
+// its own, because a name backfill mutates an existing entry without ever
+// appearing in addedAddresses -- that mismatch is exactly what let a real
+// mutation report `addresses: []` in the event log, as if nothing happened.
+// The no-op condition after the loop is therefore BOTH lists empty, never
+// addedAddresses alone.
+//
+// addedAddresses and backfilledAddresses are tracked separately and never
+// folded together: "we learned a new party is on this deal" and "we learned
+// an existing party's name" are different facts, and an audit trail that
+// cannot tell them apart is worse than one that reports neither.
 function recordObservedAddresses(agentId, transactionId, entries, opts = {}) {
   const { threadId, at, actor, baseDir, now } = opts;
 
@@ -86,6 +103,7 @@ function recordObservedAddresses(agentId, transactionId, entries, opts = {}) {
   const previousObserved = previous.observedAddresses || {};
   const nextObserved = { ...previousObserved };
   const addedAddresses = [];
+  const backfilledAddresses = [];
 
   for (const entry of entries) {
     const address = entry.address.trim().toLowerCase();
@@ -98,14 +116,19 @@ function recordObservedAddresses(agentId, transactionId, entries, opts = {}) {
       addedAddresses.push(address);
     } else if (!existing.name && entry.name) {
       nextObserved[address] = { ...existing, name: entry.name };
+      backfilledAddresses.push(address);
     }
+  }
+
+  if (addedAddresses.length === 0 && backfilledAddresses.length === 0) {
+    return previous;
   }
 
   const event = events.makeEvent({
     at,
     actor,
     kind: 'addresses_observed',
-    payload: { threadId, addresses: addedAddresses },
+    payload: { threadId, addresses: addedAddresses, backfilledAddresses },
   });
 
   const next = {

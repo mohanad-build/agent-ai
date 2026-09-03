@@ -18,7 +18,7 @@ const prompts = require('./prompts');
 const agentState = require('./agentState');
 const { isInboxCleaningEnabled } = require('./agentConfig');
 const { getNowDate, getNowIso } = require('./time');
-const { matchAndFileAttachments } = require('./transactions/intake');
+const { processTcTouchpoints } = require('./transactions/touchpoints');
 
 const LEAD_INTAKE_MAX_PER_CYCLE = 20;
 const LABEL_PROCESSING = 'agent-ai/processing';
@@ -404,27 +404,17 @@ async function runLeadIntake(agentConfig) {
     throw err;
   }
 
-  // TC orchestrator arrival pass (TC_SPEC 14 tier 2 item 5): match each
-  // attachment on every fetched message against this agent's transactions
-  // and record a filing for every match. Runs here, over the full fetched
-  // list, deliberately BEFORE the pre-filter/dedup loop and classification
-  // below: an executed APS from a lawyer classifies as
-  // business_correspondence, so a hook placed inside applyPreFilter's
-  // branches or downstream of the classifier would never see it. Running
-  // early costs a few sync matcher calls on messages that turn out to be
-  // noise; an unmatched attachment does nothing (matchAndFileAttachments),
-  // so that cost is the only price. Per-message try/catch so one malformed
-  // attachment can't abort intake for every other message this cycle.
-  for (const msg of messages) {
-    if (!msg.hasAttachments) continue;
-    try {
-      matchAndFileAttachments(agentConfig, msg, { at: getNowIso(), actor: 'system' });
-    } catch (err) {
-      console.error(
-        '[' + agentId + '] Lead Intake: TC attachment matching failed for ' + msg.messageId + ': ' + err.message
-      );
-    }
-  }
+  // TC orchestrator (TC_SPEC 12a's accumulator, 14 tier 2 item 5's arrival
+  // pass): runs over the full fetched list, deliberately BEFORE the
+  // pre-filter/dedup loop and classification below. NOT the loop at line
+  // ~452 either, even though that one also iterates every fetched message:
+  // applyPreFilter's Rule 1 drops any message with In-Reply-To set, and a
+  // reply on an already-open deal thread is exactly the ordinary message the
+  // accumulator exists to learn addresses from -- an executed APS from a
+  // lawyer classifies as business_correspondence for the same reason. Both
+  // TC touchpoints have to run here, before either filter has a chance to
+  // remove the message they need to see.
+  processTcTouchpoints(agentConfig, messages, { at: getNowIso(), actor: 'system' });
 
   // Read Sheet once, before the pre-filter loop, so applyPreFilter can skip
   // known leads (column A) and processClassification can still use the same

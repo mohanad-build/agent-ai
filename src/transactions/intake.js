@@ -7,18 +7,16 @@
 // (commits two and three), and src/gmailAttachments.js's fetchAttachmentBytes
 // stays uncalled here on purpose.
 //
-// Synchronous end to end, deliberately: every module this composes (queries,
-// matcher, filings) is sync, and TC_SPEC 7.7 warns that the store's
+// Synchronous end to end, deliberately: every module this composes (matcher,
+// filings) is sync, and TC_SPEC 7.7 warns that the store's
 // concurrency safety breaks the moment an await lands between a transaction's
 // read and its write. Keeping this whole module sync makes that hazard
 // structurally impossible here rather than a rule someone has to remember.
 //
-// Requires queries/matcher/filings as module objects and calls through them
-// (queries.readAllTransactions, not a destructured readAllTransactions), the
+// Requires matcher/filings as module objects and calls through them, the
 // same convention leadIntake.js documents for gmail/email: it is what lets
 // require-cache mocking in tests intercept these calls.
 
-const queries = require('./queries');
 const matcher = require('./matcher');
 const filings = require('./filings');
 const { collectMessageAddresses } = require('./messageAddresses');
@@ -39,10 +37,15 @@ const ATTACHMENT_BYTE_CAP = 26214400;
 
 // -- matchAndFileAttachments ----------------------------------------------------
 
-// Reads the agent's transactions ONCE, right here, and reuses that array for
-// every attachment on this message -- the once-per-message contract
-// queries.js documents on readAllTransactions. This is NOT hoistable to once
-// per orchestrator cycle as an optimization: this same pass writes filing
+// Takes `candidates` as a parameter rather than reading them itself:
+// leadIntake.js's merged TC loop now reads once per message and reuses that
+// one read for BOTH accumulateObservedAddresses and this function, so a
+// second, separate readAllTransactions call in here would defeat the point
+// of merging the two loops. The once-per-message contract queries.js
+// documents on readAllTransactions still applies -- it has just moved to the
+// caller, which is the only place that can actually satisfy it now that two
+// different TC steps share the one read. This is NOT hoistable to once per
+// orchestrator cycle as an optimization: this same pass writes filing
 // records via recordDocumentSeen, so a later message in the same cycle can
 // legitimately need to see a transaction this pass, or an earlier message in
 // the same cycle, just changed. Reading again per message is the cost of
@@ -66,12 +69,15 @@ const ATTACHMENT_BYTE_CAP = 26214400;
 // pass), which is why nothing here tracks "have I already looked at this
 // message" itself -- the filing record already is that guard, independent
 // of any Gmail label.
-function matchAndFileAttachments(agentConfig, message, opts = {}) {
+function matchAndFileAttachments(agentConfig, message, candidates, opts = {}) {
   const { at, actor, baseDir, now } = opts;
 
   assertNonEmptyString('matchAndFileAttachments', 'agentId', agentConfig?.agentId);
   assertNonEmptyString('matchAndFileAttachments', 'messageId', message?.messageId);
   assertNonEmptyString('matchAndFileAttachments', 'threadId', message?.threadId);
+  if (!Array.isArray(candidates)) {
+    throw new Error('matchAndFileAttachments: candidates must be an array');
+  }
 
   const attachments = message.attachmentInfo || [];
   if (attachments.length === 0) {
@@ -79,7 +85,6 @@ function matchAndFileAttachments(agentConfig, message, opts = {}) {
   }
 
   const agentId = agentConfig.agentId;
-  const candidates = queries.readAllTransactions(agentId, { baseDir });
   const addresses = collectMessageAddresses(message, agentConfig.gmailAddress);
 
   return attachments.map((attachment) => {
@@ -152,10 +157,10 @@ function matchAndFileAttachments(agentConfig, message, opts = {}) {
           now,
         }
       );
-      return { attachment, matched: true, transactionId: matchResult.transactionId, transaction: abandoned };
+      return { attachment, matched: true, transactionId: matchResult.transactionId, signals: matchResult.signals, transaction: abandoned };
     }
 
-    return { attachment, matched: true, transactionId: matchResult.transactionId, transaction };
+    return { attachment, matched: true, transactionId: matchResult.transactionId, signals: matchResult.signals, transaction };
   });
 }
 
