@@ -154,12 +154,22 @@ describe('enumeration resistance', () => {
     try {
       const port = server.address().port;
 
-      const deniedSession = JSON.stringify({ authenticated: true, principal: { type: 'operator', allowedAgents: ['agent-a'] } });
+      const deniedSession = JSON.stringify({
+        authenticated: true,
+        principal: { type: 'operator', allowedAgents: ['agent-a'] },
+        authenticatedAt: Date.now(),
+        lastSeenAt: Date.now(),
+      });
       const deniedRes = await fetch(`http://127.0.0.1:${port}/dashboard/agent/agent-b/edit`, {
         headers: { 'x-test-session': deniedSession },
       });
 
-      const wildcardSession = JSON.stringify({ authenticated: true, principal: { type: 'operator', allowedAgents: '*' } });
+      const wildcardSession = JSON.stringify({
+        authenticated: true,
+        principal: { type: 'operator', allowedAgents: '*' },
+        authenticatedAt: Date.now(),
+        lastSeenAt: Date.now(),
+      });
       const missingRes = await fetch(`http://127.0.0.1:${port}/dashboard/agent/ghost-agent/edit`, {
         headers: { 'x-test-session': wildcardSession },
       });

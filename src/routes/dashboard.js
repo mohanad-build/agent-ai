@@ -99,9 +99,54 @@ function isAiEnabled(row) {
   return true;
 }
 
+// CASA 2.2.1: idle and absolute session timeouts, enforced independently.
+// Deliberately NOT done via `rolling: true` on the cookie - that resets
+// cookie.maxAge on every request, which converts the absolute timeout into
+// an idle-only one and would let an active session live forever. That
+// would undermine CASA 2.2.3, which is currently a PASS specifically
+// because the 12 hour cap is absolute, not rolling.
+
+// Must stay equal to the cookie's maxAge in server.js. CASA 2.2.3 passes
+// on the basis of that 12 hour absolute cap, so a future change to one
+// without the other silently weakens a control that has already been
+// assessed.
+const SESSION_ABSOLUTE_TIMEOUT_MS = 1000 * 60 * 60 * 12; // 12 hours
+
+// This is an administrative dashboard used in short bursts. 30 minutes of
+// inactivity is a conventional idle timeout and does not disrupt normal
+// use.
+const SESSION_IDLE_TIMEOUT_MS = 1000 * 60 * 30; // 30 minutes
+
+function destroyAndRedirectToLogin(req, res) {
+  req.session.destroy(() => res.redirect('/dashboard/login'));
+}
+
 function requireAuth(req, res, next) {
-  if (req.session && req.session.authenticated === true) return next();
-  res.redirect('/dashboard/login');
+  if (!req.session || req.session.authenticated !== true) {
+    return res.redirect('/dashboard/login');
+  }
+
+  const { authenticatedAt, lastSeenAt } = req.session;
+
+  // Fail closed: a session missing either timestamp is denied, same
+  // discipline as the missing-principal case in requireAgentAccess. Every
+  // session that existed before this deploy is missing both.
+  if (typeof authenticatedAt !== 'number' || typeof lastSeenAt !== 'number') {
+    return destroyAndRedirectToLogin(req, res);
+  }
+
+  const now = Date.now();
+
+  if (now - authenticatedAt > SESSION_ABSOLUTE_TIMEOUT_MS) {
+    return destroyAndRedirectToLogin(req, res);
+  }
+
+  if (now - lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
+    return destroyAndRedirectToLogin(req, res);
+  }
+
+  req.session.lastSeenAt = now;
+  next();
 }
 
 // ---- Object-level authorization (CASA 3.1.4) ----
@@ -394,6 +439,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     // self-service login, is a future data change to allowedAgents, not an
     // architecture change to requireAgentAccess.
     req.session.principal = { type: 'operator', allowedAgents: '*' };
+    // CASA 2.2.1: the clock both session timeouts are measured from.
+    req.session.authenticatedAt = Date.now();
+    req.session.lastSeenAt = Date.now();
     // CASA 6.5.1: a login previously left no trace at all, which reads as
     // evasive rather than compliant when a reviewer asks for a sample log
     // captured during login. This line makes the evidence inspectable -
@@ -471,6 +519,9 @@ router.post('/verify', verifyLimiter, (req, res) => {
     req.session.authenticated = true;
     // Same principal shape as the MFA-disabled branch above.
     req.session.principal = { type: 'operator', allowedAgents: '*' };
+    // CASA 2.2.1: same timeout clock as the MFA-disabled branch above.
+    req.session.authenticatedAt = Date.now();
+    req.session.lastSeenAt = Date.now();
     delete req.session.pendingMfa;
     // CASA 6.5.1: see the comment on the MFA-disabled success path above.
     console.log(`[auth] login success | principal=operator | ${new Date().toISOString()}`);
@@ -1341,3 +1392,6 @@ module.exports.saveContentEngineConfig = saveContentEngineConfig;
 module.exports.extractVoiceConfig = extractVoiceConfig;
 module.exports.requireAgentAccess = requireAgentAccess;
 module.exports.agentNotFoundPage = agentNotFoundPage;
+module.exports.requireAuth = requireAuth;
+module.exports.SESSION_ABSOLUTE_TIMEOUT_MS = SESSION_ABSOLUTE_TIMEOUT_MS;
+module.exports.SESSION_IDLE_TIMEOUT_MS = SESSION_IDLE_TIMEOUT_MS;
