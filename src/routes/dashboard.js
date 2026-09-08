@@ -56,6 +56,19 @@ function rejectInvalidAgentId(req, res) {
   return true;
 }
 
+// Shared by every route that 404s on a missing agentId, and by
+// requireAgentAccess's deny path (CASA 3.1.4). One function, not a
+// copy-pasted literal, so a denied request and a genuinely nonexistent
+// agent are guaranteed to render byte-identical pages, not just
+// coincidentally similar ones.
+function agentNotFoundPage() {
+  return renderErrorPage(
+    'Agent not found',
+    'No agent matches that ID. It may have been removed or the URL is incorrect.',
+    { href: '/dashboard', label: 'Back to dashboard' }
+  );
+}
+
 function moveAgentFilesToDeleted(agentId, opts = {}) {
   const baseDir = (opts && opts.baseDir) || getAgentsDir();
   const prefix = `${agentId}.`;
@@ -89,6 +102,33 @@ function isAiEnabled(row) {
 function requireAuth(req, res, next) {
   if (req.session && req.session.authenticated === true) return next();
   res.redirect('/dashboard/login');
+}
+
+// ---- Object-level authorization (CASA 3.1.4) ----
+//
+// requireAuth answers "are you logged in". This answers a different
+// question, "may you touch this specific agentId", and is deliberately a
+// separate middleware so collapsing the two questions into one can never
+// happen by accident.
+function requireAgentAccess(req, res, next) {
+  const { agentId } = req.params;
+  const principal = req.session && req.session.principal;
+
+  // Fail closed: a session with no principal at all is denied, even if
+  // authenticated is true. This matters most right after this deploy ships
+  // - every session created before it has authenticated but no principal,
+  // and must be treated as unauthorized here rather than grandfathered in.
+  if (!principal) return res.status(404).send(agentNotFoundPage());
+
+  const allowed = principal.allowedAgents === '*'
+    || (Array.isArray(principal.allowedAgents) && principal.allowedAgents.includes(agentId));
+
+  // A denied request gets the same 404 as a nonexistent agentId, not a
+  // 403. A 403 would confirm the agentId exists but belongs to someone
+  // else, letting a caller enumerate valid agentIds by response code.
+  if (!allowed) return res.status(404).send(agentNotFoundPage());
+
+  next();
 }
 
 // ---- CSRF (session-backed synchronizer token) ----
@@ -345,6 +385,11 @@ router.post('/login', loginLimiter, async (req, res) => {
   // any other value means MFA is required.
   if (process.env.MFA_ENABLED === 'false') {
     req.session.authenticated = true;
+    // The operator is the only principal type today, entitled to every
+    // agent (CASA 3.1.4). A scoped principal, for example an agent
+    // self-service login, is a future data change to allowedAgents, not an
+    // architecture change to requireAgentAccess.
+    req.session.principal = { type: 'operator', allowedAgents: '*' };
     return res.redirect('/dashboard');
   }
 
@@ -415,6 +460,8 @@ router.post('/verify', verifyLimiter, (req, res) => {
   const submitted = (req.body.code || '').trim();
   if (submitted === pending.code) {
     req.session.authenticated = true;
+    // Same principal shape as the MFA-disabled branch above.
+    req.session.principal = { type: 'operator', allowedAgents: '*' };
     delete req.session.pendingMfa;
     return res.redirect('/dashboard');
   }
@@ -439,6 +486,11 @@ router.get('/logout', (req, res) => {
 
 router.use(requireAuth);
 router.use(ensureCsrfToken);
+
+// Mounted once on the shared prefix so every current and future route
+// under /agent/:agentId inherits the object-level check by default,
+// instead of depending on each route remembering to add it.
+router.use('/agent/:agentId', requireAgentAccess);
 
 // ---- Main overview ----
 
@@ -604,11 +656,7 @@ router.get('/agent/:agentId/edit', (req, res) => {
   try {
     let agent;
     try { agent = loadAgent(req.params.agentId); } catch {
-      return res.status(404).send(renderErrorPage(
-        'Agent not found',
-        'No agent matches that ID. It may have been removed or the URL is incorrect.',
-        { href: '/dashboard', label: 'Back to dashboard' }
-      ));
+      return res.status(404).send(agentNotFoundPage());
     }
 
     const { agentId } = req.params;
@@ -774,18 +822,10 @@ router.post('/agent/:agentId/edit', verifyCsrfToken, (req, res) => {
   try {
     const { agentId } = req.params;
     const filePath = path.join(getAgentsDir(), `${agentId}.json`);
-    if (!fs.existsSync(filePath)) return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    ));
+    if (!fs.existsSync(filePath)) return res.status(404).send(agentNotFoundPage());
 
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
 
     const b = req.body;
 
@@ -920,11 +960,7 @@ router.post('/agent/:agentId/content/provision', verifyCsrfToken, async (req, re
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
-    try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
 
     const result = await provisionContentEngine(agentId);
     if (!result.ok) {
@@ -942,11 +978,7 @@ router.post('/agent/:agentId/content/save', verifyCsrfToken, (req, res) => {
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
-    try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
 
     const result = saveContentEngineConfig(agentId, req.body);
     if (!result.ok) {
@@ -964,11 +996,7 @@ router.post('/agent/:agentId/content/voice', verifyCsrfToken, async (req, res) =
   if (rejectInvalidAgentId(req, res)) return;
   try {
     const { agentId } = req.params;
-    try { loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
 
     const result = await extractVoiceConfig(agentId, req.body);
     if (!result.ok) {
@@ -996,11 +1024,7 @@ router.post('/agent/:agentId/delete', verifyCsrfToken, (req, res) => {
 
     const moved = moveAgentFilesToDeleted(agentId);
     if (moved.length === 0) {
-      return res.status(404).send(renderErrorPage(
-        'Agent not found',
-        'No agent matches that ID. It may have been removed or the URL is incorrect.',
-        { href: '/dashboard', label: 'Back to dashboard' }
-      ));
+      return res.status(404).send(agentNotFoundPage());
     }
 
     res.redirect(`/dashboard?deleted=${encodeURIComponent(agentId)}`);
@@ -1050,11 +1074,7 @@ router.post('/agent/:agentId/import', verifyCsrfToken, async (req, res) => {
   try {
     const { agentId } = req.params;
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
 
     const { csvText } = parseImportBody(req.body);
     if (!csvText) {
@@ -1139,11 +1159,7 @@ router.get('/agent/:agentId/leads', async (req, res) => {
     const { agentId } = req.params;
     let agent;
     try { agent = loadAgent(agentId); } catch {
-      return res.status(404).send(renderErrorPage(
-        'Agent not found',
-        'No agent matches that ID. It may have been removed or the URL is incorrect.',
-        { href: '/dashboard', label: 'Back to dashboard' }
-      ));
+      return res.status(404).send(agentNotFoundPage());
     }
 
     const enableError = req.query.enable_error === 'empty';
@@ -1231,11 +1247,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-ai', verifyCsrfToken, async 
     const { agentId, rowIndex } = req.params;
     const ri = parseInt(rowIndex, 10);
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
     const rows = await email.readSheetRows(agent);
     const row = rows.find((r) => r.rowIndex === ri);
     if (!row) return res.status(404).send('Row not found');
@@ -1256,11 +1268,7 @@ router.post('/agent/:agentId/leads/:rowIndex/toggle-soi', verifyCsrfToken, async
     const { agentId, rowIndex } = req.params;
     const ri = parseInt(rowIndex, 10);
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
     const rows = await email.readSheetRows(agent);
     const row = rows.find((r) => r.rowIndex === ri);
     if (!row) return res.status(404).send('Row not found');
@@ -1280,11 +1288,7 @@ router.post('/agent/:agentId/leads/enable', verifyCsrfToken, async (req, res) =>
   try {
     const { agentId } = req.params;
     let agent;
-    try { agent = loadAgent(agentId); } catch { return res.status(404).send(renderErrorPage(
-      'Agent not found',
-      'No agent matches that ID. It may have been removed or the URL is incorrect.',
-      { href: '/dashboard', label: 'Back to dashboard' }
-    )); }
+    try { agent = loadAgent(agentId); } catch { return res.status(404).send(agentNotFoundPage()); }
 
     const emails = parseSelectedEmails(req.body);
     if (emails.length === 0) {
@@ -1319,3 +1323,5 @@ module.exports.parseListField = parseListField;
 module.exports.provisionContentEngine = provisionContentEngine;
 module.exports.saveContentEngineConfig = saveContentEngineConfig;
 module.exports.extractVoiceConfig = extractVoiceConfig;
+module.exports.requireAgentAccess = requireAgentAccess;
+module.exports.agentNotFoundPage = agentNotFoundPage;

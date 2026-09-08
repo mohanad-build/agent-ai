@@ -39,7 +39,7 @@ const router = require('../src/routes/dashboard');
 function buildServer() {
   const app = express();
   app.use((req, res, next) => {
-    req.session = { authenticated: true };
+    req.session = { authenticated: true, principal: { type: 'operator', allowedAgents: '*' } };
     next();
   });
   app.use('/dashboard', router);
