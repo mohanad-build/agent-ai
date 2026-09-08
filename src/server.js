@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
+const { createSessionStore, startSessionSweep } = require('./sessionStore');
 const { createApp: createWebhookApp } = require('./webhook');
 const { runCycle } = require('./index');
 const onboardRouter = require('./routes/onboard');
@@ -47,8 +48,15 @@ if (!process.env.TOKEN_ENCRYPTION_KEY) {
     if (err.stack) console.error(err.stack);
   }
 }
+// Held in a variable, not passed as an inline `new MemoryStore()`, so the
+// sweep below and any test can reach the same store instance the session
+// middleware is actually using.
+const sessionStore = createSessionStore();
+startSessionSweep(sessionStore);
+
 app.use(session({
   secret: process.env.SESSION_SECRET,
+  store: sessionStore,
   resave: false,
   saveUninitialized: false,
   cookie: {
