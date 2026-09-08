@@ -33,6 +33,10 @@ if (!process.env.SESSION_SECRET) {
 if (!process.env.TOKEN_ENCRYPTION_KEY) {
   console.warn('TOKEN_ENCRYPTION_KEY is not set. Token encryption/decryption will fail if invoked.');
 } else {
+  // Presence only, never the value or its length, and which process
+  // instance loaded it, for CASA 6.7.1's secrets access audit trail.
+  console.log(`[secrets-audit] TOKEN_ENCRYPTION_KEY loaded at boot pid=${process.pid}`);
+
   // Migrate any plaintext refresh tokens left on the Volume, so the
   // standalone script never has to be run by hand against real data.
   // Idempotent (already-migrated agents are skipped), so this is safe to

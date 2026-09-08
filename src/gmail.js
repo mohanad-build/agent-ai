@@ -60,6 +60,10 @@ function getOAuthClient(agentConfig) {
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
+  // CASA 6.7.1: audit every decrypt of a stored secret. Never log the
+  // decrypted value, a prefix of it, or its length, only that a decrypt
+  // happened, for which agent, and from where.
+  console.log(`[secrets-audit] decryptToken called agentId=${agentConfig.agentId} context=getOAuthClient ts=${new Date().toISOString()}`);
   client.setCredentials({ refresh_token: decryptToken(agentConfig.googleRefreshToken) });
   oauthClientCache.set(agentConfig.agentId, client);
   return client;

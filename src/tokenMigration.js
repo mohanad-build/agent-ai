@@ -55,6 +55,10 @@ function migrateExistingTokens() {
 
   const summary = { migrated, alreadyMigrated, noToken, total: agentIds.length };
 
+  // CASA 6.7.1: counts only, never a token value, never an agentId-to-token
+  // mapping beyond what the per-agent line above already logs.
+  console.log(`[secrets-audit] tokenMigration run migrated=${summary.migrated} alreadyMigrated=${summary.alreadyMigrated} noToken=${summary.noToken} total=${summary.total}`);
+
   console.log('');
   console.log('=== summary ===');
   console.log(`agents directory:  ${agentsDir}`);
