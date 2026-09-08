@@ -378,6 +378,10 @@ router.post('/login', loginLimiter, async (req, res) => {
   // gap here - if DASHBOARD_PASSWORD were ever unset or empty, an empty
   // submitted password would satisfy `'' !== ''` being false and pass.)
   if (!submittedPassword || !process.env.DASHBOARD_PASSWORD || !safeCompare(submittedPassword, process.env.DASHBOARD_PASSWORD)) {
+    // CASA 6.5.1: reason code only, never the submitted password. This is
+    // a server-side log line only - the client response below stays the
+    // same generic "Incorrect password" it always was, unaffected by this.
+    console.log(`[auth] login failure | reason=bad_password | ${new Date().toISOString()}`);
     return res.redirect('/dashboard/login?error=1');
   }
 
@@ -390,6 +394,11 @@ router.post('/login', loginLimiter, async (req, res) => {
     // self-service login, is a future data change to allowedAgents, not an
     // architecture change to requireAgentAccess.
     req.session.principal = { type: 'operator', allowedAgents: '*' };
+    // CASA 6.5.1: a login previously left no trace at all, which reads as
+    // evasive rather than compliant when a reviewer asks for a sample log
+    // captured during login. This line makes the evidence inspectable -
+    // never the password, the MFA code, req.sessionID, or the phone number.
+    console.log(`[auth] login success | principal=operator | ${new Date().toISOString()}`);
     return res.redirect('/dashboard');
   }
 
@@ -463,8 +472,15 @@ router.post('/verify', verifyLimiter, (req, res) => {
     // Same principal shape as the MFA-disabled branch above.
     req.session.principal = { type: 'operator', allowedAgents: '*' };
     delete req.session.pendingMfa;
+    // CASA 6.5.1: see the comment on the MFA-disabled success path above.
+    console.log(`[auth] login success | principal=operator | ${new Date().toISOString()}`);
     return res.redirect('/dashboard');
   }
+
+  // CASA 6.5.1: reason code only, never the submitted code. Server-side log
+  // only - the client still gets the same generic "Incorrect code" it
+  // always did, whether this is attempt 1 or the final attempt below.
+  console.log(`[auth] login failure | reason=bad_mfa_code | ${new Date().toISOString()}`);
 
   pending.attempts += 1;
   if (pending.attempts >= MFA_MAX_ATTEMPTS) {
