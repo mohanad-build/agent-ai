@@ -26,6 +26,7 @@ const { getNowIso, getNowDate } = require('./time');
 const { checkAllSourcesFreshness } = require('./content/sources');
 const { getStorageRoot } = require('./storagePaths');
 const { CALL_NOTE_LABEL } = require('./callNote');
+const { isAgentConfigFilename } = require('./agentDiscovery');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -558,28 +559,20 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
 // (an agent that just flipped isActive: false is, by definition, excluded
 // from activeAgents but is exactly what that section wants to find).
 //
-// Mirrors discoverAgentIds in src/index.js; not imported to avoid circular
-// -- index.js requires this module (src/digest.js), so a require of
-// ./index from here would see index.js's module.exports before it finishes
-// evaluating. Anchored, not a loose endsWith('.json'): a loose filter
-// accepts agents/<id>.contentProfile.json, <id>.contentState.json and
-// <id>.state.json (real files, confirmed present in agents/ today) as well
-// as any orphaned <id>.json.tmp or legacy <id>.tmp.json left by a writer
-// that crashed between its writeFileSync and renameSync -- none of those
-// are agents, and the orphaned ones carry a live copy of
-// googleRefreshToken. This is now the THIRD independent copy of this exact
-// filter (src/index.js, src/routes/dashboard.js, here); the right
-// long-term fix is extracting it to a shared leaf module all three can
-// import without a cycle, not done in this commit.
-const DIGEST_AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
-const DIGEST_AGENT_BLOCKLIST = new Set(['example.json', '.gitkeep']);
-
+// The filename filter is src/agentDiscovery.js's isAgentConfigFilename, not
+// reimplemented here: this used to be one of four independently drifting
+// copies (src/index.js, src/routes/dashboard.js, src/agentConfig.js's
+// findAgentByPhone, and this file), which is exactly how a loose,
+// unanchored variant could survive in one copy while the others were
+// anchored. discoverAgentConfigs itself -- the id-vs-active-configs split
+// below -- stays local: it is not a plain id listing, so it is not what
+// agentDiscovery.js's discoverAgentIds returns.
 function discoverAgentConfigs(operatorId) {
   const agentsDir = getStorageRoot();
   let allAgentIds = [];
   if (fs.existsSync(agentsDir)) {
     allAgentIds = fs.readdirSync(agentsDir)
-      .filter(f => DIGEST_AGENT_ID_REGEX.test(f) && !DIGEST_AGENT_BLOCKLIST.has(f))
+      .filter(isAgentConfigFilename)
       .map(f => f.replace(/\.json$/, ''))
       .sort();
   }
@@ -1947,6 +1940,5 @@ module.exports = {
     computeJaccardOverlap,
     STYLE_TOKENS,
     discoverAgentConfigs,
-    DIGEST_AGENT_ID_REGEX,
   },
 };

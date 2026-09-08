@@ -32,13 +32,11 @@ const {
 } = require('../brandChrome');
 const { enableLeads } = require('../leadEnrich');
 const { normalizeLeads, landLeads } = require('../leadImport');
+const { discoverAgentIds } = require('../agentDiscovery');
 
 function getAgentsDir() { return getStorageRoot(); }
-const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
-// Matches the on-disk filename form (<agentId>.json), used to filter
-// directory listings in discoverAgentIds.
-const AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
-// Matches a bare agentId (no extension), same character class as above.
+// Matches a bare agentId (no extension), same character class as
+// agentDiscovery.js's AGENT_ID_REGEX.
 // Used to validate req.params/req.query agentId values before they are
 // interpolated into a filesystem path, so a value like "../../etc/passwd"
 // or one containing a null byte is rejected before any fs call.
@@ -72,15 +70,6 @@ function moveAgentFilesToDeleted(agentId, opts = {}) {
     fs.renameSync(path.join(baseDir, f), path.join(destDir, f));
   }
   return matched;
-}
-
-function discoverAgentIds() {
-  if (!fs.existsSync(getAgentsDir())) return [];
-  return fs
-    .readdirSync(getAgentsDir())
-    .filter((f) => AGENT_ID_REGEX.test(f) && !AGENT_FILE_BLOCKLIST.has(f))
-    .map((f) => f.replace(/\.json$/, ''))
-    .sort();
 }
 
 const NON_DASHBOARD_IDS = new Set(['welcome-sender']);
@@ -1316,8 +1305,6 @@ ${renderEnableResult(agentId, result)}`));
 });
 
 module.exports = router;
-module.exports.discoverAgentIds = discoverAgentIds;
-module.exports.AGENT_ID_REGEX = AGENT_ID_REGEX;
 module.exports.AGENT_ID_BARE_REGEX = AGENT_ID_BARE_REGEX;
 module.exports.isValidAgentId = isValidAgentId;
 module.exports.NON_DASHBOARD_IDS = NON_DASHBOARD_IDS;

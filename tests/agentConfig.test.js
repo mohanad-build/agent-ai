@@ -85,6 +85,17 @@ describe('findAgentByPhone', () => {
     expect(findAgentByPhone('+15550006666')).toBeNull();
     expect(findAgentByPhone('+15550007777')).toBeNull();
   });
+
+  // BEHAVIOUR CHANGE, not a refactor: findAgentByPhone used to apply only
+  // the regex, not the blocklist, so example.json satisfied the old check
+  // and got opened and parsed on every call. Writing a MATCHING phone number
+  // into example.json, not a mismatched one, is what actually distinguishes
+  // "skipped without reading it" from "read, but didn't match" -- with the
+  // old regex-only check this would have returned example.json's content.
+  test('skips example.json via the blocklist, even when its content would otherwise match', () => {
+    fs.writeFileSync(path.join(tmpDir, 'example.json'), JSON.stringify({ agentPhone: '+15559999999' }));
+    expect(findAgentByPhone('+15559999999')).toBeNull();
+  });
 });
 
 // ── isLeadCategoryActionable ──────────────────────────────────────────────────
@@ -229,14 +240,14 @@ describe('patchAgent', () => {
   });
 
   // A crash between the writeFileSync and the renameSync above leaves this
-  // temp file sitting on disk. If its name satisfied discoverAgentIds' own
+  // temp file sitting on disk. If its name satisfied the shared discovery
   // filter, the next boot would pick it up as a phantom agent carrying a
   // live copy of googleRefreshToken (this project's session-39 phantom-agent
   // bug). This does not hardcode the temp filename or the regex: it captures
   // the ACTUAL path patchAgent wrote to, and runs the ACTUAL AGENT_ID_REGEX
-  // exported by both discoverAgentIds implementations against it, so the
-  // test stays meaningful if either side is ever renamed independently.
-  test('the temp file it writes cannot be discovered as an agent by any of the three discovery filters', () => {
+  // from src/agentDiscovery.js against it, so the test stays meaningful if
+  // the temp-file naming is ever changed independently.
+  test('the temp file it writes cannot be discovered as an agent', () => {
     writeConfig('agent-a', { agentId: 'agent-a', isActive: true });
 
     const writeSpy = jest.spyOn(fs, 'writeFileSync');
@@ -251,13 +262,9 @@ describe('patchAgent', () => {
       writeSpy.mockRestore();
     }
 
-    const { AGENT_ID_REGEX: indexRegex } = require('../src/index');
-    const { AGENT_ID_REGEX: dashboardRegex } = require('../src/routes/dashboard');
-    const { DIGEST_AGENT_ID_REGEX: digestRegex } = require('../src/digest')._internal;
+    const { AGENT_ID_REGEX } = require('../src/agentDiscovery');
 
-    expect(indexRegex.test(tmpBasename)).toBe(false);
-    expect(dashboardRegex.test(tmpBasename)).toBe(false);
-    expect(digestRegex.test(tmpBasename)).toBe(false);
+    expect(AGENT_ID_REGEX.test(tmpBasename)).toBe(false);
   });
 
   test('returns the full merged object, not just the patch', () => {

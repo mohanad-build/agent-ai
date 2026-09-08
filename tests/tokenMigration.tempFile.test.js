@@ -6,13 +6,15 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { migrateExistingTokens } = require('../src/tokenMigration');
-const { _internal: digestInternal } = require('../src/digest');
-const { AGENT_ID_REGEX: indexRegex }     = require('../src/index');
-const { AGENT_ID_REGEX: dashboardRegex } = require('../src/routes/dashboard');
-const { DIGEST_AGENT_ID_REGEX: digestRegex } = digestInternal;
+const { AGENT_ID_REGEX } = require('../src/agentDiscovery');
 
 let tmpDir;
 
+// AGENT_ID is cleared globally before every test (tests/setup/clearAgentIdEnv.js
+// via jest.config.js's setupFilesAfterEnv). tokenMigration.js now honours it
+// (src/agentDiscovery.js), unlike before this commit, and .env sets
+// AGENT_ID=mo-test for local dev, so this test would otherwise silently
+// migrate the wrong agent instead of the temp dir it just created.
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokenMigration-tempFile-'));
   process.env.STORAGE_ROOT = tmpDir;
@@ -25,7 +27,7 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test('the temp file writeAgentAtomic writes cannot be discovered as an agent by any of the three discovery filters', () => {
+test('the temp file writeAgentAtomic writes cannot be discovered as an agent', () => {
   fs.writeFileSync(
     path.join(tmpDir, 'agent-a.json'),
     JSON.stringify({ agentId: 'agent-a', isActive: true, googleRefreshToken: '1//plaintext-refresh-token' })
@@ -45,14 +47,11 @@ test('the temp file writeAgentAtomic writes cannot be discovered as an agent by 
     writeSpy.mockRestore();
   }
 
-  expect(indexRegex.test(tmpBasename)).toBe(false);
-  expect(dashboardRegex.test(tmpBasename)).toBe(false);
-  expect(digestRegex.test(tmpBasename)).toBe(false);
+  expect(AGENT_ID_REGEX.test(tmpBasename)).toBe(false);
 
-  // Pins the specific shape, not just "some shape the filters happen to
-  // reject": once digest.js's filter is anchored, BOTH .json.tmp and the
-  // legacy .tmp.json are already rejected by all three filters above, so
-  // those assertions alone can no longer distinguish a regression back to
+  // Pins the specific shape, not just "some shape the filter happens to
+  // reject": BOTH .json.tmp and the legacy .tmp.json are already rejected,
+  // so that assertion alone can no longer distinguish a regression back to
   // .tmp.json from the fixed .json.tmp. This is the assertion that actually
   // catches that regression.
   expect(tmpBasename).toBe('agent-a.json.tmp');

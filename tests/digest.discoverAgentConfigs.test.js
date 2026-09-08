@@ -5,7 +5,7 @@ const os   = require('os');
 const path = require('path');
 
 const { _internal } = require('../src/digest');
-const { discoverAgentConfigs, DIGEST_AGENT_ID_REGEX } = _internal;
+const { discoverAgentConfigs } = _internal;
 
 let tmpDir;
 
@@ -68,11 +68,5 @@ describe('discoverAgentConfigs', () => {
 
     expect(allAgentIds).toEqual(['agent-a']);
     expect(activeAgents).toHaveLength(1);
-  });
-
-  test('DIGEST_AGENT_ID_REGEX rejects both temp-file shapes directly', () => {
-    expect(DIGEST_AGENT_ID_REGEX.test('agent-a.json.tmp')).toBe(false);
-    expect(DIGEST_AGENT_ID_REGEX.test('agent-a.tmp.json')).toBe(false);
-    expect(DIGEST_AGENT_ID_REGEX.test('agent-a.json')).toBe(true);
   });
 });

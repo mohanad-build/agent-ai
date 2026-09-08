@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { getStorageRoot } = require('./storagePaths');
-const { discoverAgentIds } = require('./routes/dashboard');
+const { discoverAgentIds } = require('./agentDiscovery');
 const { encryptToken, ENC_PREFIX } = require('./tokenCrypto');
 
 // Same tmp-file-then-rename shape as onboard.js's writeAgentAtomic, just

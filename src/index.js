@@ -32,6 +32,7 @@ const { readContentState } = require('./content/state');
 const operatorState = require('./operatorState');
 const { loadOperator, discoverOperatorIds, validateAgentOperatorMappings } = require('./operatorConfig');
 const { getStorageRoot } = require('./storagePaths');
+const { discoverAgentIds } = require('./agentDiscovery');
 const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
@@ -66,28 +67,13 @@ const ALLOWED_STATUSES = new Set([
   'manual_handling',
 ]);
 
-// Files in agents/ that are NOT real agents.
-const AGENT_FILE_BLOCKLIST = new Set(['example.json', '.gitkeep']);
-const AGENT_ID_REGEX = /^[a-z0-9-]+\.json$/;
-
 // --------------------------------------------------------------------------
 // Agent discovery
 // --------------------------------------------------------------------------
-
-// Finds all valid agent config files in agents/.
-// If process.env.AGENT_ID is set, returns only that one (useful for debugging).
-function discoverAgentIds() {
-  if (process.env.AGENT_ID) {
-    return [process.env.AGENT_ID];
-  }
-  const agentsDir = getStorageRoot();
-  if (!fs.existsSync(agentsDir)) return [];
-  return fs
-    .readdirSync(agentsDir)
-    .filter((f) => AGENT_ID_REGEX.test(f) && !AGENT_FILE_BLOCKLIST.has(f))
-    .map((f) => f.replace(/\.json$/, ''))
-    .sort();
-}
+//
+// discoverAgentIds and its filter live in src/agentDiscovery.js, shared with
+// src/routes/dashboard.js, src/digest.js and src/agentConfig.js -- not
+// reimplemented here.
 
 // --------------------------------------------------------------------------
 // Validation
@@ -798,4 +784,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processAgent, checkStaleQuestions, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, maybeRunWeeklyEvergreenAngleGenerationJob, appendUpstreamErrorLog, runCycle: main, discoverAgentIds, AGENT_ID_REGEX };
+module.exports = { processAgent, checkStaleQuestions, maybeRunContentEngine, maybeRunDailyDigest, maybeRunDataPull, maybeRunWeeklyAngleGenerationJob, maybeRunWeeklyEvergreenAngleGenerationJob, appendUpstreamErrorLog, runCycle: main };

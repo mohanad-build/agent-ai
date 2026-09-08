@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getStorageRoot } = require('./storagePaths');
+const { isAgentConfigFilename } = require('./agentDiscovery');
 
 function loadAgent(agentId) {
   const filePath = path.join(getStorageRoot(), `${agentId}.json`);
@@ -18,11 +19,18 @@ function loadAgent(agentId) {
   return JSON.parse(raw);
 }
 
+// Uses the shared isAgentConfigFilename predicate (regex AND blocklist),
+// not just the regex: findAgentByPhone used to apply only the regex, so
+// example.json was opened and parsed on every call, harmlessly failing to
+// match a phone number rather than being skipped outright like it is
+// everywhere else. Adding the blocklist check here is a behaviour change on
+// this inbound-SMS routing path, not a pure refactor -- it now skips
+// example.json without ever reading it, same as every other discovery site.
 function findAgentByPhone(phone) {
   const agentsDir = getStorageRoot();
   const files = fs.readdirSync(agentsDir);
   for (const file of files) {
-    if (!/^[a-z0-9-]+\.json$/.test(file)) continue;
+    if (!isAgentConfigFilename(file)) continue;
     const filePath = path.join(agentsDir, file);
     let config;
     try {
@@ -113,11 +121,15 @@ function patchAgent(agentId, patch) {
   const next = { ...current, ...patch };
 
   // .json.tmp, not .tmp.json: a crash between writeFileSync and renameSync
-  // leaves this file on disk, and .tmp.json would still end in .json --
-  // discoverAgentIds' own AGENT_ID_REGEX rejects it (confirmed empirically),
-  // but src/digest.js's separate, unanchored `f.endsWith('.json')` agent
-  // sweep does not, and would load it as a phantom agent carrying a live
-  // copy of googleRefreshToken. .json.tmp matches neither.
+  // leaves this file on disk. Every discovery site (src/agentDiscovery.js's
+  // isAgentConfigFilename, shared by all of them now) rejects both shapes
+  // today, so this is no longer the only thing standing between an orphaned
+  // temp file and a phantom agent holding a live googleRefreshToken -- it
+  // once was, back when src/digest.js still ran its own unanchored
+  // `f.endsWith('.json')` sweep that .tmp.json would have slipped through.
+  // .json.tmp is kept anyway, to match the one tmp-suffix convention every
+  // other atomic writer in this codebase already uses (onboard.js,
+  // tokenMigration.js), not because it is the last line of defense anymore.
   const tmpPath = path.join(getStorageRoot(), `${agentId}.json.tmp`);
   fs.writeFileSync(tmpPath, JSON.stringify(next, null, 2) + '\n', 'utf8');
   fs.renameSync(tmpPath, filePath);
