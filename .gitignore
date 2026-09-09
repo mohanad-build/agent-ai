@@ -38,3 +38,12 @@ calibration-archive/
 # HARD GATE follow-up/path1a prompt iteration baselines (local working evidence, recreated via scripts/iterate-prompts.js)
 prompt-iteration-archive/
 agents/
+
+# Session store (CASA 2.2.1): encrypted session files written under
+# STORAGE_ROOT/_sessions by src/sessionStore.js. No leading slash, so this
+# matches at any depth -- covers STORAGE_ROOT defaulting to repo root
+# (process.cwd(), see storagePaths.js) as well as STORAGE_ROOT=agents/ in
+# local dev. Not relying on the agents/ rule above: that only happens to
+# cover this because of this developer's specific STORAGE_ROOT value, not
+# because it was meant to.
+_sessions/

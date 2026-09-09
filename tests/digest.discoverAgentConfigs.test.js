@@ -6,6 +6,7 @@ const path = require('path');
 
 const { _internal } = require('../src/digest');
 const { discoverAgentConfigs } = _internal;
+const { SESSION_STORE_SUBDIR } = require('../src/sessionStore');
 
 let tmpDir;
 
@@ -63,6 +64,21 @@ describe('discoverAgentConfigs', () => {
     writeAgentFile('agent-a.state.json', { lastTokenIssued: 3 });
     writeAgentFile('agent-a.contentProfile.json', { agentId: 'agent-a' });
     writeAgentFile('agent-a.contentState.json', { agentId: 'agent-a' });
+
+    const { allAgentIds, activeAgents } = discoverAgentConfigs('test-operator');
+
+    expect(allAgentIds).toEqual(['agent-a']);
+    expect(activeAgents).toHaveLength(1);
+  });
+
+  // Same guard as tests/agentDiscovery.test.js, against this file's own
+  // copy of the id-listing step: the session store (src/sessionStore.js,
+  // CASA 2.2.1) creates a real directory at STORAGE_ROOT/<subdir>, and
+  // this function walks the same STORAGE_ROOT. Confirmed, not assumed,
+  // against the real exported subdirectory name.
+  test('never adopts the session store subdirectory as a phantom agent', () => {
+    fs.mkdirSync(path.join(tmpDir, SESSION_STORE_SUBDIR));
+    writeAgentFile('agent-a.json', { agentId: 'agent-a', isActive: true });
 
     const { allAgentIds, activeAgents } = discoverAgentConfigs('test-operator');
 

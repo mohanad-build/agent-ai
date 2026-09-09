@@ -11,6 +11,14 @@ const {
   discoverAgentIds,
 } = require('../src/agentDiscovery');
 
+// Imported, not hardcoded as 'sessions' or '_sessions': the point of this
+// guard is that the *actual* directory the session store creates under
+// STORAGE_ROOT (src/sessionStore.js, CASA 2.2.1's file-backed session
+// store) is never adopted as a phantom agent, not that some string that
+// merely looks like it isn't. A hardcoded guess would stop proving
+// anything the moment the two names drifted apart.
+const { SESSION_STORE_SUBDIR } = require('../src/sessionStore');
+
 let tmpDir;
 
 // AGENT_ID is cleared globally before every test (tests/setup/clearAgentIdEnv.js
@@ -165,5 +173,22 @@ describe('discoverAgentIds', () => {
     process.env.AGENT_ID = 'my-agent';
 
     expect(discoverAgentIds()).toEqual(['my-agent']);
+  });
+
+  // THE PHANTOM-AGENT GUARD (session 39's bug class arriving by a new
+  // route): the session store now creates a real directory,
+  // STORAGE_ROOT/<SESSION_STORE_SUBDIR>, sitting in the exact directory
+  // discoverAgentIds scans. fs.readdirSync returns directory entries and
+  // files alike with no type distinction applied before the filename
+  // filter runs, so this directory is only excluded because
+  // isAgentConfigFilename's regex is anchored on a literal .json suffix,
+  // not because anything here knows it's a directory. Asserting this
+  // rather than reasoning about it, per the recon that gated this change.
+  it('never adopts the session store subdirectory as a phantom agent', () => {
+    fs.mkdirSync(path.join(tmpDir, SESSION_STORE_SUBDIR));
+    writeAgentFile('real-agent.json');
+
+    expect(isAgentConfigFilename(SESSION_STORE_SUBDIR)).toBe(false);
+    expect(discoverAgentIds()).toEqual(['real-agent']);
   });
 });
