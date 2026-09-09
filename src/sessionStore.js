@@ -108,6 +108,36 @@ function ensureSessionDirLockedDown(dir) {
   fs.chmodSync(dir, 0o700);
 }
 
+// session-file-store's get() (session-file-helpers.js) retries ANY read
+// failure up to `retries` times (default 5, unconditional on error code --
+// confirmed by reading it, not assumed) before giving up, logging a
+// "will retry" line through this hook on every attempt. A missing session
+// file is the expected outcome of an expired cookie, an already-swept
+// session, or a forged session id -- not a failure -- and it is common:
+// every request carrying such a cookie hits this path once per read.
+// Retries cannot be scoped to exclude ENOENT specifically -- get()'s retry
+// loop has no error-code branch to hook into -- so lowering `retries`
+// to cut this noise would equally cut resilience against a genuine
+// transient I/O error (e.g. a momentary EBUSY on a network volume), which
+// is not a trade worth making. `retries` is left at the library default;
+// this logFn is the actual fix.
+//
+// Silencing ENOENT here is deliberate and narrow: every other error - a
+// real permissions problem, a corrupt file, a full disk - still surfaces,
+// through the same [tag] message: err form the rest of this codebase
+// already uses (see sweepExpiredSessions's own error log below). The
+// benign reap-status lines session-file-store also sends through this
+// hook ("Deleting expired sessions", once an hour from its own internal
+// reaper) are left on console.log, unchanged - they were never errors.
+function sessionStoreLogFn(message) {
+  if (message.indexOf('will retry, error on last attempt') !== -1) {
+    if (message.indexOf('ENOENT') !== -1) return;
+    console.error(`[sessionStore] ${message}`);
+    return;
+  }
+  console.log(message);
+}
+
 function createSessionStore() {
   const dir = getSessionStoreDir();
   ensureSessionDirLockedDown(dir);
@@ -116,6 +146,7 @@ function createSessionStore() {
     path: dir,
     ttl: SESSION_STORE_TTL_SECONDS,
     secret: deriveSessionFileKey(process.env.SESSION_SECRET),
+    logFn: sessionStoreLogFn,
     // Not set to -1. session-file-store's own internal reaper (default:
     // every options.ttl-independent reapInterval, 3600s) stays enabled as
     // an independent backstop -- see startSessionSweep's comment for why
@@ -161,6 +192,16 @@ function sweepExpiredSessions(store) {
       files.forEach((file) => {
         const sessionId = file.replace(/\.json$/, '');
         store.expired(sessionId, (expErr, isExpired) => {
+          // expired() (session-file-helpers.js) reads the file internally
+          // to check it, so it can itself ENOENT if the library's own
+          // reaper (or a concurrent req.session.destroy(), e.g. a real
+          // logout) deletes this exact file in the gap between list()
+          // above and this call. That race means the file is already
+          // gone -- the outcome this sweep pass wanted anyway -- not a
+          // failure; treating it as one would abort reporting on the
+          // entire sweep batch over a single already-won race. Any other
+          // error still fails this file's iteration for real.
+          if (expErr && expErr.code === 'ENOENT') return done();
           if (expErr) return done(expErr);
           if (!isExpired) return done();
           store.destroy(sessionId, done);

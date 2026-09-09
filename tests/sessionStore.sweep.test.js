@@ -125,4 +125,25 @@ describe('session store reaper (CASA 2.2.1)', () => {
     await destroySession(store, 'raced-sid'); // first delete, e.g. our sweep
     await expect(destroySession(store, 'raced-sid')).resolves.toBeUndefined(); // second delete, e.g. the library's own reaper
   });
+
+  // The SAME race, one step earlier: expired() (session-file-helpers.js)
+  // reads the file internally to check it, so it can ENOENT too, not just
+  // destroy(). This simulates the library's own reaper (or a concurrent
+  // real logout's req.session.destroy()) deleting the file in the exact
+  // gap between our sweep's list() and its subsequent expired() call for
+  // that same id. Before this fix, that ENOENT rejected the whole
+  // sweepExpiredSessions() promise -- one already-won race aborting
+  // reporting on the entire sweep batch, not just this one file.
+  it('tolerates a file already deleted by the time expired() checks it (reaper race)', async () => {
+    jest.setSystemTime(Date.now());
+    await setSession(store, 'raced-sid', sessionWithFreshLastAccess());
+
+    const originalExpired = store.expired.bind(store);
+    store.expired = (sessionId, cb) => {
+      fs.unlinkSync(sessionFilePath(sessionId)); // the race: gone before expired() itself reads it
+      originalExpired(sessionId, cb);
+    };
+
+    await expect(sweepExpiredSessions(store)).resolves.toBeUndefined();
+  });
 });
