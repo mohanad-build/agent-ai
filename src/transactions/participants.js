@@ -52,6 +52,7 @@ const crypto = require('node:crypto');
 
 const store = require('./store');
 const events = require('./events');
+const { normalizeEmailAddress } = require('./emailAddress');
 
 // -- ID generation --------------------------------------------------------------
 
@@ -257,6 +258,79 @@ function voidParticipant(agentId, transactionId, participantId, opts = {}) {
   return store.writeTransaction(agentId, next, { baseDir, now });
 }
 
+// -- addParticipantEmail --------------------------------------------------------
+
+// Appends one email address to an EXISTING live participant. Add-only:
+// never replaces, reorders or removes an entry already in `emails`, the
+// same set-once discipline this module already holds for roles. There is
+// no removeParticipantEmail for the same reason there is no
+// updateParticipantRole -- this is a record of what was learned about a
+// person, not a mutable profile.
+//
+// A voided participant refuses, distinctly from an unknown id, the same
+// two-message split voidParticipant already makes: a voided person is
+// history, and history does not take new facts.
+//
+// DUPLICATE IS A NO-OP THAT WRITES NOTHING, following accumulator.js's
+// distinct-outcomes convention rather than voidParticipant's throw-or-
+// write convention: a duplicate is not a caller error the way a bad
+// reason or an unknown id is, it is a fact the caller already told this
+// transaction, so there is nothing to refuse and nothing to write. This
+// is the same zero-net-change-write problem TC_SPEC 7.13's accumulator
+// exists to avoid (see recordObservedAddresses's own "three states, not a
+// guard on entries.length alone" reasoning in observedAddresses.js): no
+// event, no store write, no updatedAt churn, just a reported outcome.
+//
+// The stored value is the caller's own casing and whitespace, unchanged
+// (following addParticipant's existing storage behavior for emails); the
+// duplicate check compares both sides through normalizeEmailAddress
+// (emailAddress.js), the same helper matcher.js's collectKnownAddresses
+// now shares, so "already has this address" cannot disagree with what
+// signal B would consider a match.
+//
+// actor is deliberately NOT restricted to 'agent' the way voidParticipant
+// restricts its own actor: voiding is a judgment call, recording an
+// address seen on a message is not, and accumulator.js (TC_SPEC 7.13) is
+// a plausible future caller writing as 'system'. events.makeEvent's own
+// ACTORS check is the only actor validation here.
+function addParticipantEmail(agentId, transactionId, participantId, email, opts = {}) {
+  const { at, actor, baseDir, now } = opts;
+
+  assertNonEmptyString('addParticipantEmail', 'email', email);
+
+  const previous = readExisting('addParticipantEmail', agentId, transactionId, baseDir);
+  const liveParticipants = previous.participants || {};
+  const voidedParticipants = previous.voidedParticipants || {};
+
+  if (!Object.prototype.hasOwnProperty.call(liveParticipants, participantId)) {
+    if (Object.prototype.hasOwnProperty.call(voidedParticipants, participantId)) {
+      throw new Error(`addParticipantEmail: '${participantId}' is voided on transaction ${transactionId} and cannot take new facts`);
+    }
+    throw new Error(`addParticipantEmail: '${participantId}' is not a participant on transaction ${transactionId}`);
+  }
+
+  const participant = liveParticipants[participantId];
+  const existingEmails = participant.emails || [];
+  const target = normalizeEmailAddress(email);
+  const isDuplicate = existingEmails.some((existing) => normalizeEmailAddress(existing) === target);
+
+  if (isDuplicate) {
+    return { outcome: 'duplicate' };
+  }
+
+  const event = events.makeEvent({ at, actor, kind: 'participant_email_added', payload: { id: participantId, email } });
+
+  const nextParticipant = { ...participant, emails: [...existingEmails, email] };
+  const next = {
+    ...previous,
+    participants: { ...liveParticipants, [participantId]: nextParticipant },
+    events: events.appendEvent(previous.events, event),
+  };
+
+  const transaction = store.writeTransaction(agentId, next, { baseDir, now });
+  return { outcome: 'added', transaction };
+}
+
 // -- deriveRepresentedPersons ---------------------------------------------------
 
 // A participant counts as represented when their roles include 'client' or
@@ -377,6 +451,7 @@ module.exports = {
   addParticipant,
   voidParticipant,
   VOID_REASONS,
+  addParticipantEmail,
   deriveRepresentedPersons,
   isRepresented,
   REPRESENTED_ROLES,

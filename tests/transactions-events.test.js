@@ -26,7 +26,7 @@ describe('ACTORS', () => {
 });
 
 describe('EVENT_KINDS', () => {
-  it('lists exactly the sixteen expected kinds', () => {
+  it('lists exactly the seventeen expected kinds', () => {
     expect(EVENT_KINDS).toEqual([
       'closed_with_items_outstanding',
       'fact_set',
@@ -43,6 +43,7 @@ describe('EVENT_KINDS', () => {
       'document_rejected',
       'participant_added',
       'participant_voided',
+      'participant_email_added',
       'addresses_observed',
     ]);
   });

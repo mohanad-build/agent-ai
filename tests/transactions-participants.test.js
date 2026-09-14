@@ -5,7 +5,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant, voidParticipant, VOID_REASONS, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
+const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const { createTransaction, readTransaction } = require('../src/transactions/store');
 const { evaluateSignals } = require('../src/transactions/matcher');
@@ -546,5 +546,143 @@ describe('voidParticipant', () => {
 
     const after = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(evaluateSignals(after, message).signals.B).toBe(false);
+  });
+});
+
+describe('addParticipantEmail', () => {
+  function addOne(transactionId, roles, opts = {}) {
+    const result = addParticipant(AGENT_ID, transactionId, roles, { at: AT, actor: 'agent', baseDir, now: CLOCK, ...opts });
+    return Object.keys(result.participants).find((id) => (opts.name ? result.participants[id].name === opts.name : true)) || Object.keys(result.participants)[0];
+  }
+
+  it('appends, and prior addresses survive in order', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { emails: ['first@example.com'] });
+
+    const result = addParticipantEmail(AGENT_ID, created.transactionId, id, 'second@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(result.outcome).toBe('added');
+    expect(result.transaction.participants[id].emails).toEqual(['first@example.com', 'second@example.com']);
+  });
+
+  it('creates the emails array on a participant that has none yet', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    const result = addParticipantEmail(AGENT_ID, created.transactionId, id, 'first@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(result.outcome).toBe('added');
+    expect(result.transaction.participants[id].emails).toEqual(['first@example.com']);
+  });
+
+  it('stores the value exactly as given, casing and all', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    const result = addParticipantEmail(AGENT_ID, created.transactionId, id, 'Jane.Smith@Example.COM', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(result.transaction.participants[id].emails).toEqual(['Jane.Smith@Example.COM']);
+  });
+
+  // Detection correctness only: does the outcome say duplicate. Whether a
+  // write actually happens is a separate concern, covered on its own
+  // below, so the two properties can be broken (and tested) one at a
+  // time.
+  it('an identical-case duplicate is detected as a duplicate', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { emails: ['jane@example.com'] });
+
+    const result = addParticipantEmail(AGENT_ID, created.transactionId, id, 'jane@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(result).toEqual({ outcome: 'duplicate' });
+  });
+
+  it('a case-differing duplicate is ALSO detected as a duplicate', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { emails: ['Jane@Example.com'] });
+
+    const result = addParticipantEmail(AGENT_ID, created.transactionId, id, '  JANE@EXAMPLE.COM  ', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(result).toEqual({ outcome: 'duplicate' });
+  });
+
+  it('a duplicate no-op writes nothing: no event, no store write, no updatedAt churn', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { emails: ['jane@example.com'] });
+    const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    addParticipantEmail(AGENT_ID, created.transactionId, id, 'jane@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    const after = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(after).toEqual(before);
+    expect(after.updatedAt).toBe(before.updatedAt);
+    expect(after.events).toEqual(before.events);
+  });
+
+  it('appends a participant_email_added event carrying the id and email', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    const result = addParticipantEmail(AGENT_ID, created.transactionId, id, 'jane@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    const addedEvents = result.transaction.events.filter((e) => e.kind === 'participant_email_added');
+    expect(addedEvents).toHaveLength(1);
+    expect(addedEvents[0]).toMatchObject({ at: AT2, actor: 'agent', kind: 'participant_email_added', payload: { id, email: 'jane@example.com' } });
+  });
+
+  it('accepts system as the actor, unlike voidParticipant', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    const result = addParticipantEmail(AGENT_ID, created.transactionId, id, 'jane@example.com', { at: AT2, actor: 'system', baseDir, now: LATER });
+
+    expect(result.outcome).toBe('added');
+    const addedEvents = result.transaction.events.filter((e) => e.kind === 'participant_email_added');
+    expect(addedEvents[0].actor).toBe('system');
+  });
+
+  it('a voided participant refuses, with a message distinct from an unknown id', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+    voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'no_longer_on_deal', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    const voidedError = (() => {
+      try {
+        addParticipantEmail(AGENT_ID, created.transactionId, id, 'jane@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+      } catch (err) {
+        return err.message;
+      }
+      return undefined;
+    })();
+
+    const unknownError = (() => {
+      try {
+        addParticipantEmail(AGENT_ID, created.transactionId, 'per-ffffffff', 'jane@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+      } catch (err) {
+        return err.message;
+      }
+      return undefined;
+    })();
+
+    expect(voidedError).toContain('is voided on transaction');
+    expect(unknownError).toContain('is not a participant on transaction');
+    expect(voidedError).not.toEqual(unknownError);
+  });
+
+  // Exercises the real writer end to end, not a hand-built fixture, the
+  // same reasoning voidParticipant's own matcher integration test above
+  // uses. No change to matcher.js.
+  it('collectKnownAddresses (signal B) sees a newly added address, through the real writer, with no change to matcher.js', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+    const message = { threadId: 'thread-1', addresses: [{ address: 'jane@example.com' }] };
+
+    const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(evaluateSignals(before, message).signals.B).toBe(false);
+
+    addParticipantEmail(AGENT_ID, created.transactionId, id, 'jane@example.com', { at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    const after = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(evaluateSignals(after, message).signals.B).toBe(true);
   });
 });
