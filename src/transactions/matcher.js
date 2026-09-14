@@ -42,6 +42,7 @@
 const { parseAddress, compareAddresses } = require('./address');
 const { findAddressCandidates } = require('./addressScan');
 const { hasConfirmedFilingOnThread } = require('./filings');
+const { normalizeEmailAddress } = require('./emailAddress');
 const states = require('./states');
 
 const SIGNAL_KEYS = Object.freeze(['A', 'B', 'C', 'D']);
@@ -86,21 +87,17 @@ function textNamesAddress(text, target) {
 
 // -- Signal B: message addresses against participants and observedAddresses -------
 
-function normalizeAddress(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
 function collectKnownAddresses(transaction) {
   const known = new Set();
 
   const participants = transaction.participants || {};
   Object.keys(participants).forEach((id) => {
     const emails = participants[id].emails || [];
-    emails.forEach((email) => known.add(normalizeAddress(email)));
+    emails.forEach((email) => known.add(normalizeEmailAddress(email)));
   });
 
   const observed = transaction.observedAddresses || {};
-  Object.keys(observed).forEach((address) => known.add(normalizeAddress(address)));
+  Object.keys(observed).forEach((address) => known.add(normalizeEmailAddress(address)));
 
   return known;
 }
@@ -140,7 +137,7 @@ function evaluateSignals(transaction, message) {
   // B: absent when addresses is empty, never absent otherwise.
   if (addresses.length > 0) {
     const known = collectKnownAddresses(transaction);
-    signals.B = addresses.some((entry) => known.has(normalizeAddress(entry?.address)));
+    signals.B = addresses.some((entry) => known.has(normalizeEmailAddress(entry?.address)));
   }
 
   // D: never absent. An empty filings map is a real answer, and
