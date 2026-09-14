@@ -23,9 +23,22 @@
 // ROLES ARE SET-ONCE. A role never changes mid-deal: if a lawyer is
 // replaced, the old participant stays on the file and a new one is added,
 // because the record shows who was involved over the life of the deal, not
-// only who is involved right now. This module therefore ships only an add
-// path. There is no updateParticipantRole, and none should be added: a
-// changed role is a new participant, not a mutation of an old one.
+// only who is involved right now. There is no updateParticipantRole, and
+// none should be added: a changed role is a new participant, not a
+// mutation of an old one.
+//
+// VOIDING MOVES, IT DOES NOT FLAG. voidParticipant removes an entry from
+// `participants` entirely and writes it into a sibling top-level map,
+// `voidedParticipants`, keyed by the same id. It is not a status field on
+// the live record, because every direct reader of `participants`
+// (matcher.js's collectKnownAddresses, satisfactions.js's
+// assertRepresented, this module's own deriveRepresentedPersons and
+// resolveParticipantByName, scripts/list-participants.js) reads the live
+// map's full contents with no status filter. A flag would require every
+// one of those to learn a new rule; a move requires none of them to
+// change at all, because the live map now simply contains the right set.
+// There is no editParticipant either: a void's reason is recorded once,
+// at the moment of voiding, and is not a mutable field on either record.
 //
 // representedPersons is no longer a stored fact: checklist.js derives it
 // from this module's participants map via deriveRepresentedPersons below,
@@ -88,6 +101,32 @@ function assertBoolean(fnName, name, value) {
   }
 }
 
+// Two permitted values, not a free-text field: 'recorded_in_error' means
+// the entry should never have existed (a duplicate, a wrong name typed
+// against the wrong deal); 'no_longer_on_deal' means the person was real
+// and genuinely involved, but is not any more (a lawyer who withdrew, a
+// co-buyer who dropped off the deal). The distinction matters to whoever
+// reads the file later, the same reason FILING_REVIEW_STATUSES and
+// FACT_KEYS are closed lists rather than strings the caller invents.
+const VOID_REASONS = Object.freeze(['recorded_in_error', 'no_longer_on_deal']);
+
+function assertVoidReason(fnName, reason) {
+  if (!VOID_REASONS.includes(reason)) {
+    throw new Error(`${fnName}: reason must be one of ${VOID_REASONS.join(', ')}`);
+  }
+}
+
+// Voiding is a judgment call about who belongs on a deal file, never an
+// automated inference: 'system' (events.js's ACTORS) is refused here even
+// though makeEvent below would otherwise accept it. This is a narrower
+// rule than makeEvent's own actor check, enforced before it, so the error
+// names voidParticipant rather than makeEvent.
+function assertVoidActor(fnName, actor) {
+  if (actor !== 'agent') {
+    throw new Error(`${fnName}: actor must be 'agent'`);
+  }
+}
+
 function readExisting(fnName, agentId, transactionId, baseDir) {
   const previous = store.readTransaction(agentId, transactionId, { baseDir });
   if (previous === null) {
@@ -134,11 +173,84 @@ function addParticipant(agentId, transactionId, roles, opts = {}) {
   const previous = readExisting('addParticipant', agentId, transactionId, baseDir);
   const id = generateParticipantId();
 
+  // Ids must stay unique across BOTH participants and voidedParticipants,
+  // not just within the live map: clientSatisfactions is keyed by
+  // participant id, and voiding never removes an id from
+  // voidedParticipants, so a freshly generated id landing on one already
+  // used there would silently point satisfactions history recorded
+  // against the voided person at whoever this call is adding instead.
+  // generateParticipantId's collision odds are astronomically low
+  // (crypto.randomBytes(4)) but this is the writer that could actually
+  // produce the collision, so this is where it gets checked.
+  if (
+    Object.prototype.hasOwnProperty.call(previous.participants || {}, id) ||
+    Object.prototype.hasOwnProperty.call(previous.voidedParticipants || {}, id)
+  ) {
+    throw new Error(`addParticipant: generated id '${id}' is already in use on transaction ${transactionId}`);
+  }
+
   const event = events.makeEvent({ at, actor, kind: 'participant_added', payload: { id, roles: entry.roles } });
 
   const next = {
     ...previous,
     participants: { ...(previous.participants || {}), [id]: entry },
+    events: events.appendEvent(previous.events, event),
+  };
+
+  return store.writeTransaction(agentId, next, { baseDir, now });
+}
+
+// -- voidParticipant ------------------------------------------------------------
+
+// Moves one entry from `participants` to `voidedParticipants`, keyed by the
+// same id in both maps (never in both at once). The moved record is the
+// live entry unchanged, plus `at`, `actor` and `reason` added onto it --
+// the same shape discipline satisfactions.js uses for its own per-item
+// { at, actor } records, extended with the one extra field a void needs
+// that a satisfaction does not.
+//
+// clientSatisfactions is deliberately left untouched: entries recorded
+// against this id still point at it, now inside voidedParticipants rather
+// than participants. That is the intended record of who satisfied what
+// before being voided, not a dangling reference to clean up.
+function voidParticipant(agentId, transactionId, participantId, opts = {}) {
+  const { reason, at, actor, baseDir, now } = opts;
+
+  assertVoidReason('voidParticipant', reason);
+  assertVoidActor('voidParticipant', actor);
+
+  const previous = readExisting('voidParticipant', agentId, transactionId, baseDir);
+  const liveParticipants = previous.participants || {};
+  const voidedParticipants = previous.voidedParticipants || {};
+
+  // Two different mistakes get two different messages: an id that never
+  // named anyone on this transaction is a caller error (wrong id, wrong
+  // transaction); an id that already names a voided entry is a caller
+  // trying to void the same person twice. Collapsing these into one
+  // "not available" message would hide which one actually happened.
+  if (!Object.prototype.hasOwnProperty.call(liveParticipants, participantId)) {
+    if (Object.prototype.hasOwnProperty.call(voidedParticipants, participantId)) {
+      throw new Error(`voidParticipant: '${participantId}' is already voided on transaction ${transactionId}`);
+    }
+    throw new Error(`voidParticipant: '${participantId}' is not a participant on transaction ${transactionId}`);
+  }
+
+  const liveEntry = liveParticipants[participantId];
+
+  const event = events.makeEvent({ at, actor, kind: 'participant_voided', payload: { id: participantId, reason } });
+
+  const nextParticipants = { ...liveParticipants };
+  delete nextParticipants[participantId];
+
+  const nextVoided = {
+    ...voidedParticipants,
+    [participantId]: { ...liveEntry, at, actor, reason },
+  };
+
+  const next = {
+    ...previous,
+    participants: nextParticipants,
+    voidedParticipants: nextVoided,
     events: events.appendEvent(previous.events, event),
   };
 
@@ -192,13 +304,34 @@ function deriveRepresentedPersons(participants) {
 // up front. There is no shared case-insensitive helper in this repo
 // (src/index.js:332, src/webhook.js:94 each inline .trim().toLowerCase());
 // this follows that.
-function resolveParticipantByName(participants, name) {
+//
+// Takes the whole transaction, not a bare participants map, because it now
+// has to check two maps that must agree with each other: a live match
+// always wins, and only when there is none does a name get checked against
+// voidedParticipants. A separate voidedParticipants parameter was rejected
+// on purpose -- optional would let a caller silently pass none and read
+// 'not_found' where the true answer is 'voided'; required would give a
+// transaction with no voided participants nothing to pass. The transaction
+// object is the one thing that always has both maps, or the absence of
+// either, in the same place.
+//
+// This is NOT a live-set consumer the way collectKnownAddresses or
+// assertRepresented are: those must never see a voided participant, and do
+// not, because voiding removes the id from `participants` entirely. This
+// function's contract is unchanged -- it still only ever RESOLVES to a
+// live, represented id -- but a miss now distinguishes "never existed"
+// from "existed and was voided" instead of collapsing both into
+// not_found, because those are different facts and the caller needs to
+// say which one to the person asking.
+function resolveParticipantByName(transaction, name) {
+  const participants = transaction.participants || {};
+  const voidedParticipants = transaction.voidedParticipants || {};
   const target = name.trim().toLowerCase();
 
   const candidates = [];
   let namelessCount = 0;
 
-  Object.keys(participants || {}).forEach((id) => {
+  Object.keys(participants).forEach((id) => {
     const participant = participants[id];
     if (!isRepresented(participant)) {
       return;
@@ -220,13 +353,35 @@ function resolveParticipantByName(participants, name) {
   if (candidates.length === 1) {
     return { resolved: true, id: candidates[0].id };
   }
-  if (candidates.length === 0) {
-    return { resolved: false, reason: 'not_found', namelessCount };
+  if (candidates.length > 1) {
+    return { resolved: false, reason: 'ambiguous', candidates };
   }
-  return { resolved: false, reason: 'ambiguous', candidates };
+
+  // Zero live candidates. Before calling it not_found, check whether a
+  // voided, represented participant matches -- scoped by isRepresented the
+  // same way the live search above is, so a voided lawyer sharing the name
+  // does not manufacture a 'voided' answer that the live path itself would
+  // never have resolved to in the first place.
+  const voidedMatchId = Object.keys(voidedParticipants).find((id) => {
+    const voided = voidedParticipants[id];
+    return isRepresented(voided) && voided.name !== undefined && voided.name.trim().toLowerCase() === target;
+  });
+  if (voidedMatchId !== undefined) {
+    return { resolved: false, reason: 'voided', id: voidedMatchId, voidReason: voidedParticipants[voidedMatchId].reason };
+  }
+
+  return { resolved: false, reason: 'not_found', namelessCount };
 }
 
-module.exports = { addParticipant, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName };
+module.exports = {
+  addParticipant,
+  voidParticipant,
+  VOID_REASONS,
+  deriveRepresentedPersons,
+  isRepresented,
+  REPRESENTED_ROLES,
+  resolveParticipantByName,
+};
 
 module.exports._internal = {
   PARTICIPANT_ID_RE,

@@ -67,6 +67,33 @@ describe('evaluateSignals', () => {
 
       expect(result).toEqual({ met: false, signals: { C: true, D: false } });
     });
+
+    // No change to matcher.js for this: collectKnownAddresses only ever
+    // reads transaction.participants, and a voided participant's record
+    // has moved out of that map entirely (src/transactions/participants.js
+    // voidParticipant). This transaction is built by hand, the same way
+    // the 'B true alone' fixture above is, to show that the live map
+    // simply no longer contains the address -- not that matcher.js learned
+    // a new rule.
+    it('a voided participant\'s email is no longer seen by signal B, with the address only in voidedParticipants', () => {
+      const transaction = baseTransaction({
+        participants: {},
+        voidedParticipants: {
+          'per-1': {
+            roles: ['client'],
+            emails: ['jane@example.com'],
+            at: '2026-07-16T09:30:00.000Z',
+            actor: 'agent',
+            reason: 'no_longer_on_deal',
+          },
+        },
+      });
+      const message = baseMessage({ addresses: [{ address: 'jane@example.com' }] });
+
+      const result = evaluateSignals(transaction, message);
+
+      expect(result).toEqual({ met: false, signals: { B: false, D: false } });
+    });
   });
 
   describe('each pair of A, B, C true', () => {

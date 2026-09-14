@@ -1,12 +1,14 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
+const { addParticipant, voidParticipant, VOID_REASONS, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const { createTransaction, readTransaction } = require('../src/transactions/store');
+const { evaluateSignals } = require('../src/transactions/matcher');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -276,36 +278,38 @@ describe('public exports', () => {
 
 describe('resolveParticipantByName', () => {
   it('resolves an exact match to that participant\'s id', () => {
-    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
-    expect(resolveParticipantByName(map, 'Jane Smith')).toEqual({ resolved: true, id: 'per-11111111' });
+    const transaction = { participants: { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } } };
+    expect(resolveParticipantByName(transaction, 'Jane Smith')).toEqual({ resolved: true, id: 'per-11111111' });
   });
 
   it('matches case-insensitively', () => {
-    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
-    expect(resolveParticipantByName(map, 'JANE smith')).toEqual({ resolved: true, id: 'per-11111111' });
+    const transaction = { participants: { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } } };
+    expect(resolveParticipantByName(transaction, 'JANE smith')).toEqual({ resolved: true, id: 'per-11111111' });
   });
 
   it('trims leading and trailing whitespace on the input', () => {
-    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
-    expect(resolveParticipantByName(map, '  Jane Smith  ')).toEqual({ resolved: true, id: 'per-11111111' });
+    const transaction = { participants: { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } } };
+    expect(resolveParticipantByName(transaction, '  Jane Smith  ')).toEqual({ resolved: true, id: 'per-11111111' });
   });
 
   it('matches when the stored name itself has surrounding whitespace', () => {
-    const map = { 'per-11111111': { roles: ['client'], name: '  Jane Smith  ' } };
-    expect(resolveParticipantByName(map, 'Jane Smith')).toEqual({ resolved: true, id: 'per-11111111' });
+    const transaction = { participants: { 'per-11111111': { roles: ['client'], name: '  Jane Smith  ' } } };
+    expect(resolveParticipantByName(transaction, 'Jane Smith')).toEqual({ resolved: true, id: 'per-11111111' });
   });
 
   it('returns not_found for a name matching nobody', () => {
-    const map = { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } };
-    expect(resolveParticipantByName(map, 'Nobody Home')).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
+    const transaction = { participants: { 'per-11111111': { roles: ['client'], name: 'Jane Smith' } } };
+    expect(resolveParticipantByName(transaction, 'Nobody Home')).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
   });
 
   it('returns ambiguous with both candidates when two represented participants share a name', () => {
-    const map = {
-      'per-11111111': { roles: ['client'], name: 'Jane Smith' },
-      'per-22222222': { roles: ['co_client'], name: 'Jane Smith' },
+    const transaction = {
+      participants: {
+        'per-11111111': { roles: ['client'], name: 'Jane Smith' },
+        'per-22222222': { roles: ['co_client'], name: 'Jane Smith' },
+      },
     };
-    const result = resolveParticipantByName(map, 'Jane Smith');
+    const result = resolveParticipantByName(transaction, 'Jane Smith');
     expect(result.resolved).toBe(false);
     expect(result.reason).toBe('ambiguous');
     expect(result.candidates).toEqual([
@@ -315,31 +319,232 @@ describe('resolveParticipantByName', () => {
   });
 
   it('does not resolve a non-represented participant sharing the name, and reports not_found', () => {
-    const map = { 'per-11111111': { roles: ['lawyer'], name: 'Jane Smith' } };
-    expect(resolveParticipantByName(map, 'Jane Smith')).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
+    const transaction = { participants: { 'per-11111111': { roles: ['lawyer'], name: 'Jane Smith' } } };
+    expect(resolveParticipantByName(transaction, 'Jane Smith')).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
   });
 
   it('counts only represented, nameless participants in namelessCount', () => {
-    const map = {
-      'per-11111111': { roles: ['client'] },
-      'per-22222222': { roles: ['lawyer'] },
-      'per-33333333': { roles: ['co_client'] },
+    const transaction = {
+      participants: {
+        'per-11111111': { roles: ['client'] },
+        'per-22222222': { roles: ['lawyer'] },
+        'per-33333333': { roles: ['co_client'] },
+      },
     };
-    const result = resolveParticipantByName(map, 'Jane Smith');
+    const result = resolveParticipantByName(transaction, 'Jane Smith');
     expect(result).toEqual({ resolved: false, reason: 'not_found', namelessCount: 2 });
   });
 
   it('does not throw when a represented participant has no name', () => {
-    const map = { 'per-11111111': { roles: ['client'] } };
-    expect(() => resolveParticipantByName(map, 'Jane Smith')).not.toThrow();
+    const transaction = { participants: { 'per-11111111': { roles: ['client'] } } };
+    expect(() => resolveParticipantByName(transaction, 'Jane Smith')).not.toThrow();
   });
 
   it('namelessCount is zero when every represented participant has a name', () => {
-    const map = {
-      'per-11111111': { roles: ['client'], name: 'Jane Smith' },
-      'per-22222222': { roles: ['co_client'], name: 'John Doe' },
+    const transaction = {
+      participants: {
+        'per-11111111': { roles: ['client'], name: 'Jane Smith' },
+        'per-22222222': { roles: ['co_client'], name: 'John Doe' },
+      },
     };
-    const result = resolveParticipantByName(map, 'Nobody Home');
+    const result = resolveParticipantByName(transaction, 'Nobody Home');
     expect(result).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
+  });
+
+  describe('voided participants', () => {
+    it('resolves nothing live, but reports which voided participant the name matches', () => {
+      const transaction = {
+        participants: {},
+        voidedParticipants: {
+          'per-11111111': { roles: ['client'], name: 'Dave Lee', at: AT, actor: 'agent', reason: 'no_longer_on_deal' },
+        },
+      };
+      const result = resolveParticipantByName(transaction, 'Dave Lee');
+      expect(result).toEqual({ resolved: false, reason: 'voided', id: 'per-11111111', voidReason: 'no_longer_on_deal' });
+    });
+
+    it('a name that never existed, live or voided, stays not_found even when voidedParticipants is populated', () => {
+      const transaction = {
+        participants: {},
+        voidedParticipants: {
+          'per-11111111': { roles: ['client'], name: 'Dave Lee', at: AT, actor: 'agent', reason: 'no_longer_on_deal' },
+        },
+      };
+      const result = resolveParticipantByName(transaction, 'Nobody Home');
+      expect(result).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
+    });
+
+    it('a voided NON-represented participant does not produce a voided answer, and reports not_found', () => {
+      const transaction = {
+        participants: {},
+        voidedParticipants: {
+          'per-11111111': { roles: ['lawyer'], name: 'Dave Lee', at: AT, actor: 'agent', reason: 'recorded_in_error' },
+        },
+      };
+      const result = resolveParticipantByName(transaction, 'Dave Lee');
+      expect(result).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
+    });
+
+    it('a live match wins even when a voided participant elsewhere shares the name', () => {
+      const transaction = {
+        participants: { 'per-22222222': { roles: ['client'], name: 'Dave Lee' } },
+        voidedParticipants: {
+          'per-11111111': { roles: ['client'], name: 'Dave Lee', at: AT, actor: 'agent', reason: 'recorded_in_error' },
+        },
+      };
+      const result = resolveParticipantByName(transaction, 'Dave Lee');
+      expect(result).toEqual({ resolved: true, id: 'per-22222222' });
+    });
+  });
+});
+
+describe('VOID_REASONS', () => {
+  it('is exactly recorded_in_error and no_longer_on_deal, and is frozen', () => {
+    expect(VOID_REASONS).toEqual(['recorded_in_error', 'no_longer_on_deal']);
+    expect(Object.isFrozen(VOID_REASONS)).toBe(true);
+  });
+});
+
+describe('voidParticipant', () => {
+  function addOne(transactionId, roles, opts = {}) {
+    const result = addParticipant(AGENT_ID, transactionId, roles, { at: AT, actor: 'agent', baseDir, now: CLOCK, ...opts });
+    return Object.keys(result.participants).find((id) => (opts.name ? result.participants[id].name === opts.name : true)) || Object.keys(result.participants)[0];
+  }
+
+  it('moves the entry: the live map no longer holds it, and the voided map does', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { name: 'Jane Smith' });
+
+    const result = voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'no_longer_on_deal', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(result.participants[id]).toBeUndefined();
+    expect(result.voidedParticipants[id]).toBeDefined();
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.participants[id]).toBeUndefined();
+    expect(onDisk.voidedParticipants[id]).toBeDefined();
+  });
+
+  it('the voided entry keeps the original record and gains time, actor and reason', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { name: 'Jane Smith', emails: ['jane@example.com'] });
+
+    const result = voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'recorded_in_error', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(result.voidedParticipants[id]).toEqual({
+      roles: ['client'],
+      name: 'Jane Smith',
+      emails: ['jane@example.com'],
+      at: AT2,
+      actor: 'agent',
+      reason: 'recorded_in_error',
+    });
+  });
+
+  it('appends a participant_voided event carrying the id and reason', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    const result = voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'recorded_in_error', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    const voidedEvents = result.events.filter((e) => e.kind === 'participant_voided');
+    expect(voidedEvents).toHaveLength(1);
+    expect(voidedEvents[0]).toMatchObject({ at: AT2, actor: 'agent', kind: 'participant_voided', payload: { id, reason: 'recorded_in_error' } });
+  });
+
+  it('rejects an invalid reason', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    expect(() => voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'because', at: AT2, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('voidParticipant: reason must be one of recorded_in_error, no_longer_on_deal');
+  });
+
+  it('rejects a missing reason', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    expect(() => voidParticipant(AGENT_ID, created.transactionId, id, { at: AT2, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('voidParticipant: reason must be one of recorded_in_error, no_longer_on_deal');
+  });
+
+  it('rejects an actor other than agent', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+
+    expect(() => voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'recorded_in_error', at: AT2, actor: 'system', baseDir, now: LATER }))
+      .toThrow("voidParticipant: actor must be 'agent'");
+  });
+
+  it('an unknown id and an already-voided id produce different errors', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client']);
+    voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'recorded_in_error', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    const unknownError = (() => {
+      try {
+        voidParticipant(AGENT_ID, created.transactionId, 'per-ffffffff', { reason: 'recorded_in_error', at: AT2, actor: 'agent', baseDir, now: LATER });
+      } catch (err) {
+        return err.message;
+      }
+      return undefined;
+    })();
+
+    const alreadyVoidedError = (() => {
+      try {
+        voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'recorded_in_error', at: AT2, actor: 'agent', baseDir, now: LATER });
+      } catch (err) {
+        return err.message;
+      }
+      return undefined;
+    })();
+
+    expect(unknownError).toContain('is not a participant on transaction');
+    expect(alreadyVoidedError).toContain('is already voided on transaction');
+    expect(unknownError).not.toEqual(alreadyVoidedError);
+  });
+
+  it('an id is not reusable after voiding: addParticipant refuses a generated id that collides with a voided one', () => {
+    const created = create();
+    const fixedBytes = Buffer.from('11111111', 'hex');
+    const spy = jest.spyOn(crypto, 'randomBytes').mockReturnValue(fixedBytes);
+
+    const id = addOne(created.transactionId, ['client']);
+    voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'recorded_in_error', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    // Same fixed bytes: generateParticipantId would mint the exact id that
+    // was just voided, if nothing stopped it.
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client'], { at: AT2, actor: 'agent', baseDir, now: LATER }))
+      .toThrow(`addParticipant: generated id '${id}' is already in use on transaction ${created.transactionId}`);
+
+    spy.mockRestore();
+  });
+
+  it('deriveRepresentedPersons stops counting a voided person', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { name: 'Jane Smith' });
+    expect(deriveRepresentedPersons(readTransaction(AGENT_ID, created.transactionId, { baseDir }).participants)).toEqual([id]);
+
+    const result = voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'no_longer_on_deal', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    expect(deriveRepresentedPersons(result.participants)).toBeUndefined();
+  });
+
+  // Exercises the real writer end to end, not a hand-built fixture: this is
+  // what proves voidParticipant's MOVE, not just matcher.js's read
+  // behavior on a shape someone claims voiding produces. No change to
+  // matcher.js is needed or made for signal B to stop seeing this address.
+  it('collectKnownAddresses (signal B) stops seeing a voided participant\'s email, through the real writer', () => {
+    const created = create();
+    const id = addOne(created.transactionId, ['client'], { name: 'Jane Smith', emails: ['jane@example.com'] });
+    const message = { threadId: 'thread-1', addresses: [{ address: 'jane@example.com' }] };
+
+    const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(evaluateSignals(before, message).signals.B).toBe(true);
+
+    voidParticipant(AGENT_ID, created.transactionId, id, { reason: 'no_longer_on_deal', at: AT2, actor: 'agent', baseDir, now: LATER });
+
+    const after = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(evaluateSignals(after, message).signals.B).toBe(false);
   });
 });

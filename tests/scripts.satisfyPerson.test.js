@@ -6,7 +6,7 @@ const path = require('node:path');
 const { execFileSync } = require('child_process');
 
 const { createTransaction, readTransaction } = require('../src/transactions/store');
-const { addParticipant } = require('../src/transactions/participants');
+const { addParticipant, voidParticipant } = require('../src/transactions/participants');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -180,6 +180,25 @@ describe('CLI argument handling (spawned subprocess)', () => {
 
     expect(status).toBe(1);
     expect(stderr).toContain("no represented participant named 'Nobody Home'");
+  });
+
+  it('a voided person\'s name refuses with a message naming the void reason, distinguishable from a never-existed name', () => {
+    const created = create();
+    const [daveId] = represent(created.transactionId, ['Dave Lee']);
+    voidParticipant(AGENT_ID, created.transactionId, daveId, { reason: 'no_longer_on_deal', at: AT, actor: 'agent', baseDir, now: CLOCK });
+
+    const voided = runExpectingFailure([AGENT_ID, created.transactionId, 'Dave Lee', 'reco_information_guide', '--base-dir', baseDir]);
+    const neverExisted = runExpectingFailure([AGENT_ID, created.transactionId, 'Nobody Home', 'reco_information_guide', '--base-dir', baseDir]);
+
+    expect(voided.status).toBe(1);
+    expect(voided.stderr).toContain(daveId);
+    expect(voided.stderr).toContain('is no longer on the deal');
+    expect(voided.stderr).not.toContain('no represented participant named');
+
+    expect(neverExisted.status).toBe(1);
+    expect(neverExisted.stderr).toContain("no represented participant named 'Nobody Home'");
+
+    expect(voided.stderr).not.toEqual(neverExisted.stderr);
   });
 
   it('a name matching a non-represented participant exits 1', () => {

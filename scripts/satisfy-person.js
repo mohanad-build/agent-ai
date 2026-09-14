@@ -50,6 +50,18 @@ function buildNotFoundMessage(personArg, transactionId, namelessCount) {
   return message;
 }
 
+// Distinct from buildNotFoundMessage on purpose: 'no Dave here' and 'Dave
+// is no longer on this deal' send the operator to different places. Names
+// the void reason (recorded_in_error versus no_longer_on_deal) rather than
+// just saying 'voided', since that is the fact that explains what to do
+// next.
+function buildVoidedMessage(personArg, transactionId, id, voidReason) {
+  const explanation = voidReason === 'recorded_in_error'
+    ? 'was recorded in error'
+    : 'is no longer on the deal';
+  return `satisfy-person: '${personArg}' (${id}) was voided on transaction ${transactionId}: ${explanation}.`;
+}
+
 // Resolves personArg to a participant id, in place. personArg that is
 // already shaped like a participant id is passed straight through
 // unchanged and unvalidated here: an id that names nobody on the
@@ -66,10 +78,13 @@ function resolvePerson(agentId, transactionId, personArg, baseDir) {
     throw new Error(`satisfy-person: no transaction ${transactionId} for agent ${agentId}`);
   }
 
-  const resolution = participants.resolveParticipantByName(transaction.participants, personArg);
+  const resolution = participants.resolveParticipantByName(transaction, personArg);
   if (!resolution.resolved) {
     if (resolution.reason === 'ambiguous') {
       throw new Error(buildAmbiguousMessage(personArg, transactionId, resolution.candidates));
+    }
+    if (resolution.reason === 'voided') {
+      throw new Error(buildVoidedMessage(personArg, transactionId, resolution.id, resolution.voidReason));
     }
     throw new Error(buildNotFoundMessage(personArg, transactionId, resolution.namelessCount));
   }
