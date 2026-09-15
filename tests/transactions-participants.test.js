@@ -5,7 +5,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, assertParticipantFields, resolveParticipantByName } = require('../src/transactions/participants');
+const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, ENTITY_TYPES, assertParticipantFields, resolveParticipantByName } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const store = require('../src/transactions/store');
 const { createTransaction, readTransaction } = store;
@@ -324,6 +324,54 @@ describe('PARTICIPANT_ROLES', () => {
   });
 });
 
+describe('ENTITY_TYPES', () => {
+  it('is the exact three-entry vocabulary, and is frozen', () => {
+    expect(ENTITY_TYPES).toEqual(['individual', 'corporation', 'other_entity']);
+    expect(Object.isFrozen(ENTITY_TYPES)).toBe(true);
+  });
+
+  it.each(ENTITY_TYPES)('accepts %s as an entityType', (entityType) => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client'], { entityType, at: AT, actor: 'agent', baseDir, now: LATER }))
+      .not.toThrow();
+  });
+
+  it('rejects an unknown entityType, naming it in the message', () => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client'], { entityType: 'company', at: AT, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('addParticipant: entityType contains unknown value "company"');
+  });
+
+  it('rejects a casing variant of a valid entityType', () => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client'], { entityType: 'Corporation', at: AT, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('addParticipant: entityType contains unknown value "Corporation"');
+  });
+
+  it('rejects a whitespace variant of a valid entityType, with the whitespace visible in the message', () => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client'], { entityType: 'individual ', at: AT, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('addParticipant: entityType contains unknown value "individual "');
+  });
+
+  it('NO-WRITE: a refused call with an unknown entityType leaves the transaction file byte-identical and appends no event', () => {
+    const created = create();
+    addParticipant(AGENT_ID, created.transactionId, ['client'], { at: AT, actor: 'agent', baseDir, now: LATER });
+
+    const filePath = store._internal.transactionPath(baseDir, AGENT_ID, created.transactionId);
+    const before = fs.readFileSync(filePath, 'utf8');
+
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client'], { entityType: 'company', at: AT2, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('contains unknown value');
+
+    const after = fs.readFileSync(filePath, 'utf8');
+    expect(after).toBe(before);
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.events.filter((e) => e.kind === 'participant_added')).toHaveLength(1);
+  });
+});
+
 describe('assertParticipantFields', () => {
   function fullFields(overrides = {}) {
     return {
@@ -379,6 +427,11 @@ describe('assertParticipantFields', () => {
   it('uses fnName as the message prefix for a bad entityType', () => {
     expect(() => assertParticipantFields('someCaller', fullFields({ entityType: '' })))
       .toThrow('someCaller: entityType must be a non-empty string');
+  });
+
+  it('uses fnName as the message prefix for an unknown entityType', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ entityType: 'company' })))
+      .toThrow('someCaller: entityType contains unknown value "company"');
   });
 
   it('uses fnName as the message prefix for a non-boolean isSelfRepresented', () => {

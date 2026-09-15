@@ -139,6 +139,9 @@ function assertParticipantFields(fnName, fields) {
   }
   if (entityType !== undefined) {
     assertNonEmptyString(fnName, 'entityType', entityType);
+    if (!ENTITY_TYPES.includes(entityType)) {
+      throw new Error(`${fnName}: entityType contains unknown value ${JSON.stringify(entityType)}`);
+    }
   }
   if (isSelfRepresented !== undefined) {
     assertBoolean(fnName, 'isSelfRepresented', isSelfRepresented);
@@ -385,6 +388,13 @@ const PARTICIPANT_ROLES = Object.freeze([
   'condo_manager', 'property_manager', 'brokerage_admin', 'other',
 ]);
 
+// Absent means unknown; entityType is optional on a participant, and a
+// participant with no entityType at all is a real, permitted state, not
+// an error. Adding a value here is safe at any time; removing or
+// renaming one is not, because a stored participant on an existing
+// transaction can already hold a value this list no longer accepts.
+const ENTITY_TYPES = Object.freeze(['individual', 'corporation', 'other_entity']);
+
 function isRepresented(participant) {
   return participant.roles.some((role) => REPRESENTED_ROLES.includes(role));
 }
@@ -500,6 +510,7 @@ module.exports = {
   isRepresented,
   REPRESENTED_ROLES,
   PARTICIPANT_ROLES,
+  ENTITY_TYPES,
   assertParticipantFields,
   resolveParticipantByName,
 };
