@@ -5,7 +5,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
+const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, assertParticipantFields, resolveParticipantByName } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const store = require('../src/transactions/store');
 const { createTransaction, readTransaction } = store;
@@ -321,6 +321,94 @@ describe('PARTICIPANT_ROLES', () => {
 
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(onDisk.events.filter((e) => e.kind === 'participant_added')).toHaveLength(1);
+  });
+});
+
+describe('assertParticipantFields', () => {
+  function fullFields(overrides = {}) {
+    return {
+      roles: ['client'],
+      name: 'Jane Smith',
+      emails: ['jane@example.com'],
+      phone: '555-0100',
+      entityType: 'individual',
+      isSelfRepresented: true,
+      ...overrides,
+    };
+  }
+
+  it('accepts a valid full field set', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields())).not.toThrow();
+  });
+
+  it('accepts a roles-only field set, with every optional field absent', () => {
+    expect(() => assertParticipantFields('someCaller', { roles: ['client'] })).not.toThrow();
+  });
+
+  it('treats every undefined optional field as absent, not a value to reject', () => {
+    expect(() => assertParticipantFields('someCaller', {
+      roles: ['client'],
+      name: undefined,
+      emails: undefined,
+      phone: undefined,
+      entityType: undefined,
+      isSelfRepresented: undefined,
+    })).not.toThrow();
+  });
+
+  it('uses fnName as the message prefix for a bad role', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ roles: [] })))
+      .toThrow('someCaller: roles must be a non-empty array of non-empty strings');
+  });
+
+  it('uses fnName as the message prefix for a bad name', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ name: '' })))
+      .toThrow('someCaller: name must be a non-empty string');
+  });
+
+  it('uses fnName as the message prefix for a bad emails value', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ emails: 'not-an-array' })))
+      .toThrow('someCaller: emails must be an array of non-empty strings');
+  });
+
+  it('uses fnName as the message prefix for a bad phone', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ phone: '' })))
+      .toThrow('someCaller: phone must be a non-empty string');
+  });
+
+  it('uses fnName as the message prefix for a bad entityType', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ entityType: '' })))
+      .toThrow('someCaller: entityType must be a non-empty string');
+  });
+
+  it('uses fnName as the message prefix for a non-boolean isSelfRepresented', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ isSelfRepresented: 'yes' })))
+      .toThrow('someCaller: isSelfRepresented must be a boolean');
+  });
+
+  it('throws on an explicit null for name', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ name: null })))
+      .toThrow('someCaller: name must be a non-empty string');
+  });
+
+  it('throws on an explicit null for emails', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ emails: null })))
+      .toThrow('someCaller: emails must be an array of non-empty strings');
+  });
+
+  it('throws on an explicit null for phone', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ phone: null })))
+      .toThrow('someCaller: phone must be a non-empty string');
+  });
+
+  it('throws on an explicit null for entityType', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ entityType: null })))
+      .toThrow('someCaller: entityType must be a non-empty string');
+  });
+
+  it('throws on an explicit null for isSelfRepresented', () => {
+    expect(() => assertParticipantFields('someCaller', fullFields({ isSelfRepresented: null })))
+      .toThrow('someCaller: isSelfRepresented must be a boolean');
   });
 });
 

@@ -114,6 +114,37 @@ function assertBoolean(fnName, name, value) {
   }
 }
 
+// Validates the six fields addParticipant accepts, in the same order and
+// with the same messages addParticipant has always used, so a second
+// caller (a future proposal-confirmation writer, see TC_SPEC section 14)
+// can validate against the identical rules without duplicating them.
+// undefined means the field is absent and must not appear on the written
+// record at all; explicitly passing null is a caller bug and throws, the
+// same convention as listingId and unit in store.js. Each assertion
+// rejects null on its own (typeof null is not 'string', not a boolean,
+// not an array), so no separate null check is needed here.
+function assertParticipantFields(fnName, fields) {
+  const { roles, name, emails, phone, entityType, isSelfRepresented } = fields;
+
+  assertRoles(fnName, 'roles', roles);
+
+  if (name !== undefined) {
+    assertNonEmptyString(fnName, 'name', name);
+  }
+  if (emails !== undefined) {
+    assertEmails(fnName, 'emails', emails);
+  }
+  if (phone !== undefined) {
+    assertNonEmptyString(fnName, 'phone', phone);
+  }
+  if (entityType !== undefined) {
+    assertNonEmptyString(fnName, 'entityType', entityType);
+  }
+  if (isSelfRepresented !== undefined) {
+    assertBoolean(fnName, 'isSelfRepresented', isSelfRepresented);
+  }
+}
+
 // Two permitted values, not a free-text field: 'recorded_in_error' means
 // the entry should never have existed (a duplicate, a wrong name typed
 // against the wrong deal); 'no_longer_on_deal' means the person was real
@@ -153,33 +184,23 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
 function addParticipant(agentId, transactionId, roles, opts = {}) {
   const { name, emails, phone, entityType, isSelfRepresented, at, actor, baseDir, now } = opts;
 
-  assertRoles('addParticipant', 'roles', roles);
+  assertParticipantFields('addParticipant', { roles, name, emails, phone, entityType, isSelfRepresented });
 
   const entry = { roles: [...roles] };
 
-  // undefined means the field is absent and must not appear on the written
-  // record at all; explicitly passing null is a caller bug and throws, the
-  // same convention as listingId and unit in store.js. Each assertion below
-  // rejects null on its own (typeof null is not 'string', not a boolean,
-  // not an array), so no separate null check is needed here.
   if (name !== undefined) {
-    assertNonEmptyString('addParticipant', 'name', name);
     entry.name = name;
   }
   if (emails !== undefined) {
-    assertEmails('addParticipant', 'emails', emails);
     entry.emails = [...emails];
   }
   if (phone !== undefined) {
-    assertNonEmptyString('addParticipant', 'phone', phone);
     entry.phone = phone;
   }
   if (entityType !== undefined) {
-    assertNonEmptyString('addParticipant', 'entityType', entityType);
     entry.entityType = entityType;
   }
   if (isSelfRepresented !== undefined) {
-    assertBoolean('addParticipant', 'isSelfRepresented', isSelfRepresented);
     entry.isSelfRepresented = isSelfRepresented;
   }
 
@@ -479,6 +500,7 @@ module.exports = {
   isRepresented,
   REPRESENTED_ROLES,
   PARTICIPANT_ROLES,
+  assertParticipantFields,
   resolveParticipantByName,
 };
 
