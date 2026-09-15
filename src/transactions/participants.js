@@ -83,6 +83,18 @@ function assertRoles(fnName, name, value) {
       throw new Error(`${fnName}: ${name} must be a non-empty array of non-empty strings`);
     }
   });
+  value.forEach((role) => {
+    if (!PARTICIPANT_ROLES.includes(role)) {
+      throw new Error(`${fnName}: ${name} contains unknown role ${JSON.stringify(role)}`);
+    }
+  });
+  const seen = new Set();
+  value.forEach((role) => {
+    if (seen.has(role)) {
+      throw new Error(`${fnName}: ${name} contains duplicate role ${JSON.stringify(role)}`);
+    }
+    seen.add(role);
+  });
 }
 
 function assertEmails(fnName, name, value) {
@@ -341,6 +353,17 @@ function addParticipantEmail(agentId, transactionId, participantId, email, opts 
 // about who counts.
 const REPRESENTED_ROLES = Object.freeze(['client', 'co_client']);
 
+// The closed vocabulary assertRoles checks every role against. Adding a
+// role here is safe at any time; removing or renaming one is not, because
+// a stored participant on an existing transaction can already hold a role
+// this list no longer accepts, and nothing here ever rewrites history to
+// match a shrunk or renamed list.
+const PARTICIPANT_ROLES = Object.freeze([
+  'client', 'co_client', 'opposing_party', 'opposing_agent',
+  'client_lawyer', 'opposing_lawyer', 'mortgage_broker', 'inspector',
+  'condo_manager', 'property_manager', 'brokerage_admin', 'other',
+]);
+
 function isRepresented(participant) {
   return participant.roles.some((role) => REPRESENTED_ROLES.includes(role));
 }
@@ -455,6 +478,7 @@ module.exports = {
   deriveRepresentedPersons,
   isRepresented,
   REPRESENTED_ROLES,
+  PARTICIPANT_ROLES,
   resolveParticipantByName,
 };
 

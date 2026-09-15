@@ -88,7 +88,7 @@ describe('markPersonSatisfied', () => {
 
   it('throws when the id is a participant but holds no qualifying role', () => {
     const created = create();
-    const added = addParticipant(AGENT_ID, created.transactionId, ['lawyer'], { at: AT, actor: 'agent', baseDir, now: CLOCK });
+    const added = addParticipant(AGENT_ID, created.transactionId, ['client_lawyer'], { at: AT, actor: 'agent', baseDir, now: CLOCK });
     const lawyerId = Object.keys(added.participants)[0];
 
     expect(() => markPersonSatisfied(AGENT_ID, created.transactionId, lawyerId, 'reco_information_guide', {

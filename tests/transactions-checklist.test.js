@@ -199,7 +199,7 @@ describe('resolveChecklistForTransaction', () => {
       state: 'conditional',
       items: {},
       facts: { representedPersons: ['per-99999999'] },
-      participants: { 'per-11111111': { roles: ['lawyer'] } },
+      participants: { 'per-11111111': { roles: ['client_lawyer'] } },
     };
 
     const result = resolveChecklistForTransaction(transaction);

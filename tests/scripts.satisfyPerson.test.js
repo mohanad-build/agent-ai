@@ -203,7 +203,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
 
   it('a name matching a non-represented participant exits 1', () => {
     const created = create();
-    addParticipant(AGENT_ID, created.transactionId, ['lawyer'], { name: 'Jane Smith', at: AT, actor: 'agent', baseDir, now: CLOCK });
+    addParticipant(AGENT_ID, created.transactionId, ['client_lawyer'], { name: 'Jane Smith', at: AT, actor: 'agent', baseDir, now: CLOCK });
 
     const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'Jane Smith', 'reco_information_guide', '--base-dir', baseDir]);
 

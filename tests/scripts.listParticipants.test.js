@@ -85,7 +85,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
   it('lists several participants, sorted by id, and all of them appear', () => {
     const created = create();
     const idA = add(created.transactionId, ['client'], 'Alpha');
-    const idB = add(created.transactionId, ['lawyer'], 'Beta');
+    const idB = add(created.transactionId, ['client_lawyer'], 'Beta');
     const idC = add(created.transactionId, ['co_client'], 'Gamma');
 
     const stdout = run([AGENT_ID, created.transactionId, '--base-dir', baseDir]);
@@ -100,7 +100,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
 
   it('a nameless participant prints the explicit absent-name marker, and its id still appears', () => {
     const created = create();
-    const namelessId = add(created.transactionId, ['lawyer']);
+    const namelessId = add(created.transactionId, ['client_lawyer']);
 
     const stdout = run([AGENT_ID, created.transactionId, '--base-dir', baseDir]);
 
@@ -111,7 +111,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
   it('a represented participant is marked and a non-represented one is not', () => {
     const created = create();
     const clientId = add(created.transactionId, ['client'], 'Represented Rita');
-    const lawyerId = add(created.transactionId, ['lawyer'], 'Unrepresented Uma');
+    const lawyerId = add(created.transactionId, ['client_lawyer'], 'Unrepresented Uma');
 
     const stdout = run([AGENT_ID, created.transactionId, '--base-dir', baseDir]);
     const lines = stdout.split('\n');
@@ -156,7 +156,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
   it('the transaction file is unchanged after running', () => {
     const created = create();
     add(created.transactionId, ['client'], 'Jane Smith');
-    add(created.transactionId, ['lawyer']);
+    add(created.transactionId, ['client_lawyer']);
     const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
 
     run([AGENT_ID, created.transactionId, '--base-dir', baseDir]);

@@ -5,9 +5,10 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
+const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, resolveParticipantByName } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
-const { createTransaction, readTransaction } = require('../src/transactions/store');
+const store = require('../src/transactions/store');
+const { createTransaction, readTransaction } = store;
 const { evaluateSignals } = require('../src/transactions/matcher');
 
 const AGENT_ID = 'test-agent';
@@ -47,7 +48,7 @@ describe('addParticipant', () => {
     const afterFirst = addParticipant(AGENT_ID, created.transactionId, ['client'], { at: AT, actor: 'agent', baseDir, now: LATER });
     const firstId = Object.keys(afterFirst.participants)[0];
 
-    const afterSecond = addParticipant(AGENT_ID, created.transactionId, ['agent'], { at: AT2, actor: 'agent', baseDir, now: LATER });
+    const afterSecond = addParticipant(AGENT_ID, created.transactionId, ['opposing_agent'], { at: AT2, actor: 'agent', baseDir, now: LATER });
     const secondIds = Object.keys(afterSecond.participants).filter((id) => id !== firstId);
 
     expect(secondIds).toHaveLength(1);
@@ -150,7 +151,7 @@ describe('addParticipant', () => {
     const afterFirst = addParticipant(AGENT_ID, created.transactionId, ['client'], { at: AT, actor: 'agent', baseDir, now: LATER });
     const firstId = Object.keys(afterFirst.participants)[0];
 
-    addParticipant(AGENT_ID, created.transactionId, ['agent'], { at: AT2, actor: 'agent', baseDir, now: LATER });
+    addParticipant(AGENT_ID, created.transactionId, ['opposing_agent'], { at: AT2, actor: 'agent', baseDir, now: LATER });
 
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(onDisk.participants[firstId]).toEqual({ roles: ['client'] });
@@ -161,13 +162,13 @@ describe('addParticipant', () => {
     const afterFirst = addParticipant(AGENT_ID, created.transactionId, ['client'], { at: AT, actor: 'agent', baseDir, now: LATER });
     const firstId = Object.keys(afterFirst.participants)[0];
 
-    const afterSecond = addParticipant(AGENT_ID, created.transactionId, ['agent'], { at: AT2, actor: 'agent', baseDir, now: LATER });
+    const afterSecond = addParticipant(AGENT_ID, created.transactionId, ['opposing_agent'], { at: AT2, actor: 'agent', baseDir, now: LATER });
     const secondId = Object.keys(afterSecond.participants).find((id) => id !== firstId);
 
     const addedEvents = afterSecond.events.filter((e) => e.kind === 'participant_added');
     expect(addedEvents).toHaveLength(2);
     expect(addedEvents[0]).toMatchObject({ at: AT, actor: 'agent', kind: 'participant_added', payload: { id: firstId, roles: ['client'] } });
-    expect(addedEvents[1]).toMatchObject({ at: AT2, actor: 'agent', kind: 'participant_added', payload: { id: secondId, roles: ['agent'] } });
+    expect(addedEvents[1]).toMatchObject({ at: AT2, actor: 'agent', kind: 'participant_added', payload: { id: secondId, roles: ['opposing_agent'] } });
   });
 
   it('does not deduplicate by name: two participants with identical roles and names both persist as separate records', () => {
@@ -207,7 +208,7 @@ describe('deriveRepresentedPersons', () => {
   });
 
   it('excludes a participant holding neither client nor co_client', () => {
-    const participants = { 'per-33333333': { roles: ['agent'] } };
+    const participants = { 'per-33333333': { roles: ['opposing_agent'] } };
     expect(deriveRepresentedPersons(participants)).toBeUndefined();
   });
 
@@ -218,9 +219,9 @@ describe('deriveRepresentedPersons', () => {
 
   it('picks out only the qualifying participants from a mixed map, preserving order', () => {
     const participants = {
-      'per-11111111': { roles: ['agent'] },
+      'per-11111111': { roles: ['opposing_agent'] },
       'per-22222222': { roles: ['client'] },
-      'per-33333333': { roles: ['lawyer'] },
+      'per-33333333': { roles: ['client_lawyer'] },
       'per-44444444': { roles: ['co_client'] },
     };
     expect(deriveRepresentedPersons(participants)).toEqual(['per-22222222', 'per-44444444']);
@@ -236,8 +237,8 @@ describe('deriveRepresentedPersons', () => {
 
   it('returns undefined, not an empty array, when nobody in the map qualifies', () => {
     const participants = {
-      'per-11111111': { roles: ['agent'] },
-      'per-22222222': { roles: ['lawyer'] },
+      'per-11111111': { roles: ['opposing_agent'] },
+      'per-22222222': { roles: ['client_lawyer'] },
     };
     const result = deriveRepresentedPersons(participants);
     expect(result).toBeUndefined();
@@ -252,6 +253,77 @@ describe('REPRESENTED_ROLES', () => {
   });
 });
 
+describe('PARTICIPANT_ROLES', () => {
+  it('is the exact twelve-entry vocabulary, in order, and is frozen', () => {
+    expect(PARTICIPANT_ROLES).toEqual([
+      'client', 'co_client', 'opposing_party', 'opposing_agent',
+      'client_lawyer', 'opposing_lawyer', 'mortgage_broker', 'inspector',
+      'condo_manager', 'property_manager', 'brokerage_admin', 'other',
+    ]);
+    expect(Object.isFrozen(PARTICIPANT_ROLES)).toBe(true);
+  });
+
+  it('contains every REPRESENTED_ROLES entry', () => {
+    REPRESENTED_ROLES.forEach((role) => {
+      expect(PARTICIPANT_ROLES).toContain(role);
+    });
+  });
+
+  it.each(PARTICIPANT_ROLES)('accepts %s as a role', (role) => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, [role], { at: AT, actor: 'agent', baseDir, now: LATER }))
+      .not.toThrow();
+  });
+
+  it('rejects an unknown role, naming it in the message', () => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['buyer'], { at: AT, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('addParticipant: roles contains unknown role "buyer"');
+  });
+
+  it('rejects a casing variant of a valid role', () => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['Client'], { at: AT, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('addParticipant: roles contains unknown role "Client"');
+  });
+
+  it('rejects a whitespace variant of a valid role, with the whitespace visible in the message', () => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client '], { at: AT, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('addParticipant: roles contains unknown role "client "');
+  });
+
+  it('rejects a duplicate role within one array', () => {
+    const created = create();
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['client', 'client'], { at: AT, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('addParticipant: roles contains duplicate role "client"');
+  });
+
+  it('accepts two different valid roles on one participant', () => {
+    const created = create();
+    const result = addParticipant(AGENT_ID, created.transactionId, ['client', 'property_manager'], { at: AT, actor: 'agent', baseDir, now: LATER });
+    const id = Object.keys(result.participants)[0];
+    expect(result.participants[id].roles).toEqual(['client', 'property_manager']);
+  });
+
+  it('NO-WRITE: a refused call leaves the transaction file byte-identical and appends no event', () => {
+    const created = create();
+    addParticipant(AGENT_ID, created.transactionId, ['client'], { at: AT, actor: 'agent', baseDir, now: LATER });
+
+    const filePath = store._internal.transactionPath(baseDir, AGENT_ID, created.transactionId);
+    const before = fs.readFileSync(filePath, 'utf8');
+
+    expect(() => addParticipant(AGENT_ID, created.transactionId, ['not_a_role'], { at: AT2, actor: 'agent', baseDir, now: LATER }))
+      .toThrow('contains unknown role');
+
+    const after = fs.readFileSync(filePath, 'utf8');
+    expect(after).toBe(before);
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.events.filter((e) => e.kind === 'participant_added')).toHaveLength(1);
+  });
+});
+
 describe('isRepresented', () => {
   it('is true for a participant holding client or co_client', () => {
     expect(isRepresented({ roles: ['client'] })).toBe(true);
@@ -260,8 +332,8 @@ describe('isRepresented', () => {
   });
 
   it('is false for a participant holding neither', () => {
-    expect(isRepresented({ roles: ['agent'] })).toBe(false);
-    expect(isRepresented({ roles: ['lawyer', 'property_manager'] })).toBe(false);
+    expect(isRepresented({ roles: ['opposing_agent'] })).toBe(false);
+    expect(isRepresented({ roles: ['client_lawyer', 'property_manager'] })).toBe(false);
   });
 });
 
@@ -319,7 +391,7 @@ describe('resolveParticipantByName', () => {
   });
 
   it('does not resolve a non-represented participant sharing the name, and reports not_found', () => {
-    const transaction = { participants: { 'per-11111111': { roles: ['lawyer'], name: 'Jane Smith' } } };
+    const transaction = { participants: { 'per-11111111': { roles: ['client_lawyer'], name: 'Jane Smith' } } };
     expect(resolveParticipantByName(transaction, 'Jane Smith')).toEqual({ resolved: false, reason: 'not_found', namelessCount: 0 });
   });
 
@@ -327,7 +399,7 @@ describe('resolveParticipantByName', () => {
     const transaction = {
       participants: {
         'per-11111111': { roles: ['client'] },
-        'per-22222222': { roles: ['lawyer'] },
+        'per-22222222': { roles: ['client_lawyer'] },
         'per-33333333': { roles: ['co_client'] },
       },
     };
@@ -378,7 +450,7 @@ describe('resolveParticipantByName', () => {
       const transaction = {
         participants: {},
         voidedParticipants: {
-          'per-11111111': { roles: ['lawyer'], name: 'Dave Lee', at: AT, actor: 'agent', reason: 'recorded_in_error' },
+          'per-11111111': { roles: ['client_lawyer'], name: 'Dave Lee', at: AT, actor: 'agent', reason: 'recorded_in_error' },
         },
       };
       const result = resolveParticipantByName(transaction, 'Dave Lee');
