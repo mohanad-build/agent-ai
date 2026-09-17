@@ -27,6 +27,8 @@ const EVENT_KINDS = Object.freeze([
   'addresses_observed',
   'proposal_set_created',
   'proposal_member_rejected',
+  'proposal_set_confirmed',
+  'proposal_set_discarded',
 ]);
 
 function makeEvent({ at, actor, kind, payload }) {

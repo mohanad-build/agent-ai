@@ -15,6 +15,8 @@ const {
   createProposalSet,
   buildMemberRejection,
   rejectProposalMember,
+  buildSetConfirmation,
+  buildSetDiscard,
 } = require('../src/transactions/proposals');
 const { PROPOSAL_SET_ID_RE, PROPOSAL_MEMBER_ID_RE } = require('../src/transactions/proposals')._internal;
 const store = require('../src/transactions/store');
@@ -563,6 +565,122 @@ describe('rejectProposalMember', () => {
   });
 });
 
+describe('buildSetConfirmation', () => {
+  function makeOpenSet() {
+    const filed = createFiledTransaction();
+    const created = createProposalSet(AGENT_ID, filed.transactionId, MESSAGE_ID, ATTACHMENT_ID, [VALID_MEMBER], {
+      at: AT2, actor: 'system', baseDir, now: EVEN_LATER,
+    });
+    return { transactionId: filed.transactionId, setId: created.setId };
+  }
+
+  it('marks the set confirmed and emits a proposal_set_confirmed event', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+
+    const result = buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    expect(result.outcome).toBe('confirmed');
+    expect(result.transaction.participantProposals[setId].status).toBe('confirmed');
+    const event = result.transaction.events[result.transaction.events.length - 1];
+    expect(event).toMatchObject({ at: AT3, actor: 'agent', kind: 'proposal_set_confirmed', payload: { setId } });
+  });
+
+  it('the no-such-set error names the transactionId it was given, not the one on the envelope', () => {
+    const { transactionId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const givenTransactionId = 'txn-20260101-deadbeef';
+
+    expect(() => buildSetConfirmation(previous, { transactionId: givenTransactionId, setId: 'pps-ffffffff', at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetConfirmation: no proposal set 'pps-ffffffff' on transaction ${givenTransactionId}`);
+  });
+
+  it('throws when actor is not agent', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'system' }))
+      .toThrow("buildSetConfirmation: actor must be 'agent'");
+  });
+
+  it('a set already confirmed returns already_confirmed and writes nothing further', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const firstResult = buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    const secondResult = buildSetConfirmation(firstResult.transaction, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    expect(secondResult).toEqual({ outcome: 'already_confirmed' });
+  });
+
+  it('throws confirming a set that is already discarded, naming the set, its status, and the refused transition', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const discardResult = buildSetDiscard(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    expect(() => buildSetConfirmation(discardResult.transaction, { transactionId, setId, at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetConfirmation: set '${setId}' is 'discarded' and cannot be confirmed on transaction ${transactionId}`);
+  });
+});
+
+describe('buildSetDiscard', () => {
+  function makeOpenSet() {
+    const filed = createFiledTransaction();
+    const created = createProposalSet(AGENT_ID, filed.transactionId, MESSAGE_ID, ATTACHMENT_ID, [VALID_MEMBER], {
+      at: AT2, actor: 'system', baseDir, now: EVEN_LATER,
+    });
+    return { transactionId: filed.transactionId, setId: created.setId };
+  }
+
+  it('marks the set discarded and emits a proposal_set_discarded event', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+
+    const result = buildSetDiscard(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    expect(result.outcome).toBe('discarded');
+    expect(result.transaction.participantProposals[setId].status).toBe('discarded');
+    const event = result.transaction.events[result.transaction.events.length - 1];
+    expect(event).toMatchObject({ at: AT3, actor: 'agent', kind: 'proposal_set_discarded', payload: { setId } });
+  });
+
+  it('the no-such-set error names the transactionId it was given, not the one on the envelope', () => {
+    const { transactionId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const givenTransactionId = 'txn-20260101-deadbeef';
+
+    expect(() => buildSetDiscard(previous, { transactionId: givenTransactionId, setId: 'pps-ffffffff', at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetDiscard: no proposal set 'pps-ffffffff' on transaction ${givenTransactionId}`);
+  });
+
+  it('throws when actor is not agent', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+
+    expect(() => buildSetDiscard(previous, { transactionId, setId, at: AT3, actor: 'system' }))
+      .toThrow("buildSetDiscard: actor must be 'agent'");
+  });
+
+  it('a set already discarded returns already_discarded and writes nothing further', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const firstResult = buildSetDiscard(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    const secondResult = buildSetDiscard(firstResult.transaction, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    expect(secondResult).toEqual({ outcome: 'already_discarded' });
+  });
+
+  it('throws discarding a set that is already confirmed, naming the set, its status, and the refused transition', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const confirmResult = buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+
+    expect(() => buildSetDiscard(confirmResult.transaction, { transactionId, setId, at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetDiscard: set '${setId}' is 'confirmed' and cannot be discarded on transaction ${transactionId}`);
+  });
+});
+
 describe('PURITY', () => {
   it('buildProposalSet and buildMemberRejection never mutate the envelope they are given', () => {
     const filingKeyA = buildFilingKey('msg-A', 'att-A');
@@ -680,5 +798,51 @@ describe('PURITY', () => {
       at: AT2,
       actor: 'agent',
     })).toThrow(`buildMemberRejection: no proposal set 'pps-11111111' on transaction ${givenTransactionId}`);
+  });
+
+  it('buildSetConfirmation and buildSetDiscard never mutate the envelope they are given', () => {
+    const frozenSetIdA = 'pps-22222222';
+    const frozenSetIdB = 'pps-33333333';
+
+    const rawPrevious = {
+      schemaVersion: 1,
+      transactionId: 'txn-20260715-bbbbbbbb',
+      agentId: AGENT_ID,
+      type: 'buyer_purchase',
+      state: 'conditional',
+      address: '12 Main St',
+      createdAt: AT,
+      updatedAt: AT,
+      events: [],
+      participantProposals: {
+        [frozenSetIdA]: {
+          status: 'open',
+          createdAt: AT,
+          actor: 'system',
+          source: { kind: 'document', filingKey: buildFilingKey('msg-A', 'att-A'), contentHash: 'sha256:aaaa', filename: 'a.pdf', receivedAt: AT },
+          members: { 'ppm-22222222': { roles: ['client'], name: 'Jane Smith', status: 'pending' } },
+        },
+        [frozenSetIdB]: {
+          status: 'open',
+          createdAt: AT,
+          actor: 'system',
+          source: { kind: 'document', filingKey: buildFilingKey('msg-B', 'att-B'), contentHash: 'sha256:bbbb', filename: 'b.pdf', receivedAt: AT },
+          members: { 'ppm-33333333': { roles: ['client'], name: 'John Smith', status: 'pending' } },
+        },
+      },
+    };
+
+    const previous = deepFreeze(JSON.parse(JSON.stringify(rawPrevious)));
+    const beforeSnapshot = JSON.parse(JSON.stringify(rawPrevious));
+
+    const confirmResult = buildSetConfirmation(previous, { transactionId: rawPrevious.transactionId, setId: frozenSetIdA, at: AT2, actor: 'agent' });
+    expect(confirmResult.outcome).toBe('confirmed');
+    expect(confirmResult.transaction).not.toBe(previous);
+
+    const discardResult = buildSetDiscard(previous, { transactionId: rawPrevious.transactionId, setId: frozenSetIdB, at: AT2, actor: 'agent' });
+    expect(discardResult.outcome).toBe('discarded');
+    expect(discardResult.transaction).not.toBe(previous);
+
+    expect(previous).toEqual(beforeSnapshot);
   });
 });

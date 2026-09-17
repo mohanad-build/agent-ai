@@ -411,6 +411,99 @@ function rejectProposalMember(agentId, transactionId, setId, memberId, opts = {}
   return { outcome: 'rejected', transaction };
 }
 
+// -- buildSetConfirmation ----------------------------------------------------------
+
+// Pure, same contract as buildProposalSet and buildMemberRejection. Marks the
+// SET 'confirmed' and nothing else: it does not touch a participants map,
+// does not read or write one, does not know a participantId exists.
+// Recording each member's participantId is 4c's job when it composes this
+// builder with buildParticipant into one atomic save (TC_SPEC section 14,
+// not this commit); this builder's job stops at the set's own status.
+//
+// No wrapper. 4c composes this directly; there is no confirmProposalSet
+// analogous to createProposalSet/rejectProposalMember in this commit.
+function buildSetConfirmation(previous, { transactionId, setId, at, actor }) {
+  assertActor('buildSetConfirmation', actor, 'agent');
+
+  if (!PROPOSAL_SET_ID_RE.test(setId)) {
+    throw new Error('buildSetConfirmation: setId must match the pps- id format');
+  }
+
+  const previousProposals = previous.participantProposals || {};
+  const set = previousProposals[setId];
+  if (!set) {
+    throw new Error(`buildSetConfirmation: no proposal set '${setId}' on transaction ${transactionId}`);
+  }
+
+  if (set.status === 'confirmed') {
+    return { outcome: 'already_confirmed' };
+  }
+  // Discarded means the agent already said this document is not this
+  // deal's. A later confirm reversing that silently would be a caller bug,
+  // not a double tap, so this throws rather than returning an outcome, the
+  // same convention TC_SPEC 6.7 draws elsewhere between an expected repeat
+  // and a contradictory transition.
+  if (set.status === 'discarded') {
+    throw new Error(`buildSetConfirmation: set '${setId}' is 'discarded' and cannot be confirmed on transaction ${transactionId}`);
+  }
+
+  const nextSet = { ...set, status: 'confirmed' };
+
+  const event = events.makeEvent({ at, actor, kind: 'proposal_set_confirmed', payload: { setId } });
+
+  const next = {
+    ...previous,
+    participantProposals: { ...previousProposals, [setId]: nextSet },
+    events: events.appendEvent(previous.events, event),
+  };
+
+  return { outcome: 'confirmed', transaction: next };
+}
+
+// -- buildSetDiscard ----------------------------------------------------------------
+
+// Pure, same contract as buildSetConfirmation. Marks the SET 'discarded',
+// the "wrong deal" outcome: this filing was never about this transaction at
+// all, distinct from an individual member being rejected while the rest of
+// the set stands.
+//
+// No wrapper, same reasoning as buildSetConfirmation.
+function buildSetDiscard(previous, { transactionId, setId, at, actor }) {
+  assertActor('buildSetDiscard', actor, 'agent');
+
+  if (!PROPOSAL_SET_ID_RE.test(setId)) {
+    throw new Error('buildSetDiscard: setId must match the pps- id format');
+  }
+
+  const previousProposals = previous.participantProposals || {};
+  const set = previousProposals[setId];
+  if (!set) {
+    throw new Error(`buildSetDiscard: no proposal set '${setId}' on transaction ${transactionId}`);
+  }
+
+  if (set.status === 'discarded') {
+    return { outcome: 'already_discarded' };
+  }
+  // Same reasoning as buildSetConfirmation's mirror check: a confirmed set
+  // is a settled fact, and discarding it out from under whatever depends on
+  // that confirmation would be a caller bug, not a double tap.
+  if (set.status === 'confirmed') {
+    throw new Error(`buildSetDiscard: set '${setId}' is 'confirmed' and cannot be discarded on transaction ${transactionId}`);
+  }
+
+  const nextSet = { ...set, status: 'discarded' };
+
+  const event = events.makeEvent({ at, actor, kind: 'proposal_set_discarded', payload: { setId } });
+
+  const next = {
+    ...previous,
+    participantProposals: { ...previousProposals, [setId]: nextSet },
+    events: events.appendEvent(previous.events, event),
+  };
+
+  return { outcome: 'discarded', transaction: next };
+}
+
 module.exports = {
   PROPOSAL_SET_STATUSES,
   PROPOSAL_MEMBER_STATUSES,
@@ -421,6 +514,8 @@ module.exports = {
   createProposalSet,
   buildMemberRejection,
   rejectProposalMember,
+  buildSetConfirmation,
+  buildSetDiscard,
 };
 
 module.exports._internal = {
