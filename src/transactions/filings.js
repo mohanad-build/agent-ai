@@ -308,12 +308,19 @@ function abandonDocumentFiling(agentId, transactionId, messageId, attachmentId, 
   return store.writeTransaction(agentId, next, { baseDir, now });
 }
 
-// -- confirmFiling ----------------------------------------------------------
+// -- buildFilingConfirmation -------------------------------------------------------
 
-function confirmFiling(agentId, transactionId, messageId, attachmentId, opts = {}) {
-  const { at, actor, baseDir, now } = opts;
-
-  const previous = readExisting('confirmFiling', agentId, transactionId, baseDir);
+// Pure: returns { transaction, filingKey }, where `transaction` is the NEXT
+// envelope, not saved, and never mutates `previous` (every write below is a
+// spread onto a new object). No outcome key: every failure path throws. See
+// confirmFiling below for the thin wrapper that actually reads and saves --
+// same split as buildParticipant / addParticipant (participants.js).
+//
+// A separate builder from buildFilingRejection on purpose, even though the
+// bodies are near-identical today: a future change to the confirm guard
+// (tolerating an already-confirmed filing, say) must not silently follow
+// through to reject by sharing a guard helper.
+function buildFilingConfirmation(previous, { transactionId, messageId, attachmentId, at, actor }) {
   const previousFilings = previous.filings || {};
   const key = buildFilingKey(messageId, attachmentId);
   const existing = previousFilings[key];
@@ -340,15 +347,25 @@ function confirmFiling(agentId, transactionId, messageId, attachmentId, opts = {
     events: events.appendEvent(previous.events, event),
   };
 
-  return store.writeTransaction(agentId, next, { baseDir, now });
+  return { transaction: next, filingKey: key };
 }
 
-// -- rejectFiling ----------------------------------------------------------
+// -- confirmFiling ----------------------------------------------------------
 
-function rejectFiling(agentId, transactionId, messageId, attachmentId, opts = {}) {
+function confirmFiling(agentId, transactionId, messageId, attachmentId, opts = {}) {
   const { at, actor, baseDir, now } = opts;
 
-  const previous = readExisting('rejectFiling', agentId, transactionId, baseDir);
+  const previous = readExisting('confirmFiling', agentId, transactionId, baseDir);
+  const { transaction } = buildFilingConfirmation(previous, { transactionId, messageId, attachmentId, at, actor });
+
+  return store.writeTransaction(agentId, transaction, { baseDir, now });
+}
+
+// -- buildFilingRejection -----------------------------------------------------------
+
+// Pure, same contract as buildFilingConfirmation. A separate builder, not a
+// parameterized shared one -- see buildFilingConfirmation's header for why.
+function buildFilingRejection(previous, { transactionId, messageId, attachmentId, at, actor }) {
   const previousFilings = previous.filings || {};
   const key = buildFilingKey(messageId, attachmentId);
   const existing = previousFilings[key];
@@ -375,7 +392,18 @@ function rejectFiling(agentId, transactionId, messageId, attachmentId, opts = {}
     events: events.appendEvent(previous.events, event),
   };
 
-  return store.writeTransaction(agentId, next, { baseDir, now });
+  return { transaction: next, filingKey: key };
+}
+
+// -- rejectFiling ----------------------------------------------------------
+
+function rejectFiling(agentId, transactionId, messageId, attachmentId, opts = {}) {
+  const { at, actor, baseDir, now } = opts;
+
+  const previous = readExisting('rejectFiling', agentId, transactionId, baseDir);
+  const { transaction } = buildFilingRejection(previous, { transactionId, messageId, attachmentId, at, actor });
+
+  return store.writeTransaction(agentId, transaction, { baseDir, now });
 }
 
 // -- hasConfirmedFilingOnThread ----------------------------------------------------
@@ -419,7 +447,9 @@ module.exports = {
   recordDocumentFiled,
   recordFilingAttemptFailure,
   abandonDocumentFiling,
+  buildFilingConfirmation,
   confirmFiling,
+  buildFilingRejection,
   rejectFiling,
   hasConfirmedFilingOnThread,
 };

@@ -9,13 +9,17 @@ const {
   recordDocumentFiled,
   recordFilingAttemptFailure,
   abandonDocumentFiling,
+  buildFilingConfirmation,
   confirmFiling,
+  buildFilingRejection,
   rejectFiling,
   hasConfirmedFilingOnThread,
   FILING_STATUSES,
   FILING_REVIEW_STATUSES,
+  buildFilingKey,
 } = require('../src/transactions/filings');
 const { createTransaction, readTransaction } = require('../src/transactions/store');
+const store = require('../src/transactions/store');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -585,6 +589,54 @@ describe('confirmFiling', () => {
     expect(() => confirm(created.transactionId))
       .toThrow(/review is 'rejected', not 'needs_review'/);
   });
+
+  it('returns the store-stamped envelope from store.writeTransaction, not the pre-write transaction buildFilingConfirmation itself produces', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    const builderOnly = buildFilingConfirmation(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+
+    const wrapperResult = confirm(created.transactionId, { now: EVEN_LATER });
+
+    expect(wrapperResult.updatedAt).toBe(EVEN_LATER.toISOString());
+    expect(builderOnly.transaction.updatedAt).not.toBe(EVEN_LATER.toISOString());
+  });
+});
+
+describe('buildFilingConfirmation', () => {
+  it('writes neither to disk nor through the store', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const filePath = store._internal.transactionPath(baseDir, AGENT_ID, created.transactionId);
+    const before = fs.readFileSync(filePath, 'utf8');
+
+    buildFilingConfirmation(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+
+    const after = fs.readFileSync(filePath, 'utf8');
+    expect(after).toBe(before);
+  });
+
+  it('the returned filingKey is the key buildFilingConfirmation actually wrote into transaction.filings', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    const result = buildFilingConfirmation(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+
+    expect(result.transaction.filings[result.filingKey].review).toBe('confirmed');
+  });
+
+  it('the no-such-filing error names the transactionId it was given, not the one on the envelope', () => {
+    const created = create();
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const givenTransactionId = 'txn-20260101-deadbeef';
+
+    expect(() => buildFilingConfirmation(previous, { transactionId: givenTransactionId, messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' }))
+      .toThrow(`confirmFiling: no filing record '${key}' on transaction ${givenTransactionId}`);
+  });
 });
 
 describe('rejectFiling', () => {
@@ -676,6 +728,54 @@ describe('rejectFiling', () => {
     const reread = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(reread.filings[key].status).toBe('filed');
     expect(reread.filings[key].review).toBe('rejected');
+  });
+
+  it('returns the store-stamped envelope from store.writeTransaction, not the pre-write transaction buildFilingRejection itself produces', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    const builderOnly = buildFilingRejection(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+
+    const wrapperResult = reject(created.transactionId, { now: EVEN_LATER });
+
+    expect(wrapperResult.updatedAt).toBe(EVEN_LATER.toISOString());
+    expect(builderOnly.transaction.updatedAt).not.toBe(EVEN_LATER.toISOString());
+  });
+});
+
+describe('buildFilingRejection', () => {
+  it('writes neither to disk nor through the store', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const filePath = store._internal.transactionPath(baseDir, AGENT_ID, created.transactionId);
+    const before = fs.readFileSync(filePath, 'utf8');
+
+    buildFilingRejection(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+
+    const after = fs.readFileSync(filePath, 'utf8');
+    expect(after).toBe(before);
+  });
+
+  it('the returned filingKey is the key buildFilingRejection actually wrote into transaction.filings', () => {
+    const created = create();
+    seeDocument(created.transactionId);
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    const result = buildFilingRejection(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+
+    expect(result.transaction.filings[result.filingKey].review).toBe('rejected');
+  });
+
+  it('the no-such-filing error names the transactionId it was given, not the one on the envelope', () => {
+    const created = create();
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const key = `${MESSAGE_ID.length}:${MESSAGE_ID}:${ATTACHMENT_ID}`;
+    const givenTransactionId = 'txn-20260101-deadbeef';
+
+    expect(() => buildFilingRejection(previous, { transactionId: givenTransactionId, messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' }))
+      .toThrow(`rejectFiling: no filing record '${key}' on transaction ${givenTransactionId}`);
   });
 });
 
@@ -839,5 +939,50 @@ describe('concurrent writes to one transaction', () => {
     const final = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(Object.keys(final.filings)).toHaveLength(5);
     expect(final.events).toHaveLength(5);
+  });
+});
+
+describe('PURITY', () => {
+  function deepFreeze(value) {
+    if (value !== null && typeof value === 'object') {
+      Object.getOwnPropertyNames(value).forEach((key) => deepFreeze(value[key]));
+      Object.freeze(value);
+    }
+    return value;
+  }
+
+  it('buildFilingConfirmation and buildFilingRejection never mutate the envelope they are given', () => {
+    const filingKey = buildFilingKey(MESSAGE_ID, ATTACHMENT_ID);
+    const rawPrevious = {
+      schemaVersion: 1,
+      transactionId: 'txn-20260715-aaaaaaaa',
+      agentId: AGENT_ID,
+      type: 'buyer_purchase',
+      state: 'conditional',
+      address: '12 Main St',
+      createdAt: AT,
+      updatedAt: AT,
+      events: [],
+      filings: {
+        [filingKey]: {
+          messageId: MESSAGE_ID,
+          attachmentId: ATTACHMENT_ID,
+          filename: 'agreement.pdf',
+          status: 'seen',
+          review: 'needs_review',
+        },
+      },
+    };
+
+    const previous = deepFreeze(JSON.parse(JSON.stringify(rawPrevious)));
+    const beforeSnapshot = JSON.parse(JSON.stringify(rawPrevious));
+
+    const confirmResult = buildFilingConfirmation(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+    expect(confirmResult.transaction).not.toBe(previous);
+
+    const rejectResult = buildFilingRejection(previous, { messageId: MESSAGE_ID, attachmentId: ATTACHMENT_ID, at: AT2, actor: 'agent' });
+    expect(rejectResult.transaction).not.toBe(previous);
+
+    expect(previous).toEqual(beforeSnapshot);
   });
 });
