@@ -229,7 +229,7 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
 // the NEXT envelope, not saved, and never mutates `previous` (every write
 // below is a spread onto a new object). See createProposalSet for the
 // thin wrapper that actually reads and saves.
-function buildProposalSet(previous, { messageId, attachmentId, members, at, actor }) {
+function buildProposalSet(previous, { transactionId, messageId, attachmentId, members, at, actor }) {
   assertActor('buildProposalSet', actor, 'system');
 
   if (!Array.isArray(members)) {
@@ -246,7 +246,7 @@ function buildProposalSet(previous, { messageId, attachmentId, members, at, acto
   const filing = previousFilings[filingKey];
 
   if (!filing) {
-    throw new Error(`buildProposalSet: no filing record '${filingKey}' on transaction ${previous.transactionId}`);
+    throw new Error(`buildProposalSet: no filing record '${filingKey}' on transaction ${transactionId}`);
   }
   if (filing.status !== FILED_STATUS) {
     throw new Error(`buildProposalSet: filing '${filingKey}' is '${filing.status}', not '${FILED_STATUS}'`);
@@ -286,7 +286,7 @@ function buildProposalSet(previous, { messageId, attachmentId, members, at, acto
 
   const setId = generateProposalSetId();
   if (existingSetIds.has(setId)) {
-    throw new Error(`buildProposalSet: generated set id '${setId}' is already in use on transaction ${previous.transactionId}`);
+    throw new Error(`buildProposalSet: generated set id '${setId}' is already in use on transaction ${transactionId}`);
   }
 
   const memberIds = [];
@@ -294,7 +294,7 @@ function buildProposalSet(previous, { messageId, attachmentId, members, at, acto
   members.forEach((member) => {
     const memberId = generateProposalMemberId();
     if (existingMemberIds.has(memberId)) {
-      throw new Error(`buildProposalSet: generated member id '${memberId}' is already in use on transaction ${previous.transactionId}`);
+      throw new Error(`buildProposalSet: generated member id '${memberId}' is already in use on transaction ${transactionId}`);
     }
     existingMemberIds.add(memberId);
     memberIds.push(memberId);
@@ -336,7 +336,7 @@ function createProposalSet(agentId, transactionId, messageId, attachmentId, memb
   const { at, actor, baseDir, now } = opts;
 
   const previous = readExisting('createProposalSet', agentId, transactionId, baseDir);
-  const result = buildProposalSet(previous, { messageId, attachmentId, members, at, actor });
+  const result = buildProposalSet(previous, { transactionId, messageId, attachmentId, members, at, actor });
 
   if (result.outcome !== 'created') {
     return { outcome: result.outcome };
@@ -349,7 +349,7 @@ function createProposalSet(agentId, transactionId, messageId, attachmentId, memb
 // -- buildMemberRejection ---------------------------------------------------------
 
 // Pure, same mutation contract as buildProposalSet.
-function buildMemberRejection(previous, { setId, memberId, at, actor }) {
+function buildMemberRejection(previous, { transactionId, setId, memberId, at, actor }) {
   assertActor('buildMemberRejection', actor, 'agent');
 
   if (!PROPOSAL_SET_ID_RE.test(setId)) {
@@ -362,12 +362,12 @@ function buildMemberRejection(previous, { setId, memberId, at, actor }) {
   const previousProposals = previous.participantProposals || {};
   const set = previousProposals[setId];
   if (!set) {
-    throw new Error(`buildMemberRejection: no proposal set '${setId}' on transaction ${previous.transactionId}`);
+    throw new Error(`buildMemberRejection: no proposal set '${setId}' on transaction ${transactionId}`);
   }
 
   const member = set.members[memberId];
   if (!member) {
-    throw new Error(`buildMemberRejection: '${memberId}' is not a member of proposal set '${setId}' on transaction ${previous.transactionId}`);
+    throw new Error(`buildMemberRejection: '${memberId}' is not a member of proposal set '${setId}' on transaction ${transactionId}`);
   }
 
   if (set.status !== 'open') {
@@ -401,7 +401,7 @@ function rejectProposalMember(agentId, transactionId, setId, memberId, opts = {}
   const { at, actor, baseDir, now } = opts;
 
   const previous = readExisting('rejectProposalMember', agentId, transactionId, baseDir);
-  const result = buildMemberRejection(previous, { setId, memberId, at, actor });
+  const result = buildMemberRejection(previous, { transactionId, setId, memberId, at, actor });
 
   if (result.outcome !== 'rejected') {
     return { outcome: result.outcome };

@@ -631,4 +631,54 @@ describe('PURITY', () => {
 
     expect(previous).toEqual(beforeSnapshot);
   });
+
+  it('buildProposalSet: the no-such-filing error names the transactionId it was given, not the one on the envelope', () => {
+    const envelopeTransactionId = 'txn-20260715-eeeeeeee';
+    const givenTransactionId = 'txn-20260101-deadbeef';
+    const rawPrevious = {
+      schemaVersion: 1,
+      transactionId: envelopeTransactionId,
+      agentId: AGENT_ID,
+      type: 'buyer_purchase',
+      state: 'conditional',
+      address: '12 Main St',
+      createdAt: AT,
+      updatedAt: AT,
+      events: [],
+    };
+    const filingKey = buildFilingKey('msg-missing', 'att-missing');
+
+    expect(() => buildProposalSet(rawPrevious, {
+      transactionId: givenTransactionId,
+      messageId: 'msg-missing',
+      attachmentId: 'att-missing',
+      members: [],
+      at: AT2,
+      actor: 'system',
+    })).toThrow(`buildProposalSet: no filing record '${filingKey}' on transaction ${givenTransactionId}`);
+  });
+
+  it('buildMemberRejection: the no-such-set error names the transactionId it was given, not the one on the envelope', () => {
+    const envelopeTransactionId = 'txn-20260715-fffffff0';
+    const givenTransactionId = 'txn-20260101-deadbeef';
+    const rawPrevious = {
+      schemaVersion: 1,
+      transactionId: envelopeTransactionId,
+      agentId: AGENT_ID,
+      type: 'buyer_purchase',
+      state: 'conditional',
+      address: '12 Main St',
+      createdAt: AT,
+      updatedAt: AT,
+      events: [],
+    };
+
+    expect(() => buildMemberRejection(rawPrevious, {
+      transactionId: givenTransactionId,
+      setId: 'pps-11111111',
+      memberId: 'ppm-11111111',
+      at: AT2,
+      actor: 'agent',
+    })).toThrow(`buildMemberRejection: no proposal set 'pps-11111111' on transaction ${givenTransactionId}`);
+  });
 });
