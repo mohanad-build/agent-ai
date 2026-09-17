@@ -965,8 +965,26 @@ describe('PURITY', () => {
       },
     });
 
-    expect(() => buildParticipant(rawPrevious, { roles: ['client'], at: AT, actor: 'agent' }))
+    expect(() => buildParticipant(rawPrevious, { transactionId, roles: ['client'], at: AT, actor: 'agent' }))
       .toThrow(`addParticipant: generated id 'per-11111111' is already in use on transaction ${transactionId}`);
+
+    spy.mockRestore();
+  });
+
+  it('the collision error names the transactionId it was given, not the one on the envelope', () => {
+    const envelopeTransactionId = 'txn-20260715-eeeeeeee';
+    const givenTransactionId = 'txn-20260101-deadbeef';
+    const fixedBytes = Buffer.from('11111111', 'hex');
+    const spy = jest.spyOn(crypto, 'randomBytes').mockReturnValue(fixedBytes);
+
+    const rawPrevious = makeRawPrevious(envelopeTransactionId, {
+      voidedParticipants: {
+        'per-11111111': { roles: ['client'], at: AT, actor: 'agent', reason: 'recorded_in_error' },
+      },
+    });
+
+    expect(() => buildParticipant(rawPrevious, { transactionId: givenTransactionId, roles: ['client'], at: AT, actor: 'agent' }))
+      .toThrow(`addParticipant: generated id 'per-11111111' is already in use on transaction ${givenTransactionId}`);
 
     spy.mockRestore();
   });

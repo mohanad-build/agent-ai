@@ -190,7 +190,7 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
 // non-writing answers, every failure throws. See addParticipant below for
 // the thin wrapper that actually reads and saves -- same split as
 // buildProposalSet / createProposalSet (proposals.js:232-347).
-function buildParticipant(previous, { roles, name, emails, phone, entityType, isSelfRepresented, at, actor }) {
+function buildParticipant(previous, { transactionId, roles, name, emails, phone, entityType, isSelfRepresented, at, actor }) {
   assertParticipantFields('addParticipant', { roles, name, emails, phone, entityType, isSelfRepresented });
 
   const entry = { roles: [...roles] };
@@ -226,7 +226,7 @@ function buildParticipant(previous, { roles, name, emails, phone, entityType, is
     Object.prototype.hasOwnProperty.call(previous.participants || {}, id) ||
     Object.prototype.hasOwnProperty.call(previous.voidedParticipants || {}, id)
   ) {
-    throw new Error(`addParticipant: generated id '${id}' is already in use on transaction ${previous.transactionId}`);
+    throw new Error(`addParticipant: generated id '${id}' is already in use on transaction ${transactionId}`);
   }
 
   const event = events.makeEvent({ at, actor, kind: 'participant_added', payload: { id, roles: entry.roles } });
@@ -246,7 +246,7 @@ function addParticipant(agentId, transactionId, roles, opts = {}) {
   const { name, emails, phone, entityType, isSelfRepresented, at, actor, baseDir, now } = opts;
 
   const previous = readExisting('addParticipant', agentId, transactionId, baseDir);
-  const { transaction } = buildParticipant(previous, { roles, name, emails, phone, entityType, isSelfRepresented, at, actor });
+  const { transaction } = buildParticipant(previous, { transactionId, roles, name, emails, phone, entityType, isSelfRepresented, at, actor });
 
   return store.writeTransaction(agentId, transaction, { baseDir, now });
 }
