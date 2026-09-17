@@ -182,11 +182,15 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
   return previous;
 }
 
-// -- addParticipant -----------------------------------------------------------------
+// -- buildParticipant ---------------------------------------------------------------
 
-function addParticipant(agentId, transactionId, roles, opts = {}) {
-  const { name, emails, phone, entityType, isSelfRepresented, at, actor, baseDir, now } = opts;
-
+// Pure: returns { transaction, participantId }, where `transaction` is the
+// NEXT envelope, not saved, and never mutates `previous` (every write below
+// is a spread onto a new object). No outcome key: addParticipant has no
+// non-writing answers, every failure throws. See addParticipant below for
+// the thin wrapper that actually reads and saves -- same split as
+// buildProposalSet / createProposalSet (proposals.js:232-347).
+function buildParticipant(previous, { roles, name, emails, phone, entityType, isSelfRepresented, at, actor }) {
   assertParticipantFields('addParticipant', { roles, name, emails, phone, entityType, isSelfRepresented });
 
   const entry = { roles: [...roles] };
@@ -207,7 +211,6 @@ function addParticipant(agentId, transactionId, roles, opts = {}) {
     entry.isSelfRepresented = isSelfRepresented;
   }
 
-  const previous = readExisting('addParticipant', agentId, transactionId, baseDir);
   const id = generateParticipantId();
 
   // Ids must stay unique across BOTH participants and voidedParticipants,
@@ -223,7 +226,7 @@ function addParticipant(agentId, transactionId, roles, opts = {}) {
     Object.prototype.hasOwnProperty.call(previous.participants || {}, id) ||
     Object.prototype.hasOwnProperty.call(previous.voidedParticipants || {}, id)
   ) {
-    throw new Error(`addParticipant: generated id '${id}' is already in use on transaction ${transactionId}`);
+    throw new Error(`addParticipant: generated id '${id}' is already in use on transaction ${previous.transactionId}`);
   }
 
   const event = events.makeEvent({ at, actor, kind: 'participant_added', payload: { id, roles: entry.roles } });
@@ -234,7 +237,18 @@ function addParticipant(agentId, transactionId, roles, opts = {}) {
     events: events.appendEvent(previous.events, event),
   };
 
-  return store.writeTransaction(agentId, next, { baseDir, now });
+  return { transaction: next, participantId: id };
+}
+
+// -- addParticipant -----------------------------------------------------------------
+
+function addParticipant(agentId, transactionId, roles, opts = {}) {
+  const { name, emails, phone, entityType, isSelfRepresented, at, actor, baseDir, now } = opts;
+
+  const previous = readExisting('addParticipant', agentId, transactionId, baseDir);
+  const { transaction } = buildParticipant(previous, { roles, name, emails, phone, entityType, isSelfRepresented, at, actor });
+
+  return store.writeTransaction(agentId, transaction, { baseDir, now });
 }
 
 // -- voidParticipant ------------------------------------------------------------
@@ -502,6 +516,7 @@ function resolveParticipantByName(transaction, name) {
 }
 
 module.exports = {
+  buildParticipant,
   addParticipant,
   voidParticipant,
   VOID_REASONS,

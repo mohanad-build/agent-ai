@@ -5,7 +5,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, ENTITY_TYPES, assertParticipantFields, resolveParticipantByName } = require('../src/transactions/participants');
+const { buildParticipant, addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, ENTITY_TYPES, assertParticipantFields, resolveParticipantByName } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const store = require('../src/transactions/store');
 const { createTransaction, readTransaction } = store;
@@ -897,5 +897,89 @@ describe('addParticipantEmail', () => {
 
     const after = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(evaluateSignals(after, message).signals.B).toBe(true);
+  });
+});
+
+describe('PURITY', () => {
+  function deepFreeze(value) {
+    if (value !== null && typeof value === 'object') {
+      Object.getOwnPropertyNames(value).forEach((key) => deepFreeze(value[key]));
+      Object.freeze(value);
+    }
+    return value;
+  }
+
+  function makeRawPrevious(transactionId, overrides = {}) {
+    return {
+      schemaVersion: 1,
+      transactionId,
+      agentId: AGENT_ID,
+      type: 'buyer_purchase',
+      state: 'conditional',
+      address: '12 Main St',
+      createdAt: AT,
+      updatedAt: AT,
+      events: [],
+      ...overrides,
+    };
+  }
+
+  it('buildParticipant never mutates the envelope it is given', () => {
+    const rawPrevious = makeRawPrevious('txn-20260715-aaaaaaaa');
+    const previous = deepFreeze(JSON.parse(JSON.stringify(rawPrevious)));
+    const beforeSnapshot = JSON.parse(JSON.stringify(rawPrevious));
+
+    const result = buildParticipant(previous, { roles: ['client'], name: 'Jane Smith', at: AT, actor: 'agent' });
+
+    expect(result.transaction).not.toBe(previous);
+    expect(previous).toEqual(beforeSnapshot);
+  });
+
+  it('buildParticipant writes neither to disk nor through the store', () => {
+    const transactionId = 'txn-20260715-bbbbbbbb';
+    const rawPrevious = makeRawPrevious(transactionId);
+
+    buildParticipant(rawPrevious, { roles: ['client'], at: AT, actor: 'agent' });
+
+    const filePath = store._internal.transactionPath(baseDir, AGENT_ID, transactionId);
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  it('the returned participantId is the key buildParticipant actually wrote into transaction.participants', () => {
+    const rawPrevious = makeRawPrevious('txn-20260715-cccccccc');
+
+    const result = buildParticipant(rawPrevious, { roles: ['client'], name: 'John Smith', at: AT, actor: 'agent' });
+
+    expect(Object.keys(result.transaction.participants)).toEqual([result.participantId]);
+    expect(result.transaction.participants[result.participantId]).toEqual({ roles: ['client'], name: 'John Smith' });
+  });
+
+  it('the collision check fires from inside buildParticipant when the generated id already names a voided participant', () => {
+    const transactionId = 'txn-20260715-dddddddd';
+    const fixedBytes = Buffer.from('11111111', 'hex');
+    const spy = jest.spyOn(crypto, 'randomBytes').mockReturnValue(fixedBytes);
+
+    const rawPrevious = makeRawPrevious(transactionId, {
+      voidedParticipants: {
+        'per-11111111': { roles: ['client'], at: AT, actor: 'agent', reason: 'recorded_in_error' },
+      },
+    });
+
+    expect(() => buildParticipant(rawPrevious, { roles: ['client'], at: AT, actor: 'agent' }))
+      .toThrow(`addParticipant: generated id 'per-11111111' is already in use on transaction ${transactionId}`);
+
+    spy.mockRestore();
+  });
+
+  it('addParticipant returns the store-stamped envelope from store.writeTransaction, not the pre-write transaction buildParticipant itself produces', () => {
+    const created = create();
+    const previous = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    const builderOnly = buildParticipant(previous, { roles: ['client'], at: AT, actor: 'agent' });
+
+    const wrapperResult = addParticipant(AGENT_ID, created.transactionId, ['client'], { at: AT, actor: 'agent', baseDir, now: LATER });
+
+    expect(wrapperResult.updatedAt).toBe(LATER.toISOString());
+    expect(builderOnly.transaction.updatedAt).not.toBe(LATER.toISOString());
   });
 });
