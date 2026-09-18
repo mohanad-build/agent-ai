@@ -5,7 +5,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { buildParticipant, addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, ENTITY_TYPES, assertParticipantFields, resolveParticipantByName } = require('../src/transactions/participants');
+const { buildParticipant, addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, ENTITY_TYPES, assertParticipantFields, resolveParticipantByName, isParticipantId } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const store = require('../src/transactions/store');
 const { createTransaction, readTransaction } = store;
@@ -193,6 +193,35 @@ describe('PARTICIPANT_ID_RE', () => {
     expect(PARTICIPANT_ID_RE.test('per-1A2B3C4D')).toBe(false);
     expect(PARTICIPANT_ID_RE.test('per-1a2b3c4')).toBe(false);
     expect(PARTICIPANT_ID_RE.test('txn-20260715-1a2b3c4d')).toBe(false);
+  });
+});
+
+describe('isParticipantId', () => {
+  it('is true for a valid id', () => {
+    expect(isParticipantId('per-1a2b3c4d')).toBe(true);
+  });
+
+  it('is false for the wrong prefix', () => {
+    expect(isParticipantId('txn-1a2b3c4d')).toBe(false);
+  });
+
+  it('is false for 7 hex characters', () => {
+    expect(isParticipantId('per-1a2b3c4')).toBe(false);
+  });
+
+  it('is false for 9 hex characters', () => {
+    expect(isParticipantId('per-1a2b3c4d5')).toBe(false);
+  });
+
+  it('is false for uppercase hex', () => {
+    expect(isParticipantId('per-1A2B3C4D')).toBe(false);
+  });
+
+  it('is false for non-strings', () => {
+    expect(isParticipantId(null)).toBe(false);
+    expect(isParticipantId(undefined)).toBe(false);
+    expect(isParticipantId(42)).toBe(false);
+    expect(isParticipantId({ id: 'per-1a2b3c4d' })).toBe(false);
   });
 });
 

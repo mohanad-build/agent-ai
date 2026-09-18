@@ -66,6 +66,10 @@ function generateParticipantId() {
   return `per-${crypto.randomBytes(4).toString('hex')}`;
 }
 
+function isParticipantId(value) {
+  return typeof value === 'string' && PARTICIPANT_ID_RE.test(value);
+}
+
 // -- Argument assertions ------------------------------------------------------------
 
 function assertNonEmptyString(fnName, name, value) {
@@ -528,6 +532,7 @@ module.exports = {
   ENTITY_TYPES,
   assertParticipantFields,
   resolveParticipantByName,
+  isParticipantId,
 };
 
 module.exports._internal = {

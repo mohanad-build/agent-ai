@@ -56,7 +56,7 @@ const { normalizeEmailAddress } = require('./emailAddress');
 // -- Constants ----------------------------------------------------------------
 
 const PROPOSAL_SET_STATUSES = Object.freeze(['open', 'confirmed', 'discarded']);
-const PROPOSAL_MEMBER_STATUSES = Object.freeze(['pending', 'rejected']);
+const PROPOSAL_MEMBER_STATUSES = Object.freeze(['pending', 'rejected', 'confirmed']);
 
 // One kind today: every proposal set is born from a filed document.
 // Frozen and exported anyway, the same reasoning as VOID_REASONS and
@@ -376,6 +376,15 @@ function buildMemberRejection(previous, { transactionId, setId, memberId, at, ac
   if (member.status === 'rejected') {
     return { outcome: 'already_rejected' };
   }
+  // Unreachable through current writers: buildSetConfirmation only ever
+  // marks a member 'confirmed' in the same atomic write that marks its
+  // set 'confirmed', so the set.status !== 'open' check above already
+  // catches every real caller. This is an invariant guard against that
+  // assumption ever breaking, not a reachable outcome, so it throws
+  // rather than returning one.
+  if (member.status === 'confirmed') {
+    throw new Error(`buildMemberRejection: member ${memberId} of set ${setId} is 'confirmed' but the set is '${set.status}'; a confirmed member cannot be rejected`);
+  }
 
   const nextMember = { ...member, status: 'rejected', rejectedAt: at };
   // The set's own status is left exactly as it was, even when this
@@ -413,20 +422,29 @@ function rejectProposalMember(agentId, transactionId, setId, memberId, opts = {}
 
 // -- buildSetConfirmation ----------------------------------------------------------
 
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 // Pure, same contract as buildProposalSet and buildMemberRejection. Marks the
-// SET 'confirmed' and nothing else: it does not touch a participants map,
-// does not read or write one, does not know a participantId exists.
-// Recording each member's participantId is 4c's job when it composes this
-// builder with buildParticipant into one atomic save (TC_SPEC section 14,
-// not this commit); this builder's job stops at the set's own status.
+// SET 'confirmed' and records, on each pending member, the participant id it
+// became: participantIds is the caller's map from member id to the
+// participant id 4c-1's composed confirm produced for that member by calling
+// buildParticipant. This builder never generates a participant id itself and
+// never touches a participants map -- it only writes the id it is given onto
+// the matching member.
 //
 // No wrapper. 4c composes this directly; there is no confirmProposalSet
 // analogous to createProposalSet/rejectProposalMember in this commit.
-function buildSetConfirmation(previous, { transactionId, setId, at, actor }) {
+function buildSetConfirmation(previous, { transactionId, setId, participantIds, at, actor }) {
   assertActor('buildSetConfirmation', actor, 'agent');
 
   if (!PROPOSAL_SET_ID_RE.test(setId)) {
     throw new Error('buildSetConfirmation: setId must match the pps- id format');
+  }
+
+  if (!isPlainObject(participantIds)) {
+    throw new Error('buildSetConfirmation: participantIds must be a plain object');
   }
 
   const previousProposals = previous.participantProposals || {};
@@ -447,7 +465,37 @@ function buildSetConfirmation(previous, { transactionId, setId, at, actor }) {
     throw new Error(`buildSetConfirmation: set '${setId}' is 'discarded' and cannot be confirmed on transaction ${transactionId}`);
   }
 
-  const nextSet = { ...set, status: 'confirmed' };
+  // Coverage: every pending member must be named in participantIds, and
+  // every name in participantIds must point at a pending member -- a
+  // rejected or nonexistent key is as much a caller bug as a missing one,
+  // and gets the same message, since neither names a pending member of
+  // this set.
+  Object.keys(set.members).forEach((memberId) => {
+    const member = set.members[memberId];
+    if (member.status === 'pending' && !Object.prototype.hasOwnProperty.call(participantIds, memberId)) {
+      throw new Error(`buildSetConfirmation: participantIds is missing pending member ${memberId} on set ${setId}`);
+    }
+  });
+
+  Object.keys(participantIds).forEach((memberId) => {
+    const member = set.members[memberId];
+    if (!member || member.status !== 'pending') {
+      throw new Error(`buildSetConfirmation: participantIds has entry ${JSON.stringify(memberId)} that is not a pending member of set ${setId}`);
+    }
+    if (!participants.isParticipantId(participantIds[memberId])) {
+      throw new Error(`buildSetConfirmation: participantIds value for member ${memberId} is not a participant id`);
+    }
+  });
+
+  const nextMembers = {};
+  Object.keys(set.members).forEach((memberId) => {
+    const member = set.members[memberId];
+    nextMembers[memberId] = member.status === 'pending'
+      ? { ...member, status: 'confirmed', participantId: participantIds[memberId] }
+      : member;
+  });
+
+  const nextSet = { ...set, status: 'confirmed', members: nextMembers };
 
   const event = events.makeEvent({ at, actor, kind: 'proposal_set_confirmed', payload: { setId } });
 

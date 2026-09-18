@@ -114,8 +114,8 @@ describe('constants', () => {
     expect(Object.isFrozen(PROPOSAL_SET_STATUSES)).toBe(true);
   });
 
-  it('PROPOSAL_MEMBER_STATUSES is exactly pending, rejected, and is frozen', () => {
-    expect(PROPOSAL_MEMBER_STATUSES).toEqual(['pending', 'rejected']);
+  it('PROPOSAL_MEMBER_STATUSES is exactly pending, rejected, confirmed, and is frozen', () => {
+    expect(PROPOSAL_MEMBER_STATUSES).toEqual(['pending', 'rejected', 'confirmed']);
     expect(Object.isFrozen(PROPOSAL_MEMBER_STATUSES)).toBe(true);
   });
 
@@ -563,22 +563,64 @@ describe('rejectProposalMember', () => {
     const rejectedEvents = readTransaction(AGENT_ID, transactionId, { baseDir }).events.filter((e) => e.kind === 'proposal_member_rejected');
     expect(rejectedEvents).toHaveLength(0);
   });
+
+  it('an invariant guard throws rejecting a confirmed member of a set that is still open, a state unreachable through current writers, built by hand', () => {
+    const setId = 'pps-44444444';
+    const memberId = 'ppm-44444444';
+    const rawPrevious = {
+      schemaVersion: 1,
+      transactionId: 'txn-20260715-cccccccc',
+      agentId: AGENT_ID,
+      type: 'buyer_purchase',
+      state: 'conditional',
+      address: '12 Main St',
+      createdAt: AT,
+      updatedAt: AT,
+      events: [],
+      participantProposals: {
+        [setId]: {
+          status: 'open',
+          createdAt: AT,
+          actor: 'system',
+          source: { kind: 'document', filingKey: buildFilingKey('msg-C', 'att-C'), contentHash: 'sha256:cccc', filename: 'c.pdf', receivedAt: AT },
+          members: { [memberId]: { roles: ['client'], name: 'Confirmed Person', status: 'confirmed', participantId: 'per-11111111' } },
+        },
+      },
+    };
+    const previous = deepFreeze(JSON.parse(JSON.stringify(rawPrevious)));
+    const beforeSnapshot = JSON.parse(JSON.stringify(rawPrevious));
+
+    expect(() => buildMemberRejection(previous, { transactionId: rawPrevious.transactionId, setId, memberId, at: AT3, actor: 'agent' }))
+      .toThrow(`buildMemberRejection: member ${memberId} of set ${setId} is 'confirmed' but the set is 'open'; a confirmed member cannot be rejected`);
+    expect(previous).toEqual(beforeSnapshot);
+  });
 });
 
 describe('buildSetConfirmation', () => {
-  function makeOpenSet() {
+  function makeOpenSet(members = [VALID_MEMBER]) {
     const filed = createFiledTransaction();
-    const created = createProposalSet(AGENT_ID, filed.transactionId, MESSAGE_ID, ATTACHMENT_ID, [VALID_MEMBER], {
+    const created = createProposalSet(AGENT_ID, filed.transactionId, MESSAGE_ID, ATTACHMENT_ID, members, {
       at: AT2, actor: 'system', baseDir, now: EVEN_LATER,
     });
-    return { transactionId: filed.transactionId, setId: created.setId };
+    const memberIds = Object.keys(created.transaction.participantProposals[created.setId].members);
+    return { transactionId: filed.transactionId, setId: created.setId, memberIds };
+  }
+
+  // Builds a valid participantIds map for a list of pending member ids,
+  // minting a distinct, well-formatted per- id for each.
+  function makeParticipantIds(memberIds) {
+    const map = {};
+    memberIds.forEach((memberId, index) => {
+      map[memberId] = `per-${String(index).padStart(8, '0')}`;
+    });
+    return map;
   }
 
   it('marks the set confirmed and emits a proposal_set_confirmed event', () => {
-    const { transactionId, setId } = makeOpenSet();
+    const { transactionId, setId, memberIds } = makeOpenSet();
     const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
 
-    const result = buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+    const result = buildSetConfirmation(previous, { transactionId, setId, participantIds: makeParticipantIds(memberIds), at: AT3, actor: 'agent' });
 
     expect(result.outcome).toBe('confirmed');
     expect(result.transaction.participantProposals[setId].status).toBe('confirmed');
@@ -591,7 +633,7 @@ describe('buildSetConfirmation', () => {
     const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
     const givenTransactionId = 'txn-20260101-deadbeef';
 
-    expect(() => buildSetConfirmation(previous, { transactionId: givenTransactionId, setId: 'pps-ffffffff', at: AT3, actor: 'agent' }))
+    expect(() => buildSetConfirmation(previous, { transactionId: givenTransactionId, setId: 'pps-ffffffff', participantIds: {}, at: AT3, actor: 'agent' }))
       .toThrow(`buildSetConfirmation: no proposal set 'pps-ffffffff' on transaction ${givenTransactionId}`);
   });
 
@@ -604,11 +646,11 @@ describe('buildSetConfirmation', () => {
   });
 
   it('a set already confirmed returns already_confirmed and writes nothing further', () => {
-    const { transactionId, setId } = makeOpenSet();
+    const { transactionId, setId, memberIds } = makeOpenSet();
     const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
-    const firstResult = buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+    const firstResult = buildSetConfirmation(previous, { transactionId, setId, participantIds: makeParticipantIds(memberIds), at: AT3, actor: 'agent' });
 
-    const secondResult = buildSetConfirmation(firstResult.transaction, { transactionId, setId, at: AT3, actor: 'agent' });
+    const secondResult = buildSetConfirmation(firstResult.transaction, { transactionId, setId, participantIds: {}, at: AT3, actor: 'agent' });
 
     expect(secondResult).toEqual({ outcome: 'already_confirmed' });
   });
@@ -618,8 +660,130 @@ describe('buildSetConfirmation', () => {
     const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
     const discardResult = buildSetDiscard(previous, { transactionId, setId, at: AT3, actor: 'agent' });
 
-    expect(() => buildSetConfirmation(discardResult.transaction, { transactionId, setId, at: AT3, actor: 'agent' }))
+    expect(() => buildSetConfirmation(discardResult.transaction, { transactionId, setId, participantIds: {}, at: AT3, actor: 'agent' }))
       .toThrow(`buildSetConfirmation: set '${setId}' is 'discarded' and cannot be confirmed on transaction ${transactionId}`);
+  });
+
+  it('participantIds must be a plain object: null, array, and missing each throw', () => {
+    const { transactionId, setId } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, participantIds: null, at: AT3, actor: 'agent' }))
+      .toThrow('buildSetConfirmation: participantIds must be a plain object');
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, participantIds: [], at: AT3, actor: 'agent' }))
+      .toThrow('buildSetConfirmation: participantIds must be a plain object');
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'agent' }))
+      .toThrow('buildSetConfirmation: participantIds must be a plain object');
+  });
+
+  it('a missing pending member throws', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet([VALID_MEMBER, { roles: ['co_client'], name: 'John Smith' }]);
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const partialParticipantIds = makeParticipantIds([memberIds[0]]);
+
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, participantIds: partialParticipantIds, at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetConfirmation: participantIds is missing pending member ${memberIds[1]} on set ${setId}`);
+  });
+
+  it('a key naming a rejected member throws', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet([VALID_MEMBER, { roles: ['co_client'], name: 'John Smith' }]);
+    rejectProposalMember(AGENT_ID, transactionId, setId, memberIds[1], { at: AT3, actor: 'agent', baseDir, now: YET_LATER });
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const participantIds = makeParticipantIds(memberIds);
+
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, participantIds, at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetConfirmation: participantIds has entry ${JSON.stringify(memberIds[1])} that is not a pending member of set ${setId}`);
+  });
+
+  it('a key naming a nonexistent member throws', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const participantIds = { ...makeParticipantIds(memberIds), 'ppm-ffffffff': 'per-ffffffff' };
+
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, participantIds, at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetConfirmation: participantIds has entry "ppm-ffffffff" that is not a pending member of set ${setId}`);
+  });
+
+  it('a bad participant id value throws', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+
+    expect(() => buildSetConfirmation(previous, { transactionId, setId, participantIds: { [memberIds[0]]: 'not-a-participant-id' }, at: AT3, actor: 'agent' }))
+      .toThrow(`buildSetConfirmation: participantIds value for member ${memberIds[0]} is not a participant id`);
+  });
+
+  it('pending members become confirmed with the mapped participantId', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet([VALID_MEMBER, { roles: ['co_client'], name: 'John Smith' }]);
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const participantIds = makeParticipantIds(memberIds);
+
+    const result = buildSetConfirmation(previous, { transactionId, setId, participantIds, at: AT3, actor: 'agent' });
+
+    const members = result.transaction.participantProposals[setId].members;
+    expect(members[memberIds[0]].status).toBe('confirmed');
+    expect(members[memberIds[0]].participantId).toBe(participantIds[memberIds[0]]);
+    expect(members[memberIds[1]].status).toBe('confirmed');
+    expect(members[memberIds[1]].participantId).toBe(participantIds[memberIds[1]]);
+  });
+
+  it('rejected members are unchanged, byte for byte', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet([VALID_MEMBER, { roles: ['co_client'], name: 'John Smith' }]);
+    rejectProposalMember(AGENT_ID, transactionId, setId, memberIds[1], { at: AT3, actor: 'agent', baseDir, now: YET_LATER });
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const rejectedMemberBefore = previous.participantProposals[setId].members[memberIds[1]];
+    const participantIds = makeParticipantIds([memberIds[0]]);
+
+    const result = buildSetConfirmation(previous, { transactionId, setId, participantIds, at: AT3, actor: 'agent' });
+
+    expect(result.transaction.participantProposals[setId].members[memberIds[1]]).toEqual(rejectedMemberBefore);
+  });
+
+  it('an all-rejected set confirms with {} and creates no member changes', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet([VALID_MEMBER, { roles: ['co_client'], name: 'John Smith' }]);
+    rejectProposalMember(AGENT_ID, transactionId, setId, memberIds[0], { at: AT3, actor: 'agent', baseDir, now: YET_LATER });
+    rejectProposalMember(AGENT_ID, transactionId, setId, memberIds[1], { at: AT3, actor: 'agent', baseDir, now: YET_LATER });
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const membersBefore = previous.participantProposals[setId].members;
+
+    const result = buildSetConfirmation(previous, { transactionId, setId, participantIds: {}, at: AT3, actor: 'agent' });
+
+    expect(result.outcome).toBe('confirmed');
+    expect(result.transaction.participantProposals[setId].status).toBe('confirmed');
+    expect(result.transaction.participantProposals[setId].members).toEqual(membersBefore);
+  });
+
+  it('already_confirmed returns without validating participantIds', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet();
+    const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const firstResult = buildSetConfirmation(previous, { transactionId, setId, participantIds: makeParticipantIds(memberIds), at: AT3, actor: 'agent' });
+
+    const secondResult = buildSetConfirmation(firstResult.transaction, { transactionId, setId, participantIds: {}, at: AT3, actor: 'agent' });
+
+    expect(secondResult).toEqual({ outcome: 'already_confirmed' });
+
+    // Coverage validation would reject this map outright (unknown key,
+    // malformed value) if it ran -- passing it against the now-confirmed
+    // set and still getting already_confirmed is what proves the guard
+    // fires BEFORE coverage validation, not just that {} happens to pass.
+    const thirdResult = buildSetConfirmation(firstResult.transaction, {
+      transactionId, setId, participantIds: { 'ppm-bogus00': 'not-a-participant-id' }, at: AT3, actor: 'agent',
+    });
+    expect(thirdResult).toEqual({ outcome: 'already_confirmed' });
+  });
+
+  it('purity: buildSetConfirmation never mutates previous or participantIds', () => {
+    const { transactionId, setId, memberIds } = makeOpenSet([VALID_MEMBER, { roles: ['co_client'], name: 'John Smith' }]);
+    const rawPrevious = readTransaction(AGENT_ID, transactionId, { baseDir });
+    const previous = deepFreeze(JSON.parse(JSON.stringify(rawPrevious)));
+    const beforeSnapshot = JSON.parse(JSON.stringify(rawPrevious));
+    const participantIds = deepFreeze(makeParticipantIds(memberIds));
+    const participantIdsSnapshot = JSON.parse(JSON.stringify(participantIds));
+
+    const result = buildSetConfirmation(previous, { transactionId, setId, participantIds, at: AT3, actor: 'agent' });
+
+    expect(result.outcome).toBe('confirmed');
+    expect(previous).toEqual(beforeSnapshot);
+    expect(participantIds).toEqual(participantIdsSnapshot);
   });
 });
 
@@ -629,7 +793,8 @@ describe('buildSetDiscard', () => {
     const created = createProposalSet(AGENT_ID, filed.transactionId, MESSAGE_ID, ATTACHMENT_ID, [VALID_MEMBER], {
       at: AT2, actor: 'system', baseDir, now: EVEN_LATER,
     });
-    return { transactionId: filed.transactionId, setId: created.setId };
+    const memberIds = Object.keys(created.transaction.participantProposals[created.setId].members);
+    return { transactionId: filed.transactionId, setId: created.setId, memberIds };
   }
 
   it('marks the set discarded and emits a proposal_set_discarded event', () => {
@@ -672,9 +837,9 @@ describe('buildSetDiscard', () => {
   });
 
   it('throws discarding a set that is already confirmed, naming the set, its status, and the refused transition', () => {
-    const { transactionId, setId } = makeOpenSet();
+    const { transactionId, setId, memberIds } = makeOpenSet();
     const previous = readTransaction(AGENT_ID, transactionId, { baseDir });
-    const confirmResult = buildSetConfirmation(previous, { transactionId, setId, at: AT3, actor: 'agent' });
+    const confirmResult = buildSetConfirmation(previous, { transactionId, setId, participantIds: { [memberIds[0]]: 'per-00000000' }, at: AT3, actor: 'agent' });
 
     expect(() => buildSetDiscard(confirmResult.transaction, { transactionId, setId, at: AT3, actor: 'agent' }))
       .toThrow(`buildSetDiscard: set '${setId}' is 'confirmed' and cannot be discarded on transaction ${transactionId}`);
@@ -835,7 +1000,7 @@ describe('PURITY', () => {
     const previous = deepFreeze(JSON.parse(JSON.stringify(rawPrevious)));
     const beforeSnapshot = JSON.parse(JSON.stringify(rawPrevious));
 
-    const confirmResult = buildSetConfirmation(previous, { transactionId: rawPrevious.transactionId, setId: frozenSetIdA, at: AT2, actor: 'agent' });
+    const confirmResult = buildSetConfirmation(previous, { transactionId: rawPrevious.transactionId, setId: frozenSetIdA, participantIds: { 'ppm-22222222': 'per-00000000' }, at: AT2, actor: 'agent' });
     expect(confirmResult.outcome).toBe('confirmed');
     expect(confirmResult.transaction).not.toBe(previous);
 
