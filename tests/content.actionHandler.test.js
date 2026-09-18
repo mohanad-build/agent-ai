@@ -157,6 +157,8 @@ beforeEach(() => {
   maybeRunDailyDigest.mockResolvedValue();
 });
 
+afterEach(() => jest.restoreAllMocks());
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('runActionHandler', () => {
@@ -461,5 +463,33 @@ describe('runActionHandler', () => {
       expect.objectContaining({ body: expect.stringContaining('Something went wrong') })
     );
     expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
+  });
+
+  test('emits an [auth-results] log line for a recognized sender, with no email address in it', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const msg = makeMsg({ subject: 'APPROVE reel-001' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    const authLine = logSpy.mock.calls.map(call => call[0]).find(line => line.startsWith('[auth-results]'));
+    expect(authLine).toBeDefined();
+    expect(authLine).toContain('messageId=msg-1');
+    expect(authLine).toContain('recognized=true');
+    expect(authLine).not.toContain('@');
+  });
+
+  test('emits an [auth-results] log line for an unrecognized sender, with no email address in it', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const msg = makeMsg({ from: 'unknown@other.com', subject: 'APPROVE reel-001' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    const authLine = logSpy.mock.calls.map(call => call[0]).find(line => line.startsWith('[auth-results]'));
+    expect(authLine).toBeDefined();
+    expect(authLine).toContain('messageId=msg-1');
+    expect(authLine).toContain('recognized=false');
+    expect(authLine).not.toContain('@');
   });
 });

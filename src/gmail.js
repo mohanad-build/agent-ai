@@ -11,6 +11,7 @@ const { getStorageRoot } = require('./storagePaths');
 const { parseRecipientList } = require('./recipientParsing');
 const { decryptToken } = require('./tokenCrypto');
 const { patchAgent } = require('./agentConfig');
+const { parseAuthResults } = require('./authResults');
 
 // Module state
 const oauthClientCache = new Map();
@@ -298,6 +299,7 @@ function parseGmailMessage(message) {
       : null,
     hasAttachments: attachmentInfo.length > 0,
     attachmentInfo,
+    authResults: parseAuthResults(headers),
   };
 }
 

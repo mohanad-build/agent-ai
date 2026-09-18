@@ -13,6 +13,7 @@ const { renderBlogPost }          = require('./renderBlogPost');
 const { callRaw, MODELS, stripCodeFences } = require('../claude');
 const gmail                       = require('../gmail');
 const email                       = require('../email');
+const { parseAuthResults }        = require('../authResults');
 const { getStorageRoot }          = require('../storagePaths');
 const { clearLeadAndLogNote, parseCommandToken } = require('../webhook');
 const { CALL_NOTE_LABEL, stripCallNote }         = require('../callNote');
@@ -364,6 +365,9 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
   const agentConfig = allAgentConfigs.find(c =>
     (c.gmailAddress || '').toLowerCase().trim() === fromEmail
   );
+
+  const a = msg.authResults || parseAuthResults(undefined);
+  console.log(`[auth-results] messageId=${msg.messageId} recognized=${!!agentConfig} trusted=${a.trusted} reason=${a.reason} dmarc=${a.dmarc || '-'} dkim=${a.dkim || '-'} spf=${a.spf || '-'} fromDomain=${a.fromDomain || '-'}`);
 
   if (!agentConfig) {
     console.log(`[actionHandler] unrecognized sender: ${fromEmail}`);

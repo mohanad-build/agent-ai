@@ -61,4 +61,24 @@ describe('parseGmailMessage recipients', () => {
     expect(result.hasAttachments).toBe(false);
     expect(result.attachmentInfo).toEqual([]);
   });
+
+  it('returns an authResults verdict parsed from the Authentication-Results header', () => {
+    const message = makeMessage({ 'Authentication-Results': 'mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=gmail.com' });
+
+    const result = parseGmailMessage(message);
+
+    expect(result.authResults).toEqual({
+      trusted: true, reason: 'ok', dmarc: 'pass', dkim: 'pass', spf: 'pass', fromDomain: 'gmail.com',
+    });
+  });
+
+  it('returns the safe untrusted shape when no Authentication-Results header is present', () => {
+    const message = makeMessage();
+
+    const result = parseGmailMessage(message);
+
+    expect(result.authResults).toEqual({
+      trusted: false, reason: 'none', dmarc: null, dkim: null, spf: null, fromDomain: null,
+    });
+  });
 });
