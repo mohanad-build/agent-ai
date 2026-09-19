@@ -56,8 +56,9 @@ const { renderReelScript }                = require('../src/content/renderReelSc
 const { renderInstagramCaption }          = require('../src/content/renderInstagramCaption');
 const { renderBlogPost }                  = require('../src/content/renderBlogPost');
 const { currentWeek }                     = require('../src/content/cache');
+const { getNowDate }                      = require('../src/time');
 const { maybeRunDailyDigest }             = require('../src/index');
-const { runActionHandler }                = require('../src/content/actionHandler');
+const { runActionHandler, _internal }     = require('../src/content/actionHandler');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -127,6 +128,7 @@ beforeEach(() => {
   jest.clearAllMocks();
 
   currentWeek.mockReturnValue(WEEK_ISO);
+  getNowDate.mockReturnValue(new Date('2026-05-20T00:00:00.000Z'));
 
   readFileSync.mockImplementation(filePath => {
     if (String(filePath).includes('assistant.token.json')) {
@@ -157,7 +159,10 @@ beforeEach(() => {
   maybeRunDailyDigest.mockResolvedValue();
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  _internal._resetCooldowns();
+});
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -491,5 +496,167 @@ describe('runActionHandler', () => {
     expect(authLine).toContain('messageId=msg-1');
     expect(authLine).toContain('recognized=false');
     expect(authLine).not.toContain('@');
+  });
+
+  describe('unrecognized-sender reply (7.54.8)', () => {
+    const STRANGER_EMAIL = 'stranger@gmail.com';
+    const PASSING_AUTH_RESULTS = {
+      trusted: true, reason: 'ok', dmarc: 'pass', dkim: 'pass', spf: 'pass', fromDomain: 'gmail.com',
+    };
+    const NOT_AUTOMATED = { automated: false, reason: null };
+    const EXPECTED_SUBJECT = 'GetKlosed: email address not recognized';
+    const EXPECTED_BODY =
+      "We couldn't match this email address to a GetKlosed account, so nothing was changed.\n\n" +
+      "If you're a GetKlosed agent, please send it again from the email address your account is set up with. If you're not sure which address that is, contact mohanad@getklosed.ca.";
+
+    function makeUnrecognizedMsg(overrides = {}) {
+      return makeMsg({
+        from: `Stranger <${STRANGER_EMAIL}>`,
+        automation: NOT_AUTOMATED,
+        authResults: PASSING_AUTH_RESULTS,
+        ...overrides,
+      });
+    }
+
+    function findLine(logSpy, prefix) {
+      return logSpy.mock.calls.map(call => call[0]).find(line => line.startsWith(prefix));
+    }
+
+    test('all gates pass: sends the fixed notice with autoSubmitted, marks read, logs sent', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const msg = makeUnrecognizedMsg();
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: 'assistant' }),
+        {
+          to: STRANGER_EMAIL,
+          subject: EXPECTED_SUBJECT,
+          body: EXPECTED_BODY,
+          autoSubmitted: true,
+        }
+      );
+      expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
+      expect(findLine(logSpy, '[unrecognized-reply]')).toBe('[unrecognized-reply] messageId=msg-1 decision=sent reason=-');
+    });
+
+    test.each([
+      ['automated', () => makeUnrecognizedMsg({ automation: { automated: true, reason: 'system_sender' } })],
+      ['automated (msg.automation absent)', () => makeUnrecognizedMsg({ automation: undefined })],
+      ['untrusted', () => makeUnrecognizedMsg({ authResults: { ...PASSING_AUTH_RESULTS, trusted: false, reason: 'first_not_google' } })],
+      ['untrusted (msg.authResults absent)', () => makeUnrecognizedMsg({ authResults: undefined })],
+      ['dmarc_not_pass (dmarc none)', () => makeUnrecognizedMsg({ authResults: { ...PASSING_AUTH_RESULTS, dmarc: 'none' } })],
+      ['dmarc_not_pass (dmarc fail)', () => makeUnrecognizedMsg({ authResults: { ...PASSING_AUTH_RESULTS, dmarc: 'fail' } })],
+      ['invalid_address', () => makeUnrecognizedMsg({ from: 'not-an-email-address' })],
+      ['domain_mismatch', () => makeUnrecognizedMsg({ from: 'Stranger <stranger@evil.com>' })],
+    ])('gate failure - %s: no send, markRead still called, log names the reason', async (expectedReason, buildMsg) => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const label = expectedReason.split(' ')[0]; // strip the parenthetical for the assertion
+      const msg = buildMsg();
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).not.toHaveBeenCalled();
+      expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
+      const line = findLine(logSpy, '[unrecognized-reply]');
+      expect(line).toBe(`[unrecognized-reply] messageId=msg-1 decision=skipped reason=${label}`);
+    });
+
+    test('cooldown: a second message from the same sender within 24h skips with cooldown', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const firstMsg = makeUnrecognizedMsg({ messageId: 'msg-first' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([firstMsg]);
+      await runActionHandler([AGENT_CONFIG]);
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
+
+      getNowDate.mockReturnValue(new Date('2026-05-20T12:00:00.000Z')); // +12h
+      const secondMsg = makeUnrecognizedMsg({ messageId: 'msg-second' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([secondMsg]);
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
+      const line = findLine(logSpy, '[unrecognized-reply] messageId=msg-second');
+      expect(line).toBe('[unrecognized-reply] messageId=msg-second decision=skipped reason=cooldown');
+    });
+
+    test('cooldown: after exactly 24h plus 1ms it sends again', async () => {
+      const firstMsg = makeUnrecognizedMsg({ messageId: 'msg-first' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([firstMsg]);
+      await runActionHandler([AGENT_CONFIG]);
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
+
+      getNowDate.mockReturnValue(new Date(new Date('2026-05-20T00:00:00.000Z').getTime() + 24 * 60 * 60 * 1000 + 1));
+      const secondMsg = makeUnrecognizedMsg({ messageId: 'msg-second' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([secondMsg]);
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(2);
+    });
+
+    test('cooldown: a different sender in that window is unaffected', async () => {
+      const firstMsg = makeUnrecognizedMsg({ messageId: 'msg-first' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([firstMsg]);
+      await runActionHandler([AGENT_CONFIG]);
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
+
+      const otherMsg = makeUnrecognizedMsg({ messageId: 'msg-other', from: 'Other <other@gmail.com>', authResults: { ...PASSING_AUTH_RESULTS, fromDomain: 'gmail.com' } });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([otherMsg]);
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(2);
+      expect(gmail.sendNewEmail).toHaveBeenNthCalledWith(
+        2,
+        expect.any(Object),
+        expect.objectContaining({ to: 'other@gmail.com' })
+      );
+    });
+
+    test('send throws: markRead still called, log reason send_failed, no cooldown recorded so the next message from that sender sends', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      gmail.sendNewEmail.mockRejectedValueOnce(new Error('network blip'));
+      const firstMsg = makeUnrecognizedMsg({ messageId: 'msg-first' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([firstMsg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-first');
+      const line = findLine(logSpy, '[unrecognized-reply] messageId=msg-first');
+      expect(line).toBe('[unrecognized-reply] messageId=msg-first decision=skipped reason=send_failed');
+
+      const secondMsg = makeUnrecognizedMsg({ messageId: 'msg-second' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([secondMsg]);
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(2);
+    });
+
+    test('a recognized sender: no reply sent, behaviour unchanged', async () => {
+      const msg = makeMsg({ subject: 'APPROVE reel-001' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: 'assistant' }),
+        expect.objectContaining({ to: AGENT_EMAIL, subject: 'Re: APPROVE reel-001' })
+      );
+    });
+
+    test('no [unrecognized-reply] line contains an email address', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const msg = makeUnrecognizedMsg();
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const lines = logSpy.mock.calls.map(call => call[0]).filter(line => line.startsWith('[unrecognized-reply]'));
+      expect(lines.length).toBeGreaterThan(0);
+      lines.forEach(line => expect(line).not.toContain('@'));
+    });
   });
 });

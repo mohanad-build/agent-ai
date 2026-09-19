@@ -25,6 +25,22 @@ function getAgentsDir()  { return getStorageRoot(); }
 const REGEN_CAP            = 5;
 const CONFIDENCE_THRESHOLD = 0.7;
 
+// Unrecognized-sender reply gates (7.54.8): never authorize a verb, only
+// decide whether a fixed "we don't know this address" notice goes out.
+// One cooldown entry per address, keyed on the SUCCESSFUL send only -- a
+// throw records nothing, so the next message from that sender gets a
+// fresh attempt rather than being silently suppressed by a send that
+// never actually reached anyone.
+const REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const cooldownByAddress = new Map();
+
+const FROM_ADDRESS_RE = /^[^\s@<>,;]+@[^\s@<>,;]+$/;
+
+const UNRECOGNIZED_REPLY_SUBJECT = 'GetKlosed: email address not recognized';
+const UNRECOGNIZED_REPLY_BODY =
+  "We couldn't match this email address to a GetKlosed account, so nothing was changed.\n\n" +
+  "If you're a GetKlosed agent, please send it again from the email address your account is set up with. If you're not sure which address that is, contact mohanad@getklosed.ca.";
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function loadAssistantConfig() {
@@ -371,6 +387,50 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
 
   if (!agentConfig) {
     console.log(`[actionHandler] unrecognized sender: ${fromEmail}`);
+
+    let decision = 'skipped';
+    let reason = null;
+
+    // Absent automation info is treated as a gate FAILURE, not a pass:
+    // unlike authResults below (whose own safe default already reads as
+    // untrusted), there is no safe stand-in for "we don't know whether
+    // this looked automated" -- not knowing must not read as "not
+    // automated". So this checks msg.automation directly, never a
+    // detectAutomated(undefined) fallback, which would flip the polarity.
+    if (!msg.automation || msg.automation.automated !== false) {
+      reason = 'automated';
+    } else if (a.trusted !== true) {
+      reason = 'untrusted';
+    } else if (a.dmarc !== 'pass') {
+      reason = 'dmarc_not_pass';
+    } else if (!FROM_ADDRESS_RE.test(fromEmail)) {
+      reason = 'invalid_address';
+    } else if (fromEmail.slice(fromEmail.indexOf('@') + 1) !== a.fromDomain) {
+      reason = 'domain_mismatch';
+    } else if (
+      cooldownByAddress.has(fromEmail) &&
+      getNowDate().getTime() - cooldownByAddress.get(fromEmail) < REPLY_COOLDOWN_MS
+    ) {
+      reason = 'cooldown';
+    }
+
+    if (reason === null) {
+      try {
+        await gmail.sendNewEmail(assistantConfig, {
+          to:      fromEmail,
+          subject: UNRECOGNIZED_REPLY_SUBJECT,
+          body:    UNRECOGNIZED_REPLY_BODY,
+          autoSubmitted: true,
+        });
+        cooldownByAddress.set(fromEmail, getNowDate().getTime());
+        decision = 'sent';
+      } catch (err) {
+        reason = 'send_failed';
+      }
+    }
+
+    console.log(`[unrecognized-reply] messageId=${msg.messageId} decision=${decision} reason=${reason || '-'}`);
+
     try {
       await gmail.markRead(assistantConfig, msg.messageId);
     } catch (err) {
@@ -450,3 +510,7 @@ async function runActionHandler(allAgentConfigs) {
 }
 
 module.exports = { runActionHandler };
+
+module.exports._internal = {
+  _resetCooldowns: () => cooldownByAddress.clear(),
+};
