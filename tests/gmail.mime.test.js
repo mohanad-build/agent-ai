@@ -183,3 +183,141 @@ test('subject header present in decoded message', () => {
   const { headers } = parseRawMessage(raw);
   expect(headers['subject']).toBe('Test subject');
 });
+
+// ── Golden fixtures: full raw output pinned BEFORE the Auto-Submitted
+//    switch exists, decoded as a full string (not asserted header-by-header)
+//    so any change to the header block -- new line, different line ending,
+//    different position -- shows up here. These prove existing mail stays
+//    byte-identical once the switch is added and left unused. ──────────────
+
+test('golden: plain new email (sendNewEmail-shaped: no cc/bcc/html/attachments)', () => {
+  const raw = buildRfc5322Message({
+    from: 'Agent Name <agent@example.com>',
+    to: 'lead@example.com',
+    cc: [],
+    bcc: [],
+    subject: 'Hello there',
+    body: 'Plain body text.',
+  });
+  const decoded = decodeBase64url(raw);
+  expect(decoded).toBe(
+    'From: Agent Name <agent@example.com>\r\n' +
+    'To: lead@example.com\r\n' +
+    'Subject: Hello there\r\n' +
+    'MIME-Version: 1.0\r\n' +
+    'Content-Type: text/plain; charset="UTF-8"\r\n' +
+    'Content-Transfer-Encoding: 7bit\r\n' +
+    '\r\n' +
+    'Plain body text.'
+  );
+});
+
+test('golden: new email with Cc and Bcc (sendNewEmail-shaped)', () => {
+  const raw = buildRfc5322Message({
+    from: 'Agent Name <agent@example.com>',
+    to: 'lead@example.com',
+    cc: ['cc1@example.com', 'cc2@example.com'],
+    bcc: ['bcc1@example.com'],
+    subject: 'Hello there',
+    body: 'Plain body text.',
+  });
+  const decoded = decodeBase64url(raw);
+  expect(decoded).toBe(
+    'From: Agent Name <agent@example.com>\r\n' +
+    'To: lead@example.com\r\n' +
+    'Cc: cc1@example.com, cc2@example.com\r\n' +
+    'Bcc: bcc1@example.com\r\n' +
+    'Subject: Hello there\r\n' +
+    'MIME-Version: 1.0\r\n' +
+    'Content-Type: text/plain; charset="UTF-8"\r\n' +
+    'Content-Transfer-Encoding: 7bit\r\n' +
+    '\r\n' +
+    'Plain body text.'
+  );
+});
+
+test('golden: reply-shaped call (sendReply passes no html key)', () => {
+  // sendReply (gmail.js:435-456) calls buildRfc5322Message with exactly
+  // this key set: from, to, cc, bcc, subject (already normalized), body,
+  // attachments -- no html key at all, unlike sendNewEmail.
+  const raw = buildRfc5322Message({
+    from: 'Agent Name <agent@example.com>',
+    to: 'lead@example.com',
+    cc: [],
+    bcc: [],
+    subject: 'Re: Hello there',
+    body: 'Plain reply body.',
+    attachments: undefined,
+  });
+  const decoded = decodeBase64url(raw);
+  expect(decoded).toBe(
+    'From: Agent Name <agent@example.com>\r\n' +
+    'To: lead@example.com\r\n' +
+    'Subject: Re: Hello there\r\n' +
+    'MIME-Version: 1.0\r\n' +
+    'Content-Type: text/plain; charset="UTF-8"\r\n' +
+    'Content-Transfer-Encoding: 7bit\r\n' +
+    '\r\n' +
+    'Plain reply body.'
+  );
+});
+
+// ── Auto-Submitted switch ────────────────────────────────────────────────────
+
+test('autoSubmitted: true emits Auto-Submitted: auto-replied exactly once, in the header block, with CRLF', () => {
+  const raw = buildRfc5322Message({
+    from: 'Agent Name <agent@example.com>',
+    to: 'lead@example.com',
+    cc: [],
+    bcc: [],
+    subject: 'Hello there',
+    body: 'Plain body text.',
+    autoSubmitted: true,
+  });
+  const decoded = decodeBase64url(raw);
+  expect(decoded).toBe(
+    'From: Agent Name <agent@example.com>\r\n' +
+    'To: lead@example.com\r\n' +
+    'Subject: Hello there\r\n' +
+    'Auto-Submitted: auto-replied\r\n' +
+    'MIME-Version: 1.0\r\n' +
+    'Content-Type: text/plain; charset="UTF-8"\r\n' +
+    'Content-Transfer-Encoding: 7bit\r\n' +
+    '\r\n' +
+    'Plain body text.'
+  );
+
+  const [headerBlock] = decoded.split('\r\n\r\n');
+  const occurrences = headerBlock.split('\r\n').filter((line) => line === 'Auto-Submitted: auto-replied');
+  expect(occurrences).toHaveLength(1);
+});
+
+test.each([
+  ['absent', undefined],
+  ['false', false],
+  ["the string 'yes'", 'yes'],
+  ['the number 1', 1],
+  ["the string 'true'", 'true'],
+])('autoSubmitted %s: header absent, output byte-identical to the golden plain email', (_label, value) => {
+  const raw = buildRfc5322Message({
+    from: 'Agent Name <agent@example.com>',
+    to: 'lead@example.com',
+    cc: [],
+    bcc: [],
+    subject: 'Hello there',
+    body: 'Plain body text.',
+    autoSubmitted: value,
+  });
+  const decoded = decodeBase64url(raw);
+  expect(decoded).toBe(
+    'From: Agent Name <agent@example.com>\r\n' +
+    'To: lead@example.com\r\n' +
+    'Subject: Hello there\r\n' +
+    'MIME-Version: 1.0\r\n' +
+    'Content-Type: text/plain; charset="UTF-8"\r\n' +
+    'Content-Transfer-Encoding: 7bit\r\n' +
+    '\r\n' +
+    'Plain body text.'
+  );
+  expect(decoded).not.toContain('Auto-Submitted');
+});

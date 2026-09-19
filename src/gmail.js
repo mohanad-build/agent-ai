@@ -191,7 +191,7 @@ function encodeQuotedPrintable(str) {
   return out;
 }
 
-function buildRfc5322Message({ from, to, cc, bcc, subject, body, html, attachments }) {
+function buildRfc5322Message({ from, to, cc, bcc, subject, body, html, attachments, autoSubmitted }) {
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   const headers = [];
   headers.push(`From: ${from}`);
@@ -199,6 +199,15 @@ function buildRfc5322Message({ from, to, cc, bcc, subject, body, html, attachmen
   if (cc && cc.length) headers.push(`Cc: ${cc.join(', ')}`);
   if (bcc && bcc.length) headers.push(`Bcc: ${bcc.join(', ')}`);
   headers.push(`Subject: ${encodeHeaderValue(subject)}`);
+  // Strict === true, not truthy: this header tells the far end's
+  // out-of-office/autoresponder logic to suppress a reply, so anything
+  // short of an explicit, deliberate true must never emit it. No general
+  // extra-headers option exists on this path -- an arbitrary header value
+  // here would be an injection surface, so this stays a single named,
+  // fixed-value switch.
+  if (autoSubmitted === true) {
+    headers.push('Auto-Submitted: auto-replied');
+  }
   headers.push('MIME-Version: 1.0');
 
   let raw;
@@ -455,7 +464,7 @@ async function sendReply(agentConfig, { to, subject, body, threadId, attachments
   });
 }
 
-async function sendNewEmail(agentConfig, { to, subject, body, html, attachments }) {
+async function sendNewEmail(agentConfig, { to, subject, body, html, attachments, autoSubmitted }) {
   const auth = getOAuthClient(agentConfig);
   const gmail = google.gmail({ version: 'v1', auth });
 
@@ -468,6 +477,7 @@ async function sendNewEmail(agentConfig, { to, subject, body, html, attachments 
     body,
     html,
     attachments,
+    autoSubmitted,
   });
 
   return withRetry(agentConfig, async () => {
