@@ -83,7 +83,7 @@ async function _sendWithRetry(sendFn, label) {
 
 async function sendConfirmation(assistantConfig, { to, subject, body }) {
   await _sendWithRetry(
-    () => gmail.sendNewEmail(assistantConfig, { to, subject, body }),
+    () => gmail.sendNewEmail(assistantConfig, { to, subject, body, autoSubmitted: true }),
     `confirm-${to}`
   );
 }

@@ -202,12 +202,14 @@ describe('runActionHandler', () => {
       expect.any(Object),
       expect.objectContaining({
         body: expect.stringContaining('Cleared Lead X'),
+        autoSubmitted: true,
       })
     );
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
         body: expect.stringContaining('Note saved.'),
+        autoSubmitted: true,
       })
     );
     expect(callRaw).not.toHaveBeenCalled();
@@ -222,9 +224,21 @@ describe('runActionHandler', () => {
     expect(approveVersion).toHaveBeenCalledWith(AGENT_ID, WEEK_ISO, 'reel-001', 'v-2026');
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: 'assistant' }),
-      expect.objectContaining({ to: AGENT_EMAIL, subject: 'Re: APPROVE reel-001' })
+      expect.objectContaining({ to: AGENT_EMAIL, subject: 'Re: APPROVE reel-001', autoSubmitted: true })
     );
     expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
+  });
+
+  test('a recognized agent Track 1 confirmation is sent with autoSubmitted: true', async () => {
+    const msg = makeMsg({ subject: 'APPROVE reel-001' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ autoSubmitted: true })
+    );
   });
 
   test('REGEN under cap calls renderer and recordRegen', async () => {
@@ -238,7 +252,7 @@ describe('runActionHandler', () => {
     expect(recordRegen).toHaveBeenCalledWith(AGENT_ID, WEEK_ISO, 'reel-001', expect.objectContaining({ text: expect.any(String) }));
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ to: AGENT_EMAIL })
+      expect.objectContaining({ to: AGENT_EMAIL, autoSubmitted: true })
     );
   });
 
@@ -253,7 +267,7 @@ describe('runActionHandler', () => {
     expect(recordRegen).not.toHaveBeenCalled();
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('5 times this week') })
+      expect.objectContaining({ body: expect.stringContaining('5 times this week'), autoSubmitted: true })
     );
   });
 
@@ -308,7 +322,7 @@ describe('runActionHandler', () => {
     expect(approveVersion).not.toHaveBeenCalled();
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining("didn't understand that action") })
+      expect.objectContaining({ body: expect.stringContaining("didn't understand that action"), autoSubmitted: true })
     );
   });
 
@@ -325,7 +339,7 @@ describe('runActionHandler', () => {
     expect(updateSheetRow).toHaveBeenCalledWith(AGENT_CONFIG, 2, { aiEnabled: 'FALSE' });
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('follow-ups paused for Sarah') })
+      expect.objectContaining({ body: expect.stringContaining('follow-ups paused for Sarah'), autoSubmitted: true })
     );
   });
 
@@ -340,7 +354,7 @@ describe('runActionHandler', () => {
     expect(updateSheetRow).not.toHaveBeenCalled();
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('No lead found matching') })
+      expect.objectContaining({ body: expect.stringContaining('No lead found matching'), autoSubmitted: true })
     );
   });
 
@@ -358,7 +372,7 @@ describe('runActionHandler', () => {
     expect(updateSheetRow).not.toHaveBeenCalled();
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('Found 2 leads matching') })
+      expect.objectContaining({ body: expect.stringContaining('Found 2 leads matching'), autoSubmitted: true })
     );
   });
 
@@ -373,7 +387,7 @@ describe('runActionHandler', () => {
     expect(updateSheetRow).toHaveBeenCalledWith(AGENT_CONFIG, 2, { leadCategory: 'soi' });
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('marked as SOI') })
+      expect.objectContaining({ body: expect.stringContaining('marked as SOI'), autoSubmitted: true })
     );
   });
 
@@ -390,7 +404,7 @@ describe('runActionHandler', () => {
     );
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('account is paused') })
+      expect.objectContaining({ body: expect.stringContaining('account is paused'), autoSubmitted: true })
     );
   });
 
@@ -411,7 +425,7 @@ describe('runActionHandler', () => {
     );
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('account is active again') })
+      expect.objectContaining({ body: expect.stringContaining('account is active again'), autoSubmitted: true })
     );
   });
 
@@ -425,7 +439,7 @@ describe('runActionHandler', () => {
     expect(maybeRunDailyDigest).toHaveBeenCalledWith(AGENT_CONFIG, { force: true });
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('Sending your digest now') })
+      expect.objectContaining({ body: expect.stringContaining('Sending your digest now'), autoSubmitted: true })
     );
   });
 
@@ -438,7 +452,7 @@ describe('runActionHandler', () => {
 
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining("didn't understand that request") })
+      expect.objectContaining({ body: expect.stringContaining("didn't understand that request"), autoSubmitted: true })
     );
   });
 
@@ -452,7 +466,7 @@ describe('runActionHandler', () => {
     expect(updateSheetRow).not.toHaveBeenCalled();
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining("didn't understand that request") })
+      expect.objectContaining({ body: expect.stringContaining("didn't understand that request"), autoSubmitted: true })
     );
   });
 
@@ -465,7 +479,7 @@ describe('runActionHandler', () => {
 
     expect(gmail.sendNewEmail).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ body: expect.stringContaining('Something went wrong') })
+      expect.objectContaining({ body: expect.stringContaining('Something went wrong'), autoSubmitted: true })
     );
     expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
   });
@@ -643,7 +657,7 @@ describe('runActionHandler', () => {
       expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
       expect(gmail.sendNewEmail).toHaveBeenCalledWith(
         expect.objectContaining({ agentId: 'assistant' }),
-        expect.objectContaining({ to: AGENT_EMAIL, subject: 'Re: APPROVE reel-001' })
+        expect.objectContaining({ to: AGENT_EMAIL, subject: 'Re: APPROVE reel-001', autoSubmitted: true })
       );
     });
 
