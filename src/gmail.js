@@ -12,6 +12,7 @@ const { parseRecipientList } = require('./recipientParsing');
 const { decryptToken } = require('./tokenCrypto');
 const { patchAgent } = require('./agentConfig');
 const { parseAuthResults } = require('./authResults');
+const { detectAutomated } = require('./automatedMail');
 
 // Module state
 const oauthClientCache = new Map();
@@ -309,6 +310,7 @@ function parseGmailMessage(message) {
     hasAttachments: attachmentInfo.length > 0,
     attachmentInfo,
     authResults: parseAuthResults(headers),
+    automation: detectAutomated(headers),
   };
 }
 

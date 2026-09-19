@@ -81,4 +81,12 @@ describe('parseGmailMessage recipients', () => {
       trusted: false, reason: 'none', dmarc: null, dkim: null, spf: null, fromDomain: null,
     });
   });
+
+  it('returns an automation verdict that reflects the headers', () => {
+    const notAutomated = parseGmailMessage(makeMessage());
+    expect(notAutomated.automation).toEqual({ automated: false, reason: null });
+
+    const automated = parseGmailMessage(makeMessage({ Precedence: 'bulk' }));
+    expect(automated.automation).toEqual({ automated: true, reason: 'precedence' });
+  });
 });
