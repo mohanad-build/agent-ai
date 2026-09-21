@@ -8,6 +8,7 @@ const { createApp: createWebhookApp } = require('./webhook');
 const { runCycle } = require('./index');
 const onboardRouter = require('./routes/onboard');
 const dashboardRouter = require('./routes/dashboard');
+const { applySecurityHeaders } = require('./securityHeaders');
 
 const app = express();
 
@@ -15,6 +16,8 @@ const app = express();
 // X-Forwarded-Proto/X-Forwarded-For from that hop, instead of falling back to
 // the plain-http socket scheme or trusting an arbitrary forwarded chain.
 app.set('trust proxy', 1);
+
+applySecurityHeaders(app);
 
 // Body parsing
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));

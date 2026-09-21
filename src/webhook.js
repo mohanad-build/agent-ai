@@ -20,6 +20,7 @@ const {
   removeEntryByToken,
 } = require('./pendingQuestions');
 const { buildShadowDraftWrapper } = require('./paths');
+const { applySecurityHeaders } = require('./securityHeaders');
 
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
@@ -519,6 +520,7 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
 
 function createApp() {
   const app = express();
+  applySecurityHeaders(app);
   // req.protocol is evaluated on whichever app instance handles the
   // request; set this here too (not just on the mounting parent app in
   // server.js) so X-Forwarded-Proto is honoured even if this app is ever
