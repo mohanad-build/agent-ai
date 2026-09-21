@@ -47,4 +47,5 @@ agents/
 # cover this because of this developer's specific STORAGE_ROOT value, not
 # because it was meant to.
 _sessions/
-casa-evidence/
+casa-evidence/*
+!casa-evidence/*.md
