@@ -454,7 +454,7 @@ async function runLeadIntake(agentConfig) {
 
     const senderAddr = getSenderEmail(msg.from || '');
     if (senderAddr && seenSenders.has(senderAddr)) {
-      console.log('[' + agentId + '] Lead Intake: sender dedup blocked ' + msg.messageId + ' (' + senderAddr + ')');
+      console.log('[' + agentId + '] Lead Intake: sender dedup blocked ' + msg.messageId);
       continue;
     }
     if (senderAddr) seenSenders.add(senderAddr);

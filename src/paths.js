@@ -400,7 +400,7 @@ async function pathStopSignal(agent, row, msg, cat) {
         body: wrapped.body,
       });
       actions.email = 'sent_to_agent_shadow';
-      console.log(`${prefix} shadow draft sent to agent (${agent.gmailAddress})`);
+      console.log(`${prefix} shadow draft sent to agent=${agent.agentId}`);
     } catch (err) {
       console.log(`${prefix} STEP email (shadow) failed: ${err.message}`);
       actions.email = 'failed';
@@ -556,7 +556,7 @@ async function pathAnswerGeneral(agent, row, msg, cat) {
         body: wrapped.body,
       });
       actions.email = 'sent_to_agent_shadow';
-      console.log(`${prefix} shadow draft sent to agent (${agent.gmailAddress})`);
+      console.log(`${prefix} shadow draft sent to agent=${agent.agentId}`);
     } catch (err) {
       console.log(`${prefix} STEP email (shadow) failed: ${err.message}`);
       actions.email = 'failed';

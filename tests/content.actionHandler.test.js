@@ -168,6 +168,7 @@ afterEach(() => {
 
 describe('runActionHandler', () => {
   test('unrecognized sender is skipped and marked read with no reply', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const msg = makeMsg({ from: 'unknown@other.com', subject: 'APPROVE reel-001' });
     gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
 
@@ -178,6 +179,13 @@ describe('runActionHandler', () => {
       expect.objectContaining({ agentId: 'assistant' }),
       'msg-1'
     );
+
+    const unrecognizedLine = logSpy.mock.calls.map(call => call[0])
+      .find(line => typeof line === 'string' && line.startsWith('[actionHandler] unrecognized sender'));
+    expect(unrecognizedLine).toBeDefined();
+    logSpy.mock.calls.forEach(call => call.forEach(arg => {
+      if (typeof arg === 'string') expect(arg).not.toContain('unknown@other.com');
+    }));
   });
 
   test('CALLED by email resolves via clearLeadAndLogNote and skips Haiku classification', async () => {
@@ -471,6 +479,7 @@ describe('runActionHandler', () => {
   });
 
   test('error in processing sends error reply and runActionHandler does not throw', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     readContentState.mockImplementation(() => { throw new Error('state read failed'); });
     const msg = makeMsg({ subject: 'APPROVE reel-001' });
     gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
@@ -482,6 +491,13 @@ describe('runActionHandler', () => {
       expect.objectContaining({ body: expect.stringContaining('Something went wrong'), autoSubmitted: true })
     );
     expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
+
+    const errorLine = logSpy.mock.calls.map(call => call[0])
+      .find(line => typeof line === 'string' && line.startsWith('[actionHandler] error processing email'));
+    expect(errorLine).toBeDefined();
+    logSpy.mock.calls.forEach(call => call.forEach(arg => {
+      if (typeof arg === 'string') expect(arg).not.toContain(AGENT_EMAIL);
+    }));
   });
 
   test('emits an [auth-results] log line for a recognized sender, with no email address in it', async () => {

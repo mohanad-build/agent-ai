@@ -422,7 +422,7 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
         subject: wrapper.subject,
         body: wrapper.body,
       });
-      console.log(prefix + ' shadow draft sent to agent (' + agent.gmailAddress + ')');
+      console.log(prefix + ' shadow draft sent to agent');
     } catch (err) {
       console.error(prefix + ' sendNewEmail (shadow) failed: ' + err.message);
       await notifySafely(agent, 'Could not deliver the draft for ' + token + '. The question stays in your queue, try again.', prefix);
@@ -446,7 +446,7 @@ async function handleAgentReply(agent, body, messageSid, tokenType, token) {
         body: draftBody,
         threadId: matchedRow.gmailThreadId,
       });
-      console.log(prefix + ' live reply sent to ' + leadEmail);
+      console.log(prefix + ' live reply sent to lead (row ' + matchedRow.rowIndex + ')');
     } catch (err) {
       console.error(prefix + ' sendReply failed: ' + err.message);
       await notifySafely(agent, 'Could not send your answer to ' + leadDisplayName + '. The question stays in your queue, try again.', prefix);

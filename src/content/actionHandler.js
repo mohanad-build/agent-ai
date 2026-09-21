@@ -386,7 +386,7 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
   console.log(`[auth-results] messageId=${msg.messageId} recognized=${!!agentConfig} trusted=${a.trusted} reason=${a.reason} dmarc=${a.dmarc || '-'} dkim=${a.dkim || '-'} spf=${a.spf || '-'} fromDomain=${a.fromDomain || '-'}`);
 
   if (!agentConfig) {
-    console.log(`[actionHandler] unrecognized sender: ${fromEmail}`);
+    console.log(`[actionHandler] unrecognized sender messageId=${msg.messageId}`);
 
     let decision = 'skipped';
     let reason = null;
@@ -472,7 +472,7 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
       await handleTrack2(agentConfig, body, assistantConfig, replyTo, subject);
     }
   } catch (err) {
-    console.log(`[actionHandler] error processing email from ${fromEmail}: ${err.message}`);
+    console.log(`[actionHandler] error processing email messageId=${msg.messageId}: ${err.message}`);
     try {
       await sendConfirmation(assistantConfig, {
         to:      replyTo,
@@ -480,7 +480,7 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
         body:    `Something went wrong processing your request. Please try again or contact support.`,
       });
     } catch (replyErr) {
-      console.log(`[actionHandler] failed to send error reply to ${fromEmail}: ${replyErr.message}`);
+      console.log(`[actionHandler] failed to send error reply messageId=${msg.messageId}: ${replyErr.message}`);
     }
   }
 

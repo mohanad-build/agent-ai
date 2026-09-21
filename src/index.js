@@ -357,7 +357,7 @@ async function processAgent(agentId) {
     const row = senderEmail ? leadIndex.get(senderEmail) : null;
     if (!row) {
       replyStats.unmatched++;
-      console.log(`[${agentId}] unmatched sender: ${msg.from} (left unread for agent visibility)`);
+      console.log(`[${agentId}] unmatched sender messageId=${msg.messageId} (left unread for agent visibility)`);
       continue;
     }
 
@@ -369,7 +369,7 @@ async function processAgent(agentId) {
       cat = await categorizeReply(agent, msg.snippet);
     } catch (err) {
       replyStats.failed++;
-      console.log(`[${agentId}] row ${row.rowIndex} categorization FAILED for ${senderEmail}: ${err.message} (left unread, will retry next cycle)`);
+      console.log(`[${agentId}] row ${row.rowIndex} categorization FAILED: ${err.message} (left unread, will retry next cycle)`);
       continue;
     }
 
@@ -406,7 +406,7 @@ async function processAgent(agentId) {
       console.warn(`[${agentId}] row ${row.rowIndex} path failed for ${cat.category}, leaving unread for retry. errors: ${JSON.stringify(result.errors)}`);
     }
 
-    console.log(`[${agentId}] row ${row.rowIndex} ${senderEmail} -> ${cat.category}${downgradeNote} -> ok=${result.ok}${result.skipped && result.skipped.length > 0 ? ' (skipped)' : ''}`);
+    console.log(`[${agentId}] row ${row.rowIndex} -> ${cat.category}${downgradeNote} -> ok=${result.ok}${result.skipped && result.skipped.length > 0 ? ' (skipped)' : ''}`);
   }
 
   console.log(
