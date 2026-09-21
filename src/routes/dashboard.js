@@ -433,41 +433,63 @@ router.post('/login', loginLimiter, async (req, res) => {
   // Break-glass: MFA_ENABLED must be explicitly 'false' to skip it. Unset or
   // any other value means MFA is required.
   if (process.env.MFA_ENABLED === 'false') {
-    req.session.authenticated = true;
-    // The operator is the only principal type today, entitled to every
-    // agent (CASA 3.1.4). A scoped principal, for example an agent
-    // self-service login, is a future data change to allowedAgents, not an
-    // architecture change to requireAgentAccess.
-    req.session.principal = { type: 'operator', allowedAgents: '*' };
-    // CASA 2.2.1: the clock both session timeouts are measured from.
-    req.session.authenticatedAt = Date.now();
-    req.session.lastSeenAt = Date.now();
-    // CASA 6.5.1: a login previously left no trace at all, which reads as
-    // evasive rather than compliant when a reviewer asks for a sample log
-    // captured during login. This line makes the evidence inspectable -
-    // never the password, the MFA code, req.sessionID, or the phone number.
-    console.log(`[auth] login success | principal=operator | ${new Date().toISOString()}`);
-    return res.redirect('/dashboard');
+    // Session id rotation at the privilege change (post-LOV hardening):
+    // regenerate before any authenticated state is written, so the
+    // pre-login session id is never valid after login.
+    req.session.regenerate((err) => {
+      if (err) {
+        console.log(`[auth] login failure | reason=session_regenerate_failed | ${new Date().toISOString()}`);
+        return res.redirect('/dashboard/login?error=1');
+      }
+      req.session.authenticated = true;
+      // The operator is the only principal type today, entitled to every
+      // agent (CASA 3.1.4). A scoped principal, for example an agent
+      // self-service login, is a future data change to allowedAgents, not an
+      // architecture change to requireAgentAccess.
+      req.session.principal = { type: 'operator', allowedAgents: '*' };
+      // CASA 2.2.1: the clock both session timeouts are measured from.
+      req.session.authenticatedAt = Date.now();
+      req.session.lastSeenAt = Date.now();
+      // CASA 6.5.1: a login previously left no trace at all, which reads as
+      // evasive rather than compliant when a reviewer asks for a sample log
+      // captured during login. This line makes the evidence inspectable -
+      // never the password, the MFA code, req.sessionID, or the phone number.
+      console.log(`[auth] login success | principal=operator | ${new Date().toISOString()}`);
+      res.redirect('/dashboard');
+    });
+    return;
   }
 
   const code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
-
-  try {
-    await twilioModule.sendSMSTo(
-      process.env.DASHBOARD_MFA_PHONE,
-      `Your GetKlosed dashboard verification code is ${code}. It expires in 5 minutes.`
-    );
-  } catch (err) {
-    console.error('[dashboard] MFA SMS send failed:', err.message);
-    return res.redirect('/dashboard/login?error=mfa_send_failed');
-  }
-
-  req.session.pendingMfa = {
+  const pendingMfa = {
     code,
     expiresAt: Date.now() + MFA_CODE_TTL_MS,
     attempts: 0,
   };
-  res.redirect('/dashboard/verify');
+
+  // Same rotation as the MFA-disabled branch above, ahead of the
+  // pendingMfa write, in addition to the rotation at /verify success, since a fixed
+  // pre-login session id persisting through the whole MFA challenge
+  // window is itself the thing being closed off.
+  req.session.regenerate(async (err) => {
+    if (err) {
+      console.log(`[auth] login failure | reason=session_regenerate_failed | ${new Date().toISOString()}`);
+      return res.redirect('/dashboard/login?error=1');
+    }
+
+    try {
+      await twilioModule.sendSMSTo(
+        process.env.DASHBOARD_MFA_PHONE,
+        `Your GetKlosed dashboard verification code is ${code}. It expires in 5 minutes.`
+      );
+    } catch (smsErr) {
+      console.error('[dashboard] MFA SMS send failed:', smsErr.message);
+      return res.redirect('/dashboard/login?error=mfa_send_failed');
+    }
+
+    req.session.pendingMfa = pendingMfa;
+    res.redirect('/dashboard/verify');
+  });
 });
 
 router.get('/verify', (req, res) => {
@@ -516,16 +538,27 @@ router.post('/verify', verifyLimiter, (req, res) => {
 
   const submitted = (req.body.code || '').trim();
   if (submitted === pending.code) {
-    req.session.authenticated = true;
-    // Same principal shape as the MFA-disabled branch above.
-    req.session.principal = { type: 'operator', allowedAgents: '*' };
-    // CASA 2.2.1: same timeout clock as the MFA-disabled branch above.
-    req.session.authenticatedAt = Date.now();
-    req.session.lastSeenAt = Date.now();
-    delete req.session.pendingMfa;
-    // CASA 6.5.1: see the comment on the MFA-disabled success path above.
-    console.log(`[auth] login success | principal=operator | ${new Date().toISOString()}`);
-    return res.redirect('/dashboard');
+    // Same rotation as the MFA-disabled /login branch above: the code was
+    // verified, so the pre-verify (pre-login) session id must not survive
+    // into the authenticated session.
+    req.session.regenerate((err) => {
+      if (err) {
+        console.log(`[auth] login failure | reason=session_regenerate_failed | ${new Date().toISOString()}`);
+        return res.redirect('/dashboard/login?error=1');
+      }
+      req.session.authenticated = true;
+      // Same principal shape as the MFA-disabled branch above.
+      req.session.principal = { type: 'operator', allowedAgents: '*' };
+      // CASA 2.2.1: same timeout clock as the MFA-disabled branch above.
+      req.session.authenticatedAt = Date.now();
+      req.session.lastSeenAt = Date.now();
+      // pendingMfa lived on the pre-regenerate session, which regenerate
+      // has already discarded -- nothing to delete here.
+      // CASA 6.5.1: see the comment on the MFA-disabled success path above.
+      console.log(`[auth] login success | principal=operator | ${new Date().toISOString()}`);
+      res.redirect('/dashboard');
+    });
+    return;
   }
 
   // CASA 6.5.1: reason code only, never the submitted code. Server-side log
