@@ -5,7 +5,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { buildParticipant, addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, ENTITY_TYPES, assertParticipantFields, resolveParticipantByName, isParticipantId } = require('../src/transactions/participants');
+const { buildParticipant, addParticipant, voidParticipant, VOID_REASONS, addParticipantEmail, deriveRepresentedPersons, isRepresented, REPRESENTED_ROLES, PARTICIPANT_ROLES, ROLE_LABELS, formatRoles, ENTITY_TYPES, assertParticipantFields, resolveParticipantByName, isParticipantId } = require('../src/transactions/participants');
 const { PARTICIPANT_ID_RE } = require('../src/transactions/participants')._internal;
 const store = require('../src/transactions/store');
 const { createTransaction, readTransaction } = store;
@@ -350,6 +350,62 @@ describe('PARTICIPANT_ROLES', () => {
 
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(onDisk.events.filter((e) => e.kind === 'participant_added')).toHaveLength(1);
+  });
+});
+
+describe('ROLE_LABELS completeness', () => {
+  it('has a non-empty string label for every real PARTICIPANT_ROLES entry', () => {
+    PARTICIPANT_ROLES.forEach((role) => {
+      expect(typeof ROLE_LABELS[role]).toBe('string');
+      expect(ROLE_LABELS[role].length).toBeGreaterThan(0);
+    });
+  });
+
+  it('has no key outside PARTICIPANT_ROLES', () => {
+    Object.keys(ROLE_LABELS).forEach((key) => {
+      expect(PARTICIPANT_ROLES).toContain(key);
+    });
+  });
+});
+
+describe('formatRoles', () => {
+  it.each(PARTICIPANT_ROLES)('formats %s alone as its label', (role) => {
+    expect(formatRoles([role])).toBe(ROLE_LABELS[role]);
+  });
+
+  it('joins two roles as "a and b"', () => {
+    expect(formatRoles(['client', 'property_manager'])).toBe('your client and property manager');
+  });
+
+  it('joins three roles as "a, b and c"', () => {
+    expect(formatRoles(['client', 'property_manager', 'inspector'])).toBe('your client, property manager and inspector');
+  });
+
+  it('de-duplicates client + co_client to a single "your client"', () => {
+    expect(formatRoles(['client', 'co_client'])).toBe('your client');
+  });
+
+  it('falls back to underscores-as-spaces for an unknown slug', () => {
+    expect(formatRoles(['future_role'])).toBe('future role');
+  });
+
+  it('skips non-string entries', () => {
+    expect(formatRoles(['client', 42, null])).toBe('your client');
+  });
+
+  it('returns "" for an empty array', () => {
+    expect(formatRoles([])).toBe('');
+  });
+
+  it('returns "" and does not throw for non-array input', () => {
+    expect(() => formatRoles(null)).not.toThrow();
+    expect(formatRoles(null)).toBe('');
+    expect(() => formatRoles(undefined)).not.toThrow();
+    expect(formatRoles(undefined)).toBe('');
+    expect(() => formatRoles('client')).not.toThrow();
+    expect(formatRoles('client')).toBe('');
+    expect(() => formatRoles({ role: 'client' })).not.toThrow();
+    expect(formatRoles({ role: 'client' })).toBe('');
   });
 });
 

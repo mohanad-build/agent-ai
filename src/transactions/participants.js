@@ -406,6 +406,43 @@ const PARTICIPANT_ROLES = Object.freeze([
   'condo_manager', 'property_manager', 'brokerage_admin', 'other',
 ]);
 
+const ROLE_LABELS = Object.freeze({
+  client: 'your client',
+  co_client: 'your client',
+  opposing_party: 'other party',
+  opposing_agent: 'other agent',
+  client_lawyer: "your client's lawyer",
+  opposing_lawyer: "other side's lawyer",
+  mortgage_broker: 'mortgage broker',
+  inspector: 'inspector',
+  condo_manager: 'condo manager',
+  property_manager: 'property manager',
+  brokerage_admin: 'brokerage admin',
+  other: 'other',
+});
+
+// TOTAL: never throws, for any input. Runs after a successful save in
+// 4c-2, where a thrown formatter would tell the agent "nothing changed"
+// when participants WERE added, so every branch below degrades to '' or
+// a best-effort label instead of raising.
+function formatRoles(roles) {
+  if (!Array.isArray(roles)) return '';
+
+  const labels = [];
+  roles.forEach((role) => {
+    if (typeof role !== 'string') return;
+    const label = Object.prototype.hasOwnProperty.call(ROLE_LABELS, role)
+      ? ROLE_LABELS[role]
+      : role.replace(/_/g, ' ');
+    if (!labels.includes(label)) labels.push(label);
+  });
+
+  if (labels.length === 0) return '';
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
 // Absent means unknown; entityType is optional on a participant, and a
 // participant with no entityType at all is a real, permitted state, not
 // an error. Adding a value here is safe at any time; removing or
@@ -529,6 +566,8 @@ module.exports = {
   isRepresented,
   REPRESENTED_ROLES,
   PARTICIPANT_ROLES,
+  ROLE_LABELS,
+  formatRoles,
   ENTITY_TYPES,
   assertParticipantFields,
   resolveParticipantByName,
