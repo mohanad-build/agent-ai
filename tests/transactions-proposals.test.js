@@ -17,8 +17,15 @@ const {
   rejectProposalMember,
   buildSetConfirmation,
   buildSetDiscard,
+  isProposalSetId,
+  isProposalMemberId,
 } = require('../src/transactions/proposals');
-const { PROPOSAL_SET_ID_RE, PROPOSAL_MEMBER_ID_RE } = require('../src/transactions/proposals')._internal;
+const {
+  PROPOSAL_SET_ID_RE,
+  PROPOSAL_MEMBER_ID_RE,
+  generateProposalSetId,
+  generateProposalMemberId,
+} = require('../src/transactions/proposals')._internal;
 const store = require('../src/transactions/store');
 const { createTransaction, readTransaction } = store;
 const {
@@ -1009,5 +1016,101 @@ describe('PURITY', () => {
     expect(discardResult.transaction).not.toBe(previous);
 
     expect(previous).toEqual(beforeSnapshot);
+  });
+});
+
+describe('isProposalSetId', () => {
+  test('is true for an id from the real generator', () => {
+    expect(isProposalSetId(generateProposalSetId())).toBe(true);
+  });
+
+  test('is true for a hand-written valid id', () => {
+    expect(isProposalSetId('pps-1a2b3c4d')).toBe(true);
+  });
+
+  test('is false for the wrong prefix (a ppm- id)', () => {
+    expect(isProposalSetId('ppm-1a2b3c4d')).toBe(false);
+  });
+
+  test('is false for uppercase hex', () => {
+    expect(isProposalSetId('pps-1A2B3C4D')).toBe(false);
+  });
+
+  test('is false for 7 hex characters', () => {
+    expect(isProposalSetId('pps-1a2b3c4')).toBe(false);
+  });
+
+  test('is false for 9 hex characters', () => {
+    expect(isProposalSetId('pps-1a2b3c4d5')).toBe(false);
+  });
+
+  test('is false for a valid id with trailing text', () => {
+    expect(isProposalSetId('pps-1a2b3c4d extra')).toBe(false);
+  });
+
+  test('is false for a valid id with leading whitespace', () => {
+    expect(isProposalSetId(' pps-1a2b3c4d')).toBe(false);
+  });
+
+  test('is false for an empty string', () => {
+    expect(isProposalSetId('')).toBe(false);
+  });
+
+  test('is false and does not throw for non-strings', () => {
+    expect(isProposalSetId(null)).toBe(false);
+    expect(isProposalSetId(undefined)).toBe(false);
+    expect(isProposalSetId(42)).toBe(false);
+  });
+
+  test('is false and does not throw for an array containing a valid id', () => {
+    expect(isProposalSetId(['pps-1a2b3c4d'])).toBe(false);
+  });
+});
+
+describe('isProposalMemberId', () => {
+  test('is true for an id from the real generator', () => {
+    expect(isProposalMemberId(generateProposalMemberId())).toBe(true);
+  });
+
+  test('is true for a hand-written valid id', () => {
+    expect(isProposalMemberId('ppm-1a2b3c4d')).toBe(true);
+  });
+
+  test('is false for the wrong prefix (a pps- id)', () => {
+    expect(isProposalMemberId('pps-1a2b3c4d')).toBe(false);
+  });
+
+  test('is false for uppercase hex', () => {
+    expect(isProposalMemberId('ppm-1A2B3C4D')).toBe(false);
+  });
+
+  test('is false for 7 hex characters', () => {
+    expect(isProposalMemberId('ppm-1a2b3c4')).toBe(false);
+  });
+
+  test('is false for 9 hex characters', () => {
+    expect(isProposalMemberId('ppm-1a2b3c4d5')).toBe(false);
+  });
+
+  test('is false for a valid id with trailing text', () => {
+    expect(isProposalMemberId('ppm-1a2b3c4d extra')).toBe(false);
+  });
+
+  test('is false for a valid id with leading whitespace', () => {
+    expect(isProposalMemberId(' ppm-1a2b3c4d')).toBe(false);
+  });
+
+  test('is false for an empty string', () => {
+    expect(isProposalMemberId('')).toBe(false);
+  });
+
+  test('is false and does not throw for non-strings', () => {
+    expect(isProposalMemberId(null)).toBe(false);
+    expect(isProposalMemberId(undefined)).toBe(false);
+    expect(isProposalMemberId(42)).toBe(false);
+  });
+
+  test('is false and does not throw for an array containing a valid id', () => {
+    expect(isProposalMemberId(['ppm-1a2b3c4d'])).toBe(false);
   });
 });

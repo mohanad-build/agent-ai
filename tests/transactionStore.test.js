@@ -12,9 +12,10 @@ const {
   writeTransaction,
   listTransactionIds,
   findListingCandidates,
+  isTransactionId,
 } = require('../src/transactions/store');
 
-const { TRANSACTION_ID_RE, transactionsDir, transactionPath, validateEnvelope } =
+const { TRANSACTION_ID_RE, transactionsDir, transactionPath, validateEnvelope, generateTransactionId } =
   require('../src/transactions/store')._internal;
 
 // -- Helpers ------------------------------------------------------------------
@@ -467,5 +468,54 @@ describe('generateTransactionId / TRANSACTION_ID_RE', () => {
   test('id date segment reflects the injected UTC clock', () => {
     const created = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: new Date('2026-01-05T23:59:00.000Z') });
     expect(created.transactionId.startsWith('txn-20260105-')).toBe(true);
+  });
+});
+
+describe('isTransactionId', () => {
+  test('is true for an id from the real generator', () => {
+    const generated = generateTransactionId(new Date('2026-07-15T10:00:00.000Z'));
+    expect(isTransactionId(generated)).toBe(true);
+  });
+
+  test('is true for a hand-written valid id', () => {
+    expect(isTransactionId('txn-20260715-1a2b3c4d')).toBe(true);
+  });
+
+  test('is false for the wrong prefix', () => {
+    expect(isTransactionId('per-20260715-1a2b3c4d')).toBe(false);
+  });
+
+  test('is false for uppercase hex', () => {
+    expect(isTransactionId('txn-20260715-1A2B3C4D')).toBe(false);
+  });
+
+  test('is false for 7 hex characters', () => {
+    expect(isTransactionId('txn-20260715-1a2b3c4')).toBe(false);
+  });
+
+  test('is false for 9 hex characters', () => {
+    expect(isTransactionId('txn-20260715-1a2b3c4d5')).toBe(false);
+  });
+
+  test('is false for a valid id with trailing text', () => {
+    expect(isTransactionId('txn-20260715-1a2b3c4d extra')).toBe(false);
+  });
+
+  test('is false for a valid id with leading whitespace', () => {
+    expect(isTransactionId(' txn-20260715-1a2b3c4d')).toBe(false);
+  });
+
+  test('is false for an empty string', () => {
+    expect(isTransactionId('')).toBe(false);
+  });
+
+  test('is false and does not throw for non-strings', () => {
+    expect(isTransactionId(null)).toBe(false);
+    expect(isTransactionId(undefined)).toBe(false);
+    expect(isTransactionId(42)).toBe(false);
+  });
+
+  test('is false and does not throw for an array containing a valid id', () => {
+    expect(isTransactionId(['txn-20260715-1a2b3c4d'])).toBe(false);
   });
 });

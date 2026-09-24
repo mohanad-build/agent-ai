@@ -83,6 +83,10 @@ function isIsoString(value) {
   return typeof value === 'string' && ISO_DATETIME_RE.test(value) && !Number.isNaN(new Date(value).getTime());
 }
 
+function isTransactionId(value) {
+  return typeof value === 'string' && TRANSACTION_ID_RE.test(value);
+}
+
 // The store validates only what the envelope can answer about itself:
 // format and type-permission both qualify, since checking either only
 // requires reading the object in hand. Existence and target-type do not
@@ -316,6 +320,7 @@ module.exports = {
   writeTransaction,
   listTransactionIds,
   findListingCandidates,
+  isTransactionId,
 };
 
 module.exports._internal = {

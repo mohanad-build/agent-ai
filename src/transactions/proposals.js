@@ -92,6 +92,14 @@ function generateProposalMemberId() {
   return `ppm-${crypto.randomBytes(4).toString('hex')}`;
 }
 
+function isProposalSetId(value) {
+  return typeof value === 'string' && PROPOSAL_SET_ID_RE.test(value);
+}
+
+function isProposalMemberId(value) {
+  return typeof value === 'string' && PROPOSAL_MEMBER_ID_RE.test(value);
+}
+
 // -- Argument assertions --------------------------------------------------------
 
 function assertActor(fnName, actor, expected) {
@@ -564,6 +572,8 @@ module.exports = {
   rejectProposalMember,
   buildSetConfirmation,
   buildSetDiscard,
+  isProposalSetId,
+  isProposalMemberId,
 };
 
 module.exports._internal = {
