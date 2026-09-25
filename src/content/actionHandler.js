@@ -727,10 +727,13 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
     if (calledMatch) {
       const parsed = parseCommandToken(calledMatch[1]);
       if (!parsed) {
-        await sendConfirmation(assistantConfig, {
+        const sendResult = await sendConfirmation(assistantConfig, {
           to: replyTo, subject: 'Re: ' + subject,
           body: 'Could not read the lead for that CALLED command. Reply CALLED <lead email>.',
         });
+        if (!sendResult.ok) {
+          console.log(`[actionHandler] reply send failed messageId=${msg.messageId} context=called-parse`);
+        }
       } else {
         const note = stripCallNote(msg.body || '');
         const result = await clearLeadAndLogNote(agentConfig, parsed, note, 'email command');
@@ -742,7 +745,10 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
         } else {
           body = 'Something went wrong clearing that lead. Try again in a minute.';
         }
-        await sendConfirmation(assistantConfig, { to: replyTo, subject: 'Re: ' + subject, body });
+        const sendResult = await sendConfirmation(assistantConfig, { to: replyTo, subject: 'Re: ' + subject, body });
+        if (!sendResult.ok) {
+          console.log(`[actionHandler] reply send failed messageId=${msg.messageId} context=called`);
+        }
       }
     } else if (tcClaimed) {
       // Own complete try/catch: a reply-send failure no longer throws (see
@@ -757,10 +763,13 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
         console.log(`[actionHandler] tc-verb branch threw unexpectedly messageId=${msg.messageId}: ${err.message}`);
 
         try {
-          await sendConfirmation(assistantConfig, {
+          const sendResult = await sendConfirmation(assistantConfig, {
             to: replyTo, subject: 'Re: ' + subject,
             body: "We got your request, but couldn't confirm whether it went through. Mo has been told and will check.",
           });
+          if (!sendResult.ok) {
+            console.log(`[actionHandler] reply send failed messageId=${msg.messageId} context=tc-verb-backstop`);
+          }
         } catch (replyErr) {
           console.log(`[actionHandler] tc-verb backstop reply failed messageId=${msg.messageId}: ${replyErr.message}`);
         }
@@ -784,11 +793,19 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
   } catch (err) {
     console.log(`[actionHandler] error processing email messageId=${msg.messageId}: ${err.message}`);
     try {
-      await sendConfirmation(assistantConfig, {
+      const sendResult = await sendConfirmation(assistantConfig, {
         to:      replyTo,
         subject: `Re: ${subject}`,
         body:    `Something went wrong processing your request. Please try again or contact support.`,
       });
+      if (!sendResult.ok) {
+        console.log(`[actionHandler] reply send failed messageId=${msg.messageId} context=catch-all`);
+      }
+    // Defensive guard: sendConfirmation reports failure via its return
+    // value, not by throwing, so this catch should not trigger today.
+    // But if a throw ever did escape here, letting it propagate would
+    // skip markRead below and cause the message to be reprocessed every
+    // cycle.
     } catch (replyErr) {
       console.log(`[actionHandler] failed to send error reply messageId=${msg.messageId}: ${replyErr.message}`);
     }

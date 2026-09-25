@@ -309,6 +309,62 @@ describe('runActionHandler', () => {
     expect(callRaw).not.toHaveBeenCalled();
   });
 
+  test('CALLED parse failure reports send failure without an address (7.57.2)', async () => {
+    jest.useFakeTimers();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    parseCommandToken.mockReturnValue(null);
+    gmail.sendNewEmail.mockRejectedValue(new Error('smtp down'));
+    const msg = makeMsg({ subject: 'CALLED not-an-email' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    const runPromise = runActionHandler([AGENT_CONFIG]);
+    await jest.runAllTimersAsync();
+    await runPromise;
+
+    const lines = logSpy.mock.calls.map((c) => c[0]).filter((l) => typeof l === 'string');
+    expect(lines).toContain('[actionHandler] reply send failed messageId=msg-1 context=called-parse');
+    expect(lines.some((l) => l.includes(AGENT_EMAIL))).toBe(false);
+    expect(lines.some((l) => l.includes(OPERATOR_EMAIL))).toBe(false);
+  });
+
+  test('CALLED result reply reports send failure without an address (7.57.2)', async () => {
+    jest.useFakeTimers();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    parseCommandToken.mockReturnValue({ type: 'email', value: 'lead@x.com' });
+    clearLeadAndLogNote.mockResolvedValue({
+      ok: true,
+      matchedRow: { name: 'Lead X', leadId: 'lead@x.com' },
+    });
+    gmail.sendNewEmail.mockRejectedValue(new Error('smtp down'));
+    const msg = makeMsg({ subject: 'CALLED lead@x.com', body: 'Notes from the call: wants 2pm' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    const runPromise = runActionHandler([AGENT_CONFIG]);
+    await jest.runAllTimersAsync();
+    await runPromise;
+
+    const lines = logSpy.mock.calls.map((c) => c[0]).filter((l) => typeof l === 'string');
+    expect(lines).toContain('[actionHandler] reply send failed messageId=msg-1 context=called');
+    expect(lines.some((l) => l.includes(AGENT_EMAIL))).toBe(false);
+    expect(lines.some((l) => l.includes(OPERATOR_EMAIL))).toBe(false);
+  });
+
+  test('CALLED result reply success produces no "reply send failed" line (7.57.2)', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    parseCommandToken.mockReturnValue({ type: 'email', value: 'lead@x.com' });
+    clearLeadAndLogNote.mockResolvedValue({
+      ok: true,
+      matchedRow: { name: 'Lead X', leadId: 'lead@x.com' },
+    });
+    const msg = makeMsg({ subject: 'CALLED lead@x.com', body: 'Notes from the call: wants 2pm' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    const lines = logSpy.mock.calls.map((c) => c[0]).filter((l) => typeof l === 'string');
+    expect(lines.some((l) => l.includes('reply send failed'))).toBe(false);
+  });
+
   describe('CONFIRM / REJECT / WRONGDEAL subject verbs', () => {
     function makeTcTransactionWithSetStatus(status) {
       const txn = makeTcTransaction();
@@ -757,6 +813,24 @@ describe('runActionHandler', () => {
       expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
     });
 
+    test('tc-verb backstop reply reports send failure without an address (7.57.2)', async () => {
+      jest.useFakeTimers();
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(store, 'isTransactionId').mockImplementation(() => { throw new Error('validator exploded'); });
+      gmail.sendNewEmail.mockRejectedValue(new Error('smtp down'));
+      const msg = makeMsg({ subject: `CONFIRM ${TXN_ID} ${SET_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      const runPromise = runActionHandler([AGENT_CONFIG]);
+      await jest.runAllTimersAsync();
+      await runPromise;
+
+      const lines = logSpy.mock.calls.map((c) => c[0]).filter((l) => typeof l === 'string');
+      expect(lines).toContain('[actionHandler] reply send failed messageId=msg-1 context=tc-verb-backstop');
+      expect(lines.some((l) => l.includes(AGENT_EMAIL))).toBe(false);
+      expect(lines.some((l) => l.includes(OPERATOR_EMAIL))).toBe(false);
+    });
+
     test('operator note fails: loadOperator throws -> agent reply still sent, markRead still called', async () => {
       confirmProposalSet.mockReturnValue({ outcome: 'set_discarded' });
       loadOperator.mockImplementation(() => { throw new Error('operator config not found'); });
@@ -1142,6 +1216,24 @@ describe('runActionHandler', () => {
     logSpy.mock.calls.forEach(call => call.forEach(arg => {
       if (typeof arg === 'string') expect(arg).not.toContain(AGENT_EMAIL);
     }));
+  });
+
+  test('catch-all reply reports send failure without an address (7.57.2)', async () => {
+    jest.useFakeTimers();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    readContentState.mockImplementation(() => { throw new Error('state read failed'); });
+    gmail.sendNewEmail.mockRejectedValue(new Error('smtp down'));
+    const msg = makeMsg({ subject: 'APPROVE reel-001' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    const runPromise = runActionHandler([AGENT_CONFIG]);
+    await jest.runAllTimersAsync();
+    await runPromise;
+
+    const lines = logSpy.mock.calls.map((c) => c[0]).filter((l) => typeof l === 'string');
+    expect(lines).toContain('[actionHandler] reply send failed messageId=msg-1 context=catch-all');
+    expect(lines.some((l) => l.includes(AGENT_EMAIL))).toBe(false);
+    expect(lines.some((l) => l.includes(OPERATOR_EMAIL))).toBe(false);
   });
 
   test('emits an [auth-results] log line for a recognized sender, with no email address in it', async () => {
