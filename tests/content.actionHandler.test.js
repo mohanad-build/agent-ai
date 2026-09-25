@@ -259,6 +259,21 @@ describe('runActionHandler', () => {
     }));
   });
 
+  test('processes a fetched batch oldest first by internalDate (7.57.1)', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    const newMsg = makeMsg({ messageId: 'msg-new', from: 'unknown@other.com', internalDate: 3000 });
+    const midMsg = makeMsg({ messageId: 'msg-mid', from: 'unknown@other.com', internalDate: 2000 });
+    const oldMsg = makeMsg({ messageId: 'msg-old', from: 'unknown@other.com', internalDate: 1000 });
+    const fetched = [newMsg, midMsg, oldMsg];
+    gmail.fetchUnreadInboxEmails.mockResolvedValue(fetched);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(gmail.markRead).toHaveBeenCalledTimes(3);
+    expect(gmail.markRead.mock.calls.map(call => call[1])).toEqual(['msg-old', 'msg-mid', 'msg-new']);
+    expect(fetched.map(m => m.messageId)).toEqual(['msg-new', 'msg-mid', 'msg-old']);
+  });
+
   test('CALLED by email resolves via clearLeadAndLogNote and skips Haiku classification', async () => {
     parseCommandToken.mockReturnValue({ type: 'email', value: 'lead@x.com' });
     clearLeadAndLogNote.mockResolvedValue({

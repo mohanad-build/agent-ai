@@ -811,7 +811,15 @@ async function runActionHandler(allAgentConfigs) {
     return;
   }
 
-  for (const msg of messages) {
+  // Gmail returns this batch newest first, but the loop below is sequential:
+  // a REJECT followed by a CONFIRM landing in the same cycle would otherwise
+  // run backwards and add the person the agent meant to reject
+  // (7.57.1, TC_SPEC 6.7). Sort a copy oldest-first before processing; the
+  // fetch itself stays untouched and is shared with the lead path, which is
+  // deliberately left unsorted.
+  const orderedMessages = [...messages].sort((a, b) => a.internalDate - b.internalDate);
+
+  for (const msg of orderedMessages) {
     await processEmail(msg, allAgentConfigs, assistantConfig);
   }
 }
