@@ -94,9 +94,12 @@ async function _sendWithRetry(sendFn, label) {
 // needs to know whether the send actually landed, to keep its "send failed"
 // path honest instead of silently swallowing it.
 async function sendConfirmation(assistantConfig, { to, subject, body }) {
+  // No address in the label: it is printed by _sendWithRetry's log lines
+  // (7.55.9, 7.57.3); a failure is attributable by position, since messages
+  // are processed one at a time and each logs its messageId first.
   return _sendWithRetry(
     () => gmail.sendNewEmail(assistantConfig, { to, subject, body, autoSubmitted: true }),
-    `confirm-${to}`
+    'confirm'
   );
 }
 

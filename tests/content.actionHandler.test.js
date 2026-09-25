@@ -793,6 +793,25 @@ describe('runActionHandler', () => {
       expect(gmail.markRead).toHaveBeenCalledWith(expect.any(Object), 'msg-1');
     });
 
+    test('sendConfirmation label carries no address when a send exhausts retries (7.57.3)', async () => {
+      jest.useFakeTimers();
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      gmail.sendNewEmail.mockRejectedValue(new Error('smtp down'));
+      const msg = makeMsg({ subject: 'CONFIRM txn-bad' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      const runPromise = runActionHandler([AGENT_CONFIG]);
+      await jest.runAllTimersAsync();
+      await runPromise;
+
+      const lines = logSpy.mock.calls.map((c) => c[0]).filter((l) => typeof l === 'string');
+
+      expect(lines.some((l) => l.includes('[actionHandler:confirm] exhausted after 3 attempts'))).toBe(true);
+      expect(lines.some((l) => l.includes(AGENT_EMAIL))).toBe(false);
+      expect(lines.some((l) => l.includes(OPERATOR_EMAIL))).toBe(false);
+      expect(lines.some((l) => l.includes('confirm-'))).toBe(false);
+    });
+
     // ── confirmed-list / member-name rendering ───────────────────────────────
 
     test('confirmed list: a named participant renders "Name (your client)"', async () => {
