@@ -5,6 +5,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
+const rateLimit = require('express-rate-limit');
 
 const { getStorageRoot } = require('../storagePaths');
 const { OAUTH_SCOPES } = require('../scopes');
@@ -13,6 +14,7 @@ const email = require('../email');
 const { renderWelcomeEmail } = require('../welcomeEmail');
 const { isValidAgentId } = require('./dashboard');
 const { encryptToken } = require('../tokenCrypto');
+const { safeCompare } = require('../safeCompare');
 
 const router = express.Router();
 
@@ -247,13 +249,120 @@ ${SHARED_FOOTER}
 </body>
 </html>`;
 
+// ---- Onboarding passcode gate (7.25.1) ----
+
+const ACCESS_STYLE = `
+    ${ROOT_TOKENS}
+    .access-shell { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 200px); padding: 32px 24px; }
+    .access-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 32px; max-width: 400px; width: 100%; }
+    .access-card h2 { margin: 0 0 8px; font-size: 22px; font-weight: 700; letter-spacing: -0.015em; }
+    .access-card p.sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; line-height: 1.6; }
+    .access-card label { display: block; color: var(--text); font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+    .access-card input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font: inherit; font-size: 14px; }
+    .access-card input:focus { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-soft); }
+    .access-card button { width: 100%; margin-top: 16px; padding: 12px; border-radius: 8px; background: var(--violet); color: #fff; font-size: 15px; font-weight: 600; border: none; cursor: pointer; font-family: inherit; }
+    .access-card button:hover { background: var(--violet-bright); }
+    .access-card .err { color: #DC2626; font-size: 13px; margin-top: 8px; }
+`;
+
+function isOnboardPasscodeConfigured() {
+  return !!(process.env.ONBOARD_PASSCODE && process.env.ONBOARD_PASSCODE.trim());
+}
+
+function renderAccessPage({ error } = {}) {
+  const body = isOnboardPasscodeConfigured()
+    ? `<p class="sub">Enter the passcode to start onboarding.</p>
+      <form method="POST" action="/onboard/access">
+        <label for="passcode">Passcode</label>
+        <input type="password" name="passcode" id="passcode" autocomplete="off" required autofocus />
+        ${error ? '<p class="err">Incorrect passcode.</p>' : ''}
+        <button type="submit">Continue</button>
+      </form>`
+    : `<p class="sub">Onboarding is not open right now. Contact <a href="mailto:mohanad@getklosed.ca">mohanad@getklosed.ca</a>.</p>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GetKlosed: Onboarding access</title>${SHARED_HEAD_LINKS}
+  <style>${ACCESS_STYLE}</style>
+</head>
+<body>
+${SHARED_HEADER}
+  <main class="access-shell">
+    <div class="access-card">
+      <h2>Onboarding access</h2>
+      ${body}
+    </div>
+  </main>
+${SHARED_FOOTER}
+</body>
+</html>`;
+}
+
+// Gates the onboarding intake form and the start of the OAuth flow behind
+// the passcode above. Does NOT gate /oauth/callback: that route is only
+// reachable with a state nonce this gate's /oauth/start already stored in
+// the session, so the gate covers it transitively. Does NOT gate /done
+// either: since 7342384 it identifies the agent from
+// req.session.onboardedAgentId set at callback success, never from the URL,
+// so there is no agent data left there for a passcode to protect.
+function requireOnboardAccess(req, res, next) {
+  if (!req.session || req.session.onboardAccess !== true) {
+    return res.redirect('/onboard/access');
+  }
+  next();
+}
+
+// GET /onboard/access
+router.get('/access', (req, res) => {
+  res.send(renderAccessPage({ error: req.query.error === '1' }));
+});
+
+const onboardAccessLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// POST /onboard/access
+router.post('/access', onboardAccessLimiter, (req, res) => {
+  const configuredPasscode = process.env.ONBOARD_PASSCODE;
+
+  // Fail closed: an unset or blank ONBOARD_PASSCODE must never grant access,
+  // no matter what (or whether) a passcode was submitted.
+  if (!configuredPasscode || !configuredPasscode.trim()) {
+    console.log('[onboard-gate] refused reason=not_configured');
+    return res.redirect('/onboard/access?error=1');
+  }
+
+  const submitted = req.body && req.body.passcode;
+  if (!submitted || !safeCompare(submitted, configuredPasscode)) {
+    // Never log the submitted value.
+    console.log('[onboard-gate] failure reason=bad_passcode');
+    return res.redirect('/onboard/access?error=1');
+  }
+
+  req.session.regenerate((err) => {
+    if (err) {
+      console.log('[onboard-gate] failure reason=session_regenerate_failed');
+      return res.redirect('/onboard/access?error=1');
+    }
+    req.session.onboardAccess = true;
+    console.log('[onboard-gate] granted');
+    res.redirect('/onboard');
+  });
+});
+
 // GET /onboard
-router.get('/', (req, res) => {
+router.get('/', requireOnboardAccess, (req, res) => {
   res.send(FORM_HTML);
 });
 
 // POST /onboard
-router.post('/', (req, res) => {
+router.post('/', requireOnboardAccess, (req, res) => {
   try {
     const b = req.body;
     const firstName = (b.firstName || '').trim();
@@ -312,7 +421,7 @@ router.post('/', (req, res) => {
 });
 
 // GET /onboard/oauth/start
-router.get('/oauth/start', (req, res) => {
+router.get('/oauth/start', requireOnboardAccess, (req, res) => {
   const { agentId } = req.query;
   if (!agentId) {
     return res.status(400).send('Missing agentId');

@@ -6,6 +6,7 @@ const path = require('path');
 const http = require('http');
 
 const express = require('express');
+const session = require('express-session');
 const router  = require('../src/routes/onboard');
 const { AGENT_ID_REGEX } = require('../src/agentDiscovery');
 
@@ -20,6 +21,15 @@ beforeAll((done) => {
   const app = express();
   app.use(express.urlencoded({ extended: false }));
   app.use(express.json());
+  app.use(session({ secret: 'test-secret-not-real', resave: false, saveUninitialized: false, cookie: {} }));
+  // This test is about writeAgentAtomic's temp-file naming (7.25.1's
+  // passcode gate on POST /onboard/ is covered separately, in
+  // tests/onboard.gate.test.js), so access is pre-granted here rather than
+  // exercised through the real gate.
+  app.use((req, res, next) => {
+    req.session.onboardAccess = true;
+    next();
+  });
   app.use('/onboard', router);
 
   server = http.createServer(app);
