@@ -33,6 +33,7 @@ const {
 const { enableLeads } = require('../leadEnrich');
 const { normalizeLeads, landLeads } = require('../leadImport');
 const { discoverAgentIds } = require('../agentDiscovery');
+const { safeCompare } = require('../safeCompare');
 
 function getAgentsDir() { return getStorageRoot(); }
 // Matches a bare agentId (no extension), same character class as
@@ -230,17 +231,6 @@ function field(label, name, inputHtml) {
 
 function csrfField(req) {
   return `<input type="hidden" name="_csrf" value="${escHtml(req.session.csrfToken)}">`;
-}
-
-// Constant-time string comparison. crypto.timingSafeEqual throws if the two
-// buffers differ in length, and a naive catch-and-return-false around that
-// would itself leak length information through which branch executes - so
-// both sides are hashed to a fixed 32-byte digest first, and it's the
-// digests (always equal length) that get compared.
-function safeCompare(a, b) {
-  const hashA = crypto.createHash('sha256').update(String(a)).digest();
-  const hashB = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(hashA, hashB);
 }
 
 function pageWrap(title, body) {
