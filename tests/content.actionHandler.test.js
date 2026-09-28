@@ -886,6 +886,28 @@ describe('runActionHandler', () => {
       expect(lines.some((l) => l.includes('confirm-'))).toBe(false);
     });
 
+    test('assistant@ replies carry an escaped, line-break-converted html part (7.57.4)', async () => {
+      const msg = makeMsg({ subject: 'CONFIRM txn-bad' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          to: AGENT_EMAIL,
+          html: "Nothing was changed. We couldn&#39;t read that request. Mo has been told and will follow up.",
+        })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          to: OPERATOR_EMAIL,
+          html: 'agent: mo-test<br>messageId: msg-1<br>verb: -<br>transactionId: -<br>setId: -<br>outcome: parse_failure',
+        })
+      );
+    });
+
     // ── confirmed-list / member-name rendering ───────────────────────────────
 
     test('confirmed list: a named participant renders "Name (your client)"', async () => {
@@ -1302,6 +1324,7 @@ describe('runActionHandler', () => {
           to: STRANGER_EMAIL,
           subject: EXPECTED_SUBJECT,
           body: EXPECTED_BODY,
+          html: "We couldn&#39;t match this email address to a GetKlosed account, so nothing was changed.<br><br>If you&#39;re a GetKlosed agent, please send it again from the email address your account is set up with. If you&#39;re not sure which address that is, contact mohanad@getklosed.ca.",
           autoSubmitted: true,
         }
       );

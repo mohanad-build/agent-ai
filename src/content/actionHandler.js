@@ -23,6 +23,7 @@ const { confirmProposalSet }      = require('../transactions/confirmSet');
 const { markWrongDeal }           = require('../transactions/wrongDeal');
 const { formatRoles }             = require('../transactions/participants');
 const { loadOperator }            = require('../operatorConfig');
+const { plainTextToHtml }         = require('../plainTextHtml');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
 const ASSISTANT_EMAIL      = 'assistant@getklosed.ca';
@@ -98,7 +99,7 @@ async function sendConfirmation(assistantConfig, { to, subject, body }) {
   // (7.55.9, 7.57.3); a failure is attributable by position, since messages
   // are processed one at a time and each logs its messageId first.
   return _sendWithRetry(
-    () => gmail.sendNewEmail(assistantConfig, { to, subject, body, autoSubmitted: true }),
+    () => gmail.sendNewEmail(assistantConfig, { to, subject, body, html: plainTextToHtml(body), autoSubmitted: true }),
     'confirm'
   );
 }
@@ -698,6 +699,7 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
           to:      fromEmail,
           subject: UNRECOGNIZED_REPLY_SUBJECT,
           body:    UNRECOGNIZED_REPLY_BODY,
+          html:    plainTextToHtml(UNRECOGNIZED_REPLY_BODY),
           autoSubmitted: true,
         });
         cooldownByAddress.set(fromEmail, getNowDate().getTime());
