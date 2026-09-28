@@ -480,7 +480,8 @@ router.get('/oauth/callback', async (req, res) => {
       console.error(`[onboard] welcome email failed for ${agentId}: ${welcomeErr.message}`);
     }
 
-    res.redirect(`/onboard/done?agentId=${encodeURIComponent(agentId)}`);
+    req.session.onboardedAgentId = agentId;
+    res.redirect('/onboard/done');
   } catch (err) {
     console.error('[onboard] GET /oauth/callback:', err.message);
     res.status(500).send(renderErrorPage(
@@ -493,7 +494,10 @@ router.get('/oauth/callback', async (req, res) => {
 
 // GET /onboard/done
 router.get('/done', (req, res) => {
-  const { agentId } = req.query;
+  // The query param was trusted before and exposed any agent's email address
+  // and Sheet link to anyone who guessed an agentId; the id now comes only
+  // from this browser's session, set when this browser completed OAuth (7.25.1).
+  const agentId = req.session.onboardedAgentId;
   let agentName = '';
   let gmailAddress = '';
   let googleSheetId = '';
