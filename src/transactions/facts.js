@@ -4,6 +4,7 @@ const store  = require('./store');
 const events = require('./events');
 const states = require('./states');
 const { FACT_KEYS } = require('./rules/factKeys');
+const { CONDITION_NAMES } = require('./rules/conditions');
 
 // -- Argument assertions ------------------------------------------------------------
 
@@ -30,6 +31,33 @@ function assertRepresentationArrangementValidForType(fnName, key, value, type) {
   }
 }
 
+// null is rejected because it resolves to a thrown hasCondition on every
+// later checklist read, and the three legitimate answers are a list, []
+// for none, and no write for not answered; validation runs before the
+// read so a rejected value never touches disk.
+function assertConditionsValue(fnName, key, value) {
+  if (key !== 'conditions') {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    const got = value === null ? 'null' : typeof value;
+    throw new Error(`${fnName}: conditions must be an array, got ${got}`);
+  }
+  const seen = new Set();
+  value.forEach((entry) => {
+    if (typeof entry !== 'string') {
+      throw new Error(`${fnName}: conditions entries must be strings, got ${typeof entry}`);
+    }
+    if (!CONDITION_NAMES.includes(entry)) {
+      throw new Error(`${fnName}: unknown condition '${entry}'; valid conditions: ${CONDITION_NAMES.join(', ')}`);
+    }
+    if (seen.has(entry)) {
+      throw new Error(`${fnName}: duplicate condition '${entry}'`);
+    }
+    seen.add(entry);
+  });
+}
+
 function readExisting(fnName, agentId, transactionId, baseDir) {
   const previous = store.readTransaction(agentId, transactionId, { baseDir });
   if (previous === null) {
@@ -54,6 +82,7 @@ function setFact(agentId, transactionId, key, value, opts = {}) {
   if (evidence !== undefined && actor !== 'system') {
     throw new Error("setFact: evidence may only be passed when actor is 'system'");
   }
+  assertConditionsValue('setFact', key, value);
 
   const previous = readExisting('setFact', agentId, transactionId, baseDir);
   assertRepresentationArrangementValidForType('setFact', key, value, previous.type);
@@ -115,6 +144,7 @@ function correctFact(agentId, transactionId, key, value, opts = {}) {
   if (value === undefined) {
     throw new Error('correctFact: value must not be undefined');
   }
+  assertConditionsValue('correctFact', key, value);
 
   const previous = readExisting('correctFact', agentId, transactionId, baseDir);
   const previousFacts = previous.facts;

@@ -63,6 +63,12 @@ describe('FACT_KEYS', () => {
   it('is frozen', () => {
     expect(Object.isFrozen(FACT_KEYS)).toBe(true);
   });
+
+  it('is the hand-written five keys, in order', () => {
+    expect(FACT_KEYS).toEqual([
+      'hasSelfRepresentedParty', 'entityType', 'conditions', 'brokerageReceivedFunds', 'representationArrangement',
+    ]);
+  });
 });
 
 describe('setFact', () => {
@@ -376,5 +382,112 @@ describe('correctFact', () => {
     expect(() => correctFact(AGENT_ID, created.transactionId, 'representationArrangement', 'double_ended', {
       at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
     })).toThrow(/^correctFact: representationArrangement 'double_ended' is not permitted on type 'buyer_purchase'/);
+  });
+});
+
+describe('conditions validation', () => {
+  it('setFact accepts a list of known condition names', () => {
+    const created = create();
+    const result = setFact(AGENT_ID, created.transactionId, 'conditions', ['financing', 'status_certificate'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(result.facts.conditions).toEqual(['financing', 'status_certificate']);
+  });
+
+  it('setFact accepts an empty array', () => {
+    const created = create();
+    const result = setFact(AGENT_ID, created.transactionId, 'conditions', [], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(result.facts.conditions).toEqual([]);
+  });
+
+  it('setFact rejects null and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'conditions', null, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow('setFact: conditions must be an array, got null');
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('setFact rejects a bare string and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'conditions', 'financing', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow('setFact: conditions must be an array, got string');
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('setFact rejects an unknown condition name and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'conditions', ['finnancing'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow("setFact: unknown condition 'finnancing'");
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('setFact rejects a non-string entry and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'conditions', ['financing', 42], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow('setFact: conditions entries must be strings, got number');
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('setFact rejects a duplicate condition name and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'conditions', ['financing', 'financing'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow("setFact: duplicate condition 'financing'");
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('setFact validates conditions before reading the transaction: unknown condition beats not-found', () => {
+    expect(() => setFact(AGENT_ID, 'txn-20260101-deadbeef', 'conditions', ['finnancing'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow("setFact: unknown condition 'finnancing'");
+  });
+
+  it('correctFact rejects an unknown condition name and leaves the stored value unchanged', () => {
+    const created = create();
+    const afterSet = setFact(AGENT_ID, created.transactionId, 'conditions', ['financing'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(() => correctFact(AGENT_ID, created.transactionId, 'conditions', ['finnancing'], {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    })).toThrow("correctFact: unknown condition 'finnancing'");
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts.conditions).toEqual(['financing']);
+    expect(onDisk.events).toHaveLength(afterSet.events.length);
+  });
+
+  it('correctFact rejects null and leaves the stored value unchanged', () => {
+    const created = create();
+    const afterSet = setFact(AGENT_ID, created.transactionId, 'conditions', ['financing'], {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(() => correctFact(AGENT_ID, created.transactionId, 'conditions', null, {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    })).toThrow('correctFact: conditions must be an array, got null');
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts.conditions).toEqual(['financing']);
+    expect(onDisk.events).toHaveLength(afterSet.events.length);
   });
 });

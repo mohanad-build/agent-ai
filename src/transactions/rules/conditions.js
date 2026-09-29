@@ -17,6 +17,16 @@ function hasCondition(facts, name) {
   return facts.conditions.includes(name);
 }
 
+// This is the closed vocabulary of the conditions fact; each item below gates
+// on one of these names through hasCondition; status_certificate gates two
+// items; the mapping test in tests/transactions-conditions.test.js pins the
+// list against the items in both directions, so a new condition item needs
+// its name added here and there.
+const CONDITION_NAMES = Object.freeze([
+  'financing', 'inspection', 'sale_of_property', 'solicitor_approval',
+  'insurance', 'well_septic', 'status_certificate',
+]);
+
 const CONDITION_ITEMS = [
   {
     id: 'financing_condition',
@@ -102,4 +112,5 @@ const CONDITION_ITEMS = [
 
 module.exports = {
   CONDITION_ITEMS,
+  CONDITION_NAMES,
 };

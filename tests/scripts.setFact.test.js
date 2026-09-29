@@ -149,6 +149,17 @@ describe('CLI argument handling (spawned subprocess)', () => {
     expect(onDisk.facts).toBeUndefined();
   });
 
+  it('an unknown condition name refuses, nonzero exit', () => {
+    const created = create();
+
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'conditions', '["finnancing"]', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr).toContain("unknown condition 'finnancing'");
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+  });
+
   it('--confirm confirms an existing fact instead of setting one, and takes no value', () => {
     const created = create();
     run([AGENT_ID, created.transactionId, 'entityType', 'individual', '--base-dir', baseDir]);
