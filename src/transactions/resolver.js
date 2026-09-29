@@ -90,16 +90,22 @@ function resolveChecklist(type, state, facts) {
   // vocabulary (see the comment on SELL_SIDE_TO_BUY_SIDE_TYPE in
   // states.js), and `state` was already validated against the base type's
   // table above, so it is valid for the paired type too.
-  const pairedItems = annotateCatalog(pairedType, state, facts);
+  const pairedItems = annotateCatalog(pairedType, state, facts, { isPairedSide: true });
   return mergeDoubleEnded(baseItems, pairedItems);
 }
 
-function annotateCatalog(type, state, facts) {
+function annotateCatalog(type, state, facts, opts = {}) {
+  const isPairedSide = opts.isPairedSide === true;
   return rules.CATALOG[type]
     // terminalOnly items are the one deliberate exception to "the resolver
     // returns the annotated full set and never filters", see terminal.js for
     // why absence, not not_applicable, is the correct representation.
-    .filter((item) => !item.terminalOnly || state === 'collapsed')
+    // omitWhenDoubleEnded is a second such exception, but only on the paired
+    // side: some buy-side steps are the same step as a sell-side one when
+    // one agent represents both sides (Mo, deals desk, session 81); the
+    // paired copy is omitted, absent rather than not_applicable, following
+    // terminalOnly. The base catalog is never filtered by this flag.
+    .filter((item) => (!item.terminalOnly || state === 'collapsed') && !(isPairedSide && item.omitWhenDoubleEnded))
     .map((item) => withClientSatisfaction(annotateItem(item, facts), item, facts));
 }
 

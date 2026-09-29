@@ -308,6 +308,30 @@ describe('structural invariants (iterate the catalog, do not hardcode)', () => {
       });
     });
   });
+
+  it('S8: omitWhenDoubleEnded appears only where intended, and is always exactly true', () => {
+    const EXPECTED_OMIT_IDS = {
+      buyer_purchase: [],
+      tenant_lease: ['signed_lease_copy_received', 'first_month_rent_paid', 'keys_received'],
+      landlord_lease: [],
+      seller_sale: [],
+      seller_listing: [],
+      landlord_listing: [],
+    };
+
+    TYPES.forEach((type) => {
+      const flaggedIds = CATALOG[type]
+        .filter((item) => Object.prototype.hasOwnProperty.call(item, 'omitWhenDoubleEnded'))
+        .map((item) => item.id);
+      expect(flaggedIds).toEqual(EXPECTED_OMIT_IDS[type]);
+
+      CATALOG[type]
+        .filter((item) => Object.prototype.hasOwnProperty.call(item, 'omitWhenDoubleEnded'))
+        .forEach((item) => {
+          expect(item.omitWhenDoubleEnded).toBe(true);
+        });
+    });
+  });
 });
 
 describe('lease item catalog (RTA replacement)', () => {
@@ -329,6 +353,14 @@ describe('lease item catalog (RTA replacement)', () => {
       'first_month_rent_paid',
       'keys_received',
     ]);
+  });
+
+  it('a plain (non double-ended) tenant_lease still resolves the three omitWhenDoubleEnded ids as required', () => {
+    const result = resolveChecklist('tenant_lease', 'accepted', {});
+    const byId = new Map(result.map((entry) => [entry.id, entry]));
+    ['signed_lease_copy_received', 'first_month_rent_paid', 'keys_received'].forEach((id) => {
+      expect(byId.get(id).applicability).toBe('required');
+    });
   });
 
   it('resolves the exact landlord_lease id set', () => {
@@ -1239,7 +1271,8 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
     // gains or loses an item, forcing an explicit decision about the union
     // instead of the hardcoded array above silently drifting stale next to it.
     const sellerIds = CATALOG.seller_sale.filter((item) => !item.terminalOnly).map((item) => item.id);
-    const buyerIds = CATALOG.buyer_purchase.filter((item) => !item.terminalOnly).map((item) => item.id);
+    // buyerIds is the paired side here, so items flagged omitWhenDoubleEnded are excluded too.
+    const buyerIds = CATALOG.buyer_purchase.filter((item) => !item.terminalOnly && !item.omitWhenDoubleEnded).map((item) => item.id);
     const sellerIdSet = new Set(sellerIds);
     const uniqueToBuyer = buyerIds.filter((id) => !sellerIdSet.has(id));
 
@@ -1264,18 +1297,16 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
       'first_month_rent_received',
       'keys_delivered',
       'tenant_representation_agreement',
-      'signed_lease_copy_received',
       'deposit_obtained_from_tenant',
       'deposit_delivered_to_listing_agent',
       'brokerage_deposit_receipt_received',
-      'first_month_rent_paid',
-      'keys_received',
     ]);
   });
 
   it('the landlord_lease union id set equals the landlord_lease set plus exactly the ids unique to tenant_lease, computed from CATALOG', () => {
     const landlordIds = CATALOG.landlord_lease.filter((item) => !item.terminalOnly).map((item) => item.id);
-    const tenantIds = CATALOG.tenant_lease.filter((item) => !item.terminalOnly).map((item) => item.id);
+    // tenantIds is the paired side here, so items flagged omitWhenDoubleEnded are excluded too.
+    const tenantIds = CATALOG.tenant_lease.filter((item) => !item.terminalOnly && !item.omitWhenDoubleEnded).map((item) => item.id);
     const landlordIdSet = new Set(landlordIds);
     const uniqueToTenant = tenantIds.filter((id) => !landlordIdSet.has(id));
 

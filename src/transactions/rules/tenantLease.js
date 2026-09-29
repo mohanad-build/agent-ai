@@ -72,6 +72,10 @@ const TENANT_LEASE_ITEMS = [
     evidence: 'document',
     reads: [],
   },
+  // On a double-ended lease the landlord side's counterpart
+  // (signed_lease_copy_delivered, first_month_rent_received, keys_delivered)
+  // is the same step, so these three are omitted from the union; see
+  // resolver.js.
   {
     id: 'signed_lease_copy_received',
     label: 'Signed Lease Copy Received',
@@ -79,6 +83,7 @@ const TENANT_LEASE_ITEMS = [
     scope: 'transaction',
     evidence: 'document',
     reads: [],
+    omitWhenDoubleEnded: true,
   },
   {
     id: 'deposit_obtained_from_tenant',
@@ -111,6 +116,7 @@ const TENANT_LEASE_ITEMS = [
     scope: 'transaction',
     evidence: 'attestation',
     reads: [],
+    omitWhenDoubleEnded: true,
   },
   {
     id: 'keys_received',
@@ -119,6 +125,7 @@ const TENANT_LEASE_ITEMS = [
     scope: 'transaction',
     evidence: 'attestation',
     reads: [],
+    omitWhenDoubleEnded: true,
   },
   ...terminal.TERMINAL_ITEMS,
 ];
