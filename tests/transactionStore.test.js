@@ -86,6 +86,21 @@ describe('createTransaction / readTransaction', () => {
       .toThrow('schemaVersion');
   });
 
+  describe('createTransaction refuses facts, items and events', () => {
+    it.each([
+      ['facts', { conditions: ['financing'] }, 'createTransaction: fields must not carry facts'],
+      ['items', { financing_condition: { completed: true } }, 'createTransaction: fields must not carry items'],
+      ['events', [], 'createTransaction: fields must not carry events'],
+    ])('throws exactly the %s message and writes nothing', (key, value, expectedMessage) => {
+      const err = caught(() => createTransaction(AGENT_ID, {
+        type: 'buyer_purchase', state: 'conditional', address: '12 Main St', [key]: value,
+      }, { baseDir }));
+
+      expect(err.message).toBe(expectedMessage);
+      expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual([]);
+    });
+  });
+
   test('two createTransaction calls with the same injected clock produce different ids', () => {
     const now = new Date('2026-07-15T10:00:00.000Z');
     const a = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now });
