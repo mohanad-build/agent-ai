@@ -1,12 +1,11 @@
 'use strict';
 
-// Hand-maintained, not derived. item.reads only covers the fact keys the
-// resolver checks for presence before calling requiredWhen; requiredWhen
-// itself is an opaque closure that dereferences facts.x directly, so nothing
-// can enumerate those keys mechanically (see the reads-coverage test in
-// facts.test.js, which pins the half of this list that CAN be checked
-// mechanically). Every key below is either present in some item's reads
-// array or dereferenced inside some item's requiredWhen body.
+// FACT_KEYS is every fact setFact accepts. The first five are checklist
+// inputs, each in some item's reads or dereferenced in some requiredWhen.
+// The three date facts are read by the digest alerts, not the resolver
+// (additionalDepositDueDates will also gate the additional-deposit item).
+// The reads-coverage test in tests/transactions-facts.test.js pins the half
+// of this list that can be checked mechanically.
 //
 // clientSatisfactions and representedPersons are DELIBERATELY ABSENT from
 // this list, and for the same reason: each has its own writer, and setFact
@@ -39,8 +38,14 @@ const FACT_KEYS = Object.freeze([
   'conditions',
   'brokerageReceivedFunds',
   'representationArrangement',
+  'acceptedDate',
+  'conditionDates',
+  'additionalDepositDueDates',
 ]);
+
+const DATE_FACT_KEYS = Object.freeze(['acceptedDate', 'conditionDates', 'additionalDepositDueDates']);
 
 module.exports = {
   FACT_KEYS,
+  DATE_FACT_KEYS,
 };

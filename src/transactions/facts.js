@@ -3,8 +3,9 @@
 const store  = require('./store');
 const events = require('./events');
 const states = require('./states');
-const { FACT_KEYS } = require('./rules/factKeys');
+const { FACT_KEYS, DATE_FACT_KEYS } = require('./rules/factKeys');
 const { CONDITION_NAMES } = require('./rules/conditions');
+const { isCalendarDate } = require('../calendarDate');
 
 // -- Argument assertions ------------------------------------------------------------
 
@@ -58,6 +59,93 @@ function assertConditionsValue(fnName, key, value) {
   });
 }
 
+function describeValue(value) {
+  if (value === null) {
+    return 'null';
+  }
+  if (typeof value === 'string') {
+    return `'${value}'`;
+  }
+  if (Array.isArray(value)) {
+    return 'array';
+  }
+  return typeof value;
+}
+
+const ACCEPTED_DATE_TYPES = Object.freeze(['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease']);
+const ADDITIONAL_DEPOSIT_TYPES = Object.freeze(['buyer_purchase', 'seller_sale']);
+
+// Shape before the read so a malformed date never touches disk; fit after
+// the read because it needs the deal's type and conditions; a date for a
+// condition not on the deal is refused because it would produce an alert
+// about a condition that does not exist; removing a condition later leaves
+// its date behind harmlessly, since the alerts read only conditions still
+// on the list.
+function assertDateFactShape(fnName, key, value) {
+  if (!DATE_FACT_KEYS.includes(key)) {
+    return;
+  }
+
+  if (key === 'acceptedDate') {
+    if (!isCalendarDate(value)) {
+      throw new Error(`${fnName}: acceptedDate must be a calendar date (YYYY-MM-DD), got ${describeValue(value)}`);
+    }
+    return;
+  }
+
+  if (key === 'conditionDates') {
+    const isPlainObject = value !== null && typeof value === 'object' && !Array.isArray(value)
+      && Object.getPrototypeOf(value) === Object.prototype;
+    if (!isPlainObject) {
+      throw new Error(`${fnName}: conditionDates must be an object mapping condition names to dates, got ${describeValue(value)}`);
+    }
+    Object.keys(value).forEach((k) => {
+      if (!CONDITION_NAMES.includes(k)) {
+        throw new Error(`${fnName}: unknown condition '${k}' in conditionDates; valid conditions: ${CONDITION_NAMES.join(', ')}`);
+      }
+      if (!isCalendarDate(value[k])) {
+        throw new Error(`${fnName}: conditionDates.${k} must be a calendar date (YYYY-MM-DD), got ${describeValue(value[k])}`);
+      }
+    });
+    return;
+  }
+
+  if (key === 'additionalDepositDueDates') {
+    if (!Array.isArray(value)) {
+      throw new Error(`${fnName}: additionalDepositDueDates must be an array of calendar dates, got ${describeValue(value)}`);
+    }
+    if (value.length > 1) {
+      throw new Error(`${fnName}: additionalDepositDueDates holds at most one date in v1; track a second additional deposit by hand`);
+    }
+    value.forEach((entry) => {
+      if (!isCalendarDate(entry)) {
+        throw new Error(`${fnName}: additionalDepositDueDates entries must be calendar dates (YYYY-MM-DD), got ${describeValue(entry)}`);
+      }
+    });
+  }
+}
+
+function assertDateFactFitsTransaction(fnName, key, value, previous) {
+  if (key === 'acceptedDate' && !ACCEPTED_DATE_TYPES.includes(previous.type)) {
+    throw new Error(`${fnName}: acceptedDate is not permitted on type '${previous.type}'; a listing has no acceptance, its offers do`);
+  }
+
+  if (key === 'additionalDepositDueDates' && !ADDITIONAL_DEPOSIT_TYPES.includes(previous.type)) {
+    throw new Error(`${fnName}: additionalDepositDueDates is not permitted on type '${previous.type}'; additional deposits are tracked on sales only in v1, so track this one by hand`);
+  }
+
+  if (key === 'conditionDates') {
+    Object.keys(value).forEach((k) => {
+      if (!hasFact(previous.facts, 'conditions')) {
+        throw new Error(`${fnName}: set conditions before conditionDates`);
+      }
+      if (!previous.facts.conditions.includes(k)) {
+        throw new Error(`${fnName}: conditionDates has a date for '${k}', but this deal's conditions are [${previous.facts.conditions.join(', ')}]`);
+      }
+    });
+  }
+}
+
 function readExisting(fnName, agentId, transactionId, baseDir) {
   const previous = store.readTransaction(agentId, transactionId, { baseDir });
   if (previous === null) {
@@ -83,9 +171,14 @@ function setFact(agentId, transactionId, key, value, opts = {}) {
     throw new Error("setFact: evidence may only be passed when actor is 'system'");
   }
   assertConditionsValue('setFact', key, value);
+  if (DATE_FACT_KEYS.includes(key) && actor === 'system') {
+    throw new Error(`setFact: ${key} must be set by a person, not 'system'; extracted dates belong in a proposal, not a fact`);
+  }
+  assertDateFactShape('setFact', key, value);
 
   const previous = readExisting('setFact', agentId, transactionId, baseDir);
   assertRepresentationArrangementValidForType('setFact', key, value, previous.type);
+  assertDateFactFitsTransaction('setFact', key, value, previous);
   const previousFacts = previous.facts;
   const hadKey = hasFact(previousFacts, key);
 
@@ -145,6 +238,7 @@ function correctFact(agentId, transactionId, key, value, opts = {}) {
     throw new Error('correctFact: value must not be undefined');
   }
   assertConditionsValue('correctFact', key, value);
+  assertDateFactShape('correctFact', key, value);
 
   const previous = readExisting('correctFact', agentId, transactionId, baseDir);
   const previousFacts = previous.facts;
@@ -152,6 +246,7 @@ function correctFact(agentId, transactionId, key, value, opts = {}) {
     throw new Error(`correctFact: no value set for key '${key}'`);
   }
   assertRepresentationArrangementValidForType('correctFact', key, value, previous.type);
+  assertDateFactFitsTransaction('correctFact', key, value, previous);
 
   const event = events.makeEvent({
     at,
