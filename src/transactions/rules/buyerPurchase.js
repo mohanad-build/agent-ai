@@ -3,6 +3,7 @@
 const universal = require('./universal');
 const conditions = require('./conditions');
 const terminal = require('./terminal');
+const deposit = require('./deposit');
 
 // -- Buyer purchase items ------------------------------------------------------
 // Universal spine plus the buyer-purchase-specific FINTRAC record.
@@ -130,6 +131,7 @@ const BUYER_PURCHASE_ITEMS = [
     requiredWhen: (facts) => facts.hasSelfRepresentedParty === true,
     notApplicableReason: 'No self-represented party on this transaction',
   },
+  ...deposit.PAYING_SIDE_DEPOSIT_ITEMS,
   ...conditions.CONDITION_ITEMS,
   ...terminal.TERMINAL_ITEMS,
 ];

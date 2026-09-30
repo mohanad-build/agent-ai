@@ -311,8 +311,15 @@ describe('structural invariants (iterate the catalog, do not hardcode)', () => {
 
   it('S8: omitWhenDoubleEnded appears only where intended, and is always exactly true', () => {
     const EXPECTED_OMIT_IDS = {
-      buyer_purchase: [],
-      tenant_lease: ['signed_lease_copy_received', 'first_month_rent_paid', 'keys_received'],
+      buyer_purchase: ['deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received'],
+      tenant_lease: [
+        'signed_lease_copy_received',
+        'deposit_obtained_from_client',
+        'deposit_delivered_to_listing_agent',
+        'brokerage_deposit_receipt_received',
+        'first_month_rent_paid',
+        'keys_received',
+      ],
       landlord_lease: [],
       seller_sale: [],
       seller_listing: [],
@@ -347,7 +354,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_received',
-      'deposit_obtained_from_tenant',
+      'deposit_obtained_from_client',
       'deposit_delivered_to_listing_agent',
       'brokerage_deposit_receipt_received',
       'first_month_rent_paid',
@@ -418,6 +425,13 @@ describe('lease item catalog (RTA replacement)', () => {
     });
   });
 
+  it('no catalog entry anywhere has id deposit_obtained_from_tenant', () => {
+    Object.keys(CATALOG).forEach((type) => {
+      const ids = CATALOG[type].map((item) => item.id);
+      expect(ids).not.toContain('deposit_obtained_from_tenant');
+    });
+  });
+
   it('resolves the exact seller_sale id set', () => {
     const result = resolveChecklist('seller_sale', 'conditional', {});
     const ids = result.map((entry) => entry.id);
@@ -432,6 +446,9 @@ describe('lease item catalog (RTA replacement)', () => {
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
       'fintrac_unrepresented_party_record',
+      'deposit_slip_received',
+      'deposit_forwarded_to_accounting',
+      'brokerage_deposit_receipt_issued',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -458,6 +475,9 @@ describe('lease item catalog (RTA replacement)', () => {
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
       'fintrac_unrepresented_party_record',
+      'deposit_obtained_from_client',
+      'deposit_delivered_to_listing_agent',
+      'brokerage_deposit_receipt_received',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -467,6 +487,14 @@ describe('lease item catalog (RTA replacement)', () => {
       'status_certificate_receipt',
       'status_certificate_review',
     ]);
+  });
+
+  it('a plain buyer_purchase resolves the three paying-side deposit ids as required, not indeterminate', () => {
+    const result = resolveChecklist('buyer_purchase', 'conditional', {});
+    const byId = new Map(result.map((entry) => [entry.id, entry]));
+    ['deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received'].forEach((id) => {
+      expect(byId.get(id).applicability).toBe('required');
+    });
   });
 
   it('listing_agreement no longer resolves on seller_sale; it moved to seller_listing', () => {
@@ -567,7 +595,7 @@ describe('terminal items (mutual_release)', () => {
       'agreement_to_lease',
       'ontario_standard_lease',
       'signed_lease_copy_received',
-      'deposit_obtained_from_tenant',
+      'deposit_obtained_from_client',
       'deposit_delivered_to_listing_agent',
       'brokerage_deposit_receipt_received',
       'first_month_rent_paid',
@@ -610,6 +638,9 @@ describe('terminal items (mutual_release)', () => {
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
       'fintrac_unrepresented_party_record',
+      'deposit_slip_received',
+      'deposit_forwarded_to_accounting',
+      'brokerage_deposit_receipt_issued',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -637,6 +668,9 @@ describe('terminal items (mutual_release)', () => {
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
       'fintrac_unrepresented_party_record',
+      'deposit_obtained_from_client',
+      'deposit_delivered_to_listing_agent',
+      'brokerage_deposit_receipt_received',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -1254,6 +1288,9 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
       'fintrac_third_party_determination',
       'fintrac_receipt_of_funds_record',
       'fintrac_unrepresented_party_record',
+      'deposit_slip_received',
+      'deposit_forwarded_to_accounting',
+      'brokerage_deposit_receipt_issued',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -1280,6 +1317,20 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
     expect(result.map((entry) => entry.id)).toEqual([...sellerIds, ...uniqueToBuyer]);
   });
 
+  it('a double-ended seller_sale resolves only the holding-side deposit ids, none of the paying-side ones', () => {
+    const result = resolveChecklist('seller_sale', 'conditional', { representationArrangement: 'double_ended' });
+    const byId = new Map(result.map((entry) => [entry.id, entry]));
+    const ids = result.map((entry) => entry.id);
+
+    ['deposit_slip_received', 'deposit_forwarded_to_accounting', 'brokerage_deposit_receipt_issued'].forEach((id) => {
+      expect(byId.get(id).applicability).toBe('required');
+    });
+
+    ['deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received'].forEach((id) => {
+      expect(ids).not.toContain(id);
+    });
+  });
+
   it('resolves the exact union id array for landlord_lease double_ended with tenant_lease', () => {
     const result = resolveChecklist('landlord_lease', 'accepted', { representationArrangement: 'double_ended' });
     const ids = result.map((entry) => entry.id);
@@ -1297,9 +1348,6 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
       'first_month_rent_received',
       'keys_delivered',
       'tenant_representation_agreement',
-      'deposit_obtained_from_tenant',
-      'deposit_delivered_to_listing_agent',
-      'brokerage_deposit_receipt_received',
     ]);
   });
 

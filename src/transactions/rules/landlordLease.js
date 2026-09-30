@@ -2,6 +2,7 @@
 
 const universal = require('./universal');
 const terminal = require('./terminal');
+const deposit = require('./deposit');
 
 // -- Landlord lease items ---------------------------------------------------------
 // Universal spine plus the landlord-side lease execution and deposit sequence.
@@ -71,30 +72,7 @@ const LANDLORD_LEASE_ITEMS = [
     evidence: 'document',
     reads: [],
   },
-  {
-    id: 'deposit_slip_received',
-    label: 'Deposit Slip Received',
-    source: 'brokerage',
-    scope: 'transaction',
-    evidence: 'document',
-    reads: [],
-  },
-  {
-    id: 'deposit_forwarded_to_accounting',
-    label: 'Deposit Forwarded to Brokerage Accounting',
-    source: 'brokerage',
-    scope: 'transaction',
-    evidence: 'attestation',
-    reads: [],
-  },
-  {
-    id: 'brokerage_deposit_receipt_issued',
-    label: 'Brokerage Deposit Receipt Issued',
-    source: 'brokerage',
-    scope: 'transaction',
-    evidence: 'document',
-    reads: [],
-  },
+  ...deposit.HOLDING_SIDE_DEPOSIT_ITEMS,
   {
     id: 'first_month_rent_received',
     label: 'First Month Rent Received',

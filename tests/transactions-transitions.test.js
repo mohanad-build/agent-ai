@@ -16,11 +16,14 @@ const LATER = new Date('2026-07-16T09:30:00.000Z');
 const AT = '2026-07-16T09:30:00.000Z';
 const COMPLETED_AT = '2026-07-11T00:00:00.000Z';
 
-// The six buyer_purchase catalog items with reads: [] — annotateItem
+// The nine buyer_purchase catalog items with reads: []: annotateItem
 // (resolver.js) marks these 'required' unconditionally, regardless of
-// facts. Completing all six, plus resolving every reads-based item away
+// facts. Completing all nine, plus resolving every reads-based item away
 // from 'indeterminate', is what makes a fresh buyer_purchase transaction
 // closable with nothing outstanding.
+// The three deposit items come from deposit.js's paying-side chain and are
+// unconditional on buyer_purchase by design, so a buyer deal cannot close
+// clean while the deposit is outstanding.
 const UNCONDITIONAL_REQUIRED_IDS = [
   'reco_information_guide',
   'deal_sheet',
@@ -28,6 +31,9 @@ const UNCONDITIONAL_REQUIRED_IDS = [
   'fintrac_individual_identification_record',
   'fintrac_third_party_determination',
   'fintrac_receipt_of_funds_record',
+  'deposit_obtained_from_client',
+  'deposit_delivered_to_listing_agent',
+  'brokerage_deposit_receipt_received',
 ];
 
 function makeTmpDir() {
@@ -254,7 +260,7 @@ describe('transitionTransaction', () => {
     // three are left off item_completed here and cleared through
     // clientSatisfactions instead, exactly like reco_information_guide, to
     // get a clean close.
-    ['deal_sheet', 'buyer_representation_agreement', 'fintrac_receipt_of_funds_record'].forEach((id) => {
+    ['deal_sheet', 'buyer_representation_agreement', 'fintrac_receipt_of_funds_record', 'deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received'].forEach((id) => {
       markItemComplete(AGENT_ID, created.transactionId, id, { at: AT, actor: 'agent', completedAt: COMPLETED_AT, baseDir, now: CLOCK });
     });
 

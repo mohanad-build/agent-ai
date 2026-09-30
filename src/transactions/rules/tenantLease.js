@@ -2,6 +2,7 @@
 
 const universal = require('./universal');
 const terminal = require('./terminal');
+const deposit = require('./deposit');
 
 // -- Tenant lease items ---------------------------------------------------------
 // Universal spine plus the tenant-side lease execution and deposit sequence.
@@ -72,10 +73,11 @@ const TENANT_LEASE_ITEMS = [
     evidence: 'document',
     reads: [],
   },
-  // On a double-ended lease the landlord side's counterpart
+  // On a double-ended lease the landlord side's counterparts
   // (signed_lease_copy_delivered, first_month_rent_received, keys_delivered)
-  // is the same step, so these three are omitted from the union; see
-  // resolver.js.
+  // are the same steps, so signed_lease_copy_received, first_month_rent_paid
+  // and keys_received are omitted from the union; the paying-side deposit
+  // steps carry the same flag in deposit.js; see resolver.js.
   {
     id: 'signed_lease_copy_received',
     label: 'Signed Lease Copy Received',
@@ -85,30 +87,7 @@ const TENANT_LEASE_ITEMS = [
     reads: [],
     omitWhenDoubleEnded: true,
   },
-  {
-    id: 'deposit_obtained_from_tenant',
-    label: 'Deposit Obtained from Tenant',
-    source: 'brokerage',
-    scope: 'transaction',
-    evidence: 'attestation',
-    reads: [],
-  },
-  {
-    id: 'deposit_delivered_to_listing_agent',
-    label: 'Deposit Delivered to Listing Agent',
-    source: 'brokerage',
-    scope: 'transaction',
-    evidence: 'attestation',
-    reads: [],
-  },
-  {
-    id: 'brokerage_deposit_receipt_received',
-    label: 'Brokerage Deposit Receipt Received',
-    source: 'brokerage',
-    scope: 'transaction',
-    evidence: 'document',
-    reads: [],
-  },
+  ...deposit.PAYING_SIDE_DEPOSIT_ITEMS,
   {
     id: 'first_month_rent_paid',
     label: 'First Month Rent Paid',
