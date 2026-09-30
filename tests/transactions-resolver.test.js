@@ -311,7 +311,7 @@ describe('structural invariants (iterate the catalog, do not hardcode)', () => {
 
   it('S8: omitWhenDoubleEnded appears only where intended, and is always exactly true', () => {
     const EXPECTED_OMIT_IDS = {
-      buyer_purchase: ['deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received'],
+      buyer_purchase: ['deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received', 'additional_deposit_receipt_received'],
       tenant_lease: [
         'signed_lease_copy_received',
         'deposit_obtained_from_client',
@@ -449,6 +449,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'deposit_slip_received',
       'deposit_forwarded_to_accounting',
       'brokerage_deposit_receipt_issued',
+      'additional_deposit_receipt_issued',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -478,6 +479,7 @@ describe('lease item catalog (RTA replacement)', () => {
       'deposit_obtained_from_client',
       'deposit_delivered_to_listing_agent',
       'brokerage_deposit_receipt_received',
+      'additional_deposit_receipt_received',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -501,6 +503,58 @@ describe('lease item catalog (RTA replacement)', () => {
     const result = resolveChecklist('seller_sale', 'conditional', {});
     const ids = result.map((entry) => entry.id);
     expect(ids).not.toContain('listing_agreement');
+  });
+
+  describe('the additional deposit item', () => {
+    it("1. additionalDepositDueDates absent: additional_deposit_receipt_received resolves indeterminate on buyer_purchase", () => {
+      const result = resolveChecklist('buyer_purchase', 'conditional', {});
+      const item = result.find((entry) => entry.id === 'additional_deposit_receipt_received');
+      expect(item.applicability).toBe('indeterminate');
+      expect(item.pendingFacts).toEqual(['additionalDepositDueDates']);
+    });
+
+    it("1. additionalDepositDueDates absent: additional_deposit_receipt_issued resolves indeterminate on seller_sale", () => {
+      const result = resolveChecklist('seller_sale', 'conditional', {});
+      const item = result.find((entry) => entry.id === 'additional_deposit_receipt_issued');
+      expect(item.applicability).toBe('indeterminate');
+      expect(item.pendingFacts).toEqual(['additionalDepositDueDates']);
+    });
+
+    it('2. additionalDepositDueDates []: additional_deposit_receipt_received resolves not_applicable on buyer_purchase', () => {
+      const result = resolveChecklist('buyer_purchase', 'conditional', { additionalDepositDueDates: [] });
+      const item = result.find((entry) => entry.id === 'additional_deposit_receipt_received');
+      expect(item.applicability).toBe('not_applicable');
+      expect(item.reason).toBe('No additional deposit in the agreement');
+    });
+
+    it('2. additionalDepositDueDates []: additional_deposit_receipt_issued resolves not_applicable on seller_sale', () => {
+      const result = resolveChecklist('seller_sale', 'conditional', { additionalDepositDueDates: [] });
+      const item = result.find((entry) => entry.id === 'additional_deposit_receipt_issued');
+      expect(item.applicability).toBe('not_applicable');
+      expect(item.reason).toBe('No additional deposit in the agreement');
+    });
+
+    it("3. additionalDepositDueDates ['2026-11-01']: additional_deposit_receipt_received resolves required on buyer_purchase", () => {
+      const result = resolveChecklist('buyer_purchase', 'conditional', { additionalDepositDueDates: ['2026-11-01'] });
+      const item = result.find((entry) => entry.id === 'additional_deposit_receipt_received');
+      expect(item.applicability).toBe('required');
+    });
+
+    it("3. additionalDepositDueDates ['2026-11-01']: additional_deposit_receipt_issued resolves required on seller_sale", () => {
+      const result = resolveChecklist('seller_sale', 'conditional', { additionalDepositDueDates: ['2026-11-01'] });
+      const item = result.find((entry) => entry.id === 'additional_deposit_receipt_issued');
+      expect(item.applicability).toBe('required');
+    });
+
+    it('4. additionalDepositDueDates null throws on buyer_purchase', () => {
+      expect(() => resolveChecklist('buyer_purchase', 'conditional', { additionalDepositDueDates: null }))
+        .toThrow('hasAdditionalDepositDate: facts.additionalDepositDueDates must be an array, got null');
+    });
+
+    it('4. additionalDepositDueDates null throws on seller_sale', () => {
+      expect(() => resolveChecklist('seller_sale', 'conditional', { additionalDepositDueDates: null }))
+        .toThrow('hasAdditionalDepositDate: facts.additionalDepositDueDates must be an array, got null');
+    });
   });
 
   it('resolves deal_sheet as required on all four deal types with empty facts', () => {
@@ -641,6 +695,7 @@ describe('terminal items (mutual_release)', () => {
       'deposit_slip_received',
       'deposit_forwarded_to_accounting',
       'brokerage_deposit_receipt_issued',
+      'additional_deposit_receipt_issued',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -671,6 +726,7 @@ describe('terminal items (mutual_release)', () => {
       'deposit_obtained_from_client',
       'deposit_delivered_to_listing_agent',
       'brokerage_deposit_receipt_received',
+      'additional_deposit_receipt_received',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -1291,6 +1347,7 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
       'deposit_slip_received',
       'deposit_forwarded_to_accounting',
       'brokerage_deposit_receipt_issued',
+      'additional_deposit_receipt_issued',
       'financing_condition',
       'inspection_condition',
       'sale_of_property_condition',
@@ -1329,6 +1386,18 @@ describe('double-ended representation arrangement (TC_SPEC 7.1.2b)', () => {
     ['deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received'].forEach((id) => {
       expect(ids).not.toContain(id);
     });
+  });
+
+  it("a double-ended seller_sale with an additional deposit resolves additional_deposit_receipt_issued as required, and does not contain additional_deposit_receipt_received", () => {
+    const result = resolveChecklist('seller_sale', 'conditional', {
+      representationArrangement: 'double_ended',
+      additionalDepositDueDates: ['2026-11-01'],
+    });
+    const byId = new Map(result.map((entry) => [entry.id, entry]));
+    const ids = result.map((entry) => entry.id);
+
+    expect(byId.get('additional_deposit_receipt_issued').applicability).toBe('required');
+    expect(ids).not.toContain('additional_deposit_receipt_received');
   });
 
   it('resolves the exact union id array for landlord_lease double_ended with tenant_lease', () => {

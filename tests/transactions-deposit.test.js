@@ -1,6 +1,11 @@
 'use strict';
 
-const { HOLDING_SIDE_DEPOSIT_ITEMS, PAYING_SIDE_DEPOSIT_ITEMS } = require('../src/transactions/rules/deposit');
+const {
+  HOLDING_SIDE_DEPOSIT_ITEMS,
+  PAYING_SIDE_DEPOSIT_ITEMS,
+  HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
+  PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
+} = require('../src/transactions/rules/deposit');
 const { CATALOG } = require('../src/transactions/rules');
 
 describe('HOLDING_SIDE_DEPOSIT_ITEMS', () => {
@@ -47,6 +52,71 @@ describe('PAYING_SIDE_DEPOSIT_ITEMS', () => {
   it('every paying item has omitWhenDoubleEnded exactly true', () => {
     PAYING_SIDE_DEPOSIT_ITEMS.forEach((item) => {
       expect(item.omitWhenDoubleEnded).toBe(true);
+    });
+  });
+});
+
+describe('HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS', () => {
+  it('has the one holding-side additional deposit id', () => {
+    expect(HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS.map((item) => item.id)).toEqual([
+      'additional_deposit_receipt_issued',
+    ]);
+  });
+
+  it('has the one holding-side additional deposit label', () => {
+    expect(HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS.map((item) => item.label)).toEqual([
+      'Additional Deposit Receipt Issued',
+    ]);
+  });
+
+  it('has no omitWhenDoubleEnded property', () => {
+    HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS.forEach((item) => {
+      expect(item).not.toHaveProperty('omitWhenDoubleEnded');
+    });
+  });
+});
+
+describe('PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS', () => {
+  it('has the one paying-side additional deposit id', () => {
+    expect(PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS.map((item) => item.id)).toEqual([
+      'additional_deposit_receipt_received',
+    ]);
+  });
+
+  it('has the one paying-side additional deposit label', () => {
+    expect(PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS.map((item) => item.label)).toEqual([
+      'Additional Deposit Receipt Received',
+    ]);
+  });
+
+  it('has omitWhenDoubleEnded exactly true', () => {
+    PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS.forEach((item) => {
+      expect(item.omitWhenDoubleEnded).toBe(true);
+    });
+  });
+});
+
+describe('additional deposit ids per type', () => {
+  const ADDITIONAL_DEPOSIT_ID_SET = new Set([
+    'additional_deposit_receipt_issued',
+    'additional_deposit_receipt_received',
+  ]);
+
+  const EXPECTED_ADDITIONAL_DEPOSIT_IDS = {
+    buyer_purchase: ['additional_deposit_receipt_received'],
+    seller_sale: ['additional_deposit_receipt_issued'],
+    tenant_lease: [],
+    landlord_lease: [],
+    seller_listing: [],
+    landlord_listing: [],
+  };
+
+  Object.keys(EXPECTED_ADDITIONAL_DEPOSIT_IDS).forEach((type) => {
+    it(`${type} carries exactly its expected additional-deposit ids, in catalog order`, () => {
+      const additionalDepositIds = CATALOG[type]
+        .filter((item) => ADDITIONAL_DEPOSIT_ID_SET.has(item.id))
+        .map((item) => item.id);
+      expect(additionalDepositIds).toEqual(EXPECTED_ADDITIONAL_DEPOSIT_IDS[type]);
     });
   });
 });

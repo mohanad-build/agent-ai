@@ -126,6 +126,7 @@ const SELLER_SALE_ITEMS = [
     notApplicableReason: 'No self-represented party on this transaction',
   },
   ...deposit.HOLDING_SIDE_DEPOSIT_ITEMS,
+  ...deposit.HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
   ...conditions.CONDITION_ITEMS,
   ...terminal.TERMINAL_ITEMS,
 ];

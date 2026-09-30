@@ -22,6 +22,11 @@
 // The deposit is data, not a rule: no item proposes an amount or type, and
 // no security or damage deposit item exists (see the catalog-wide negative
 // assertion).
+//
+// The additional deposit tracks the receipt only, since the receipt closes
+// it; sales only in v1. Unlike the three-step chain it reads a fact, so it
+// is indeterminate until the additional-deposit question is answered, and
+// [] is the answer for none.
 
 const HOLDING_SIDE_DEPOSIT_ITEMS = [
   {
@@ -80,7 +85,47 @@ const PAYING_SIDE_DEPOSIT_ITEMS = [
   },
 ];
 
+// Same reasoning as hasCondition; setFact guarantees an array, so a
+// non-array here means a hand-edited file, and a quiet not_applicable
+// would hide it.
+function hasAdditionalDepositDate(facts) {
+  if (!Array.isArray(facts.additionalDepositDueDates)) {
+    const got = facts.additionalDepositDueDates === null ? 'null' : typeof facts.additionalDepositDueDates;
+    throw new Error(`hasAdditionalDepositDate: facts.additionalDepositDueDates must be an array, got ${got}`);
+  }
+  return facts.additionalDepositDueDates.length > 0;
+}
+
+const HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS = [
+  {
+    id: 'additional_deposit_receipt_issued',
+    label: 'Additional Deposit Receipt Issued',
+    source: 'brokerage',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: ['additionalDepositDueDates'],
+    requiredWhen: (facts) => hasAdditionalDepositDate(facts),
+    notApplicableReason: 'No additional deposit in the agreement',
+  },
+];
+
+const PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS = [
+  {
+    id: 'additional_deposit_receipt_received',
+    label: 'Additional Deposit Receipt Received',
+    source: 'brokerage',
+    scope: 'transaction',
+    evidence: 'document',
+    reads: ['additionalDepositDueDates'],
+    requiredWhen: (facts) => hasAdditionalDepositDate(facts),
+    notApplicableReason: 'No additional deposit in the agreement',
+    omitWhenDoubleEnded: true,
+  },
+];
+
 module.exports = {
   HOLDING_SIDE_DEPOSIT_ITEMS,
   PAYING_SIDE_DEPOSIT_ITEMS,
+  HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
+  PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
 };
