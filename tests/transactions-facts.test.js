@@ -4,8 +4,8 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { setFact, confirmFact, correctFact } = require('../src/transactions/facts');
-const { createTransaction, readTransaction } = require('../src/transactions/store');
+const { setFact, confirmFact, correctFact, checkFact } = require('../src/transactions/facts');
+const { createTransaction, readTransaction, listTransactionIds } = require('../src/transactions/store');
 const { CATALOG } = require('../src/transactions/rules');
 const { FACT_KEYS, DATE_FACT_KEYS } = require('../src/transactions/rules/factKeys');
 
@@ -805,6 +805,87 @@ describe('date facts', () => {
       const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
       expect(onDisk.facts.conditionDates).toEqual({ financing: '2026-10-06' });
       expect(onDisk.events).toHaveLength(afterConditionDates.events.length);
+    });
+  });
+});
+
+describe('checkFact', () => {
+  it("1. accepts conditionDates { financing: '2026-10-06' } with type buyer_purchase and conditions ['financing']", () => {
+    expect(() => checkFact('open-transaction', 'conditionDates', { financing: '2026-10-06' }, {
+      type: 'buyer_purchase', facts: { conditions: ['financing'] },
+    })).not.toThrow();
+  });
+
+  it("2. uses the label: conditionDates for a condition not on the deal throws with the open-transaction label", () => {
+    expect(() => checkFact('open-transaction', 'conditionDates', { inspection: '2026-10-04' }, {
+      type: 'buyer_purchase', facts: { conditions: ['financing'] },
+    })).toThrow("open-transaction: conditionDates has a date for 'inspection', but this deal's conditions are [financing]");
+  });
+
+  it('3. throws type is required with no type', () => {
+    expect(() => checkFact('open-transaction', 'acceptedDate', '2026-10-01', { facts: {} }))
+      .toThrow('open-transaction: type is required');
+  });
+
+  it('4. writes nothing: checkFact never touches disk', () => {
+    checkFact('open-transaction', 'acceptedDate', '2026-10-01', { type: 'buyer_purchase', facts: {} });
+    expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual([]);
+  });
+});
+
+describe('checkFact and setFact agree', () => {
+  const INITIAL_STATE_BY_TYPE = {
+    buyer_purchase: 'conditional',
+    seller_sale: 'conditional',
+    tenant_lease: 'accepted',
+    seller_listing: 'preparing',
+  };
+
+  const CASES = [
+    { name: 'valid acceptedDate on buyer_purchase', type: 'buyer_purchase', priorFacts: {}, key: 'acceptedDate', value: '2026-10-01', actor: 'agent' },
+    { name: "acceptedDate '2026-02-30'", type: 'buyer_purchase', priorFacts: {}, key: 'acceptedDate', value: '2026-02-30', actor: 'agent' },
+    { name: 'acceptedDate on seller_listing', type: 'seller_listing', priorFacts: {}, key: 'acceptedDate', value: '2026-10-01', actor: 'agent' },
+    { name: "valid conditions ['financing']", type: 'buyer_purchase', priorFacts: {}, key: 'conditions', value: ['financing'], actor: 'agent' },
+    { name: "conditions ['finnancing']", type: 'buyer_purchase', priorFacts: {}, key: 'conditions', value: ['finnancing'], actor: 'agent' },
+    { name: 'conditions null', type: 'buyer_purchase', priorFacts: {}, key: 'conditions', value: null, actor: 'agent' },
+    { name: "valid conditionDates after conditions ['financing']", type: 'buyer_purchase', priorFacts: { conditions: ['financing'] }, key: 'conditionDates', value: { financing: '2026-10-06' }, actor: 'agent' },
+    { name: 'conditionDates for a condition not on the deal', type: 'buyer_purchase', priorFacts: { conditions: ['financing'] }, key: 'conditionDates', value: { inspection: '2026-10-04' }, actor: 'agent' },
+    { name: 'conditionDates with no conditions set', type: 'buyer_purchase', priorFacts: {}, key: 'conditionDates', value: { financing: '2026-10-06' }, actor: 'agent' },
+    { name: "additionalDepositDueDates ['2026-11-01'] on seller_sale", type: 'seller_sale', priorFacts: {}, key: 'additionalDepositDueDates', value: ['2026-11-01'], actor: 'agent' },
+    { name: 'additionalDepositDueDates on tenant_lease', type: 'tenant_lease', priorFacts: {}, key: 'additionalDepositDueDates', value: ['2026-11-01'], actor: 'agent' },
+    { name: 'two additional deposit dates', type: 'buyer_purchase', priorFacts: {}, key: 'additionalDepositDueDates', value: ['2026-11-01', '2026-12-01'], actor: 'agent' },
+    { name: "acceptedDate with actor 'system'", type: 'buyer_purchase', priorFacts: {}, key: 'acceptedDate', value: '2026-10-01', actor: 'system' },
+    { name: "representationArrangement 'double_ended' on buyer_purchase", type: 'buyer_purchase', priorFacts: {}, key: 'representationArrangement', value: 'double_ended', actor: 'agent' },
+    { name: 'an unknown fact key', type: 'buyer_purchase', priorFacts: {}, key: 'notARealFact', value: 'x', actor: 'agent' },
+  ];
+
+  CASES.forEach((testCase) => {
+    it(`${testCase.name}`, () => {
+      const { type, priorFacts, key, value, actor } = testCase;
+      const state = INITIAL_STATE_BY_TYPE[type];
+      const created = createTransaction(AGENT_ID, { type, state, address: '12 Main St' }, { baseDir, now: CLOCK });
+
+      Object.keys(priorFacts).forEach((priorKey) => {
+        setFact(AGENT_ID, created.transactionId, priorKey, priorFacts[priorKey], { at: AT, actor: 'agent', baseDir, now: CLOCK });
+      });
+
+      let setFactOutcome;
+      try {
+        setFact(AGENT_ID, created.transactionId, key, value, { at: AT2, actor, baseDir, now: LATER });
+        setFactOutcome = { ok: true };
+      } catch (err) {
+        setFactOutcome = { ok: false, message: err.message };
+      }
+
+      let checkFactOutcome;
+      try {
+        checkFact('setFact', key, value, { type, facts: priorFacts, actor });
+        checkFactOutcome = { ok: true };
+      } catch (err) {
+        checkFactOutcome = { ok: false, message: err.message };
+      }
+
+      expect(checkFactOutcome).toEqual(setFactOutcome);
     });
   });
 });

@@ -146,6 +146,30 @@ function assertDateFactFitsTransaction(fnName, key, value, previous) {
   }
 }
 
+// setFact's own checks, grouped so checkFact can run exactly them against a
+// deal that does not exist yet. Order and messages match setFact's current
+// body precisely, with fnName threaded through so the same group reads
+// correctly whichever caller's name is passed in.
+function assertFactBeforeRead(fnName, key, value, { actor, evidence } = {}) {
+  assertKnownFactKey(fnName, key);
+  if (value === undefined) {
+    throw new Error(`${fnName}: value must not be undefined`);
+  }
+  if (evidence !== undefined && actor !== 'system') {
+    throw new Error(`${fnName}: evidence may only be passed when actor is 'system'`);
+  }
+  assertConditionsValue(fnName, key, value);
+  if (DATE_FACT_KEYS.includes(key) && actor === 'system') {
+    throw new Error(`${fnName}: ${key} must be set by a person, not 'system'; extracted dates belong in a proposal, not a fact`);
+  }
+  assertDateFactShape(fnName, key, value);
+}
+
+function assertFactFitsTransaction(fnName, key, value, transaction) {
+  assertRepresentationArrangementValidForType(fnName, key, value, transaction.type);
+  assertDateFactFitsTransaction(fnName, key, value, transaction);
+}
+
 function readExisting(fnName, agentId, transactionId, baseDir) {
   const previous = store.readTransaction(agentId, transactionId, { baseDir });
   if (previous === null) {
@@ -163,22 +187,10 @@ function hasFact(facts, key) {
 function setFact(agentId, transactionId, key, value, opts = {}) {
   const { at, actor, evidence, baseDir, now } = opts;
 
-  assertKnownFactKey('setFact', key);
-  if (value === undefined) {
-    throw new Error('setFact: value must not be undefined');
-  }
-  if (evidence !== undefined && actor !== 'system') {
-    throw new Error("setFact: evidence may only be passed when actor is 'system'");
-  }
-  assertConditionsValue('setFact', key, value);
-  if (DATE_FACT_KEYS.includes(key) && actor === 'system') {
-    throw new Error(`setFact: ${key} must be set by a person, not 'system'; extracted dates belong in a proposal, not a fact`);
-  }
-  assertDateFactShape('setFact', key, value);
+  assertFactBeforeRead('setFact', key, value, { actor, evidence });
 
   const previous = readExisting('setFact', agentId, transactionId, baseDir);
-  assertRepresentationArrangementValidForType('setFact', key, value, previous.type);
-  assertDateFactFitsTransaction('setFact', key, value, previous);
+  assertFactFitsTransaction('setFact', key, value, previous);
   const previousFacts = previous.facts;
   const hadKey = hasFact(previousFacts, key);
 
@@ -234,19 +246,14 @@ function correctFact(agentId, transactionId, key, value, opts = {}) {
   if (actor !== 'agent') {
     throw new Error("correctFact: actor must be 'agent'");
   }
-  if (value === undefined) {
-    throw new Error('correctFact: value must not be undefined');
-  }
-  assertConditionsValue('correctFact', key, value);
-  assertDateFactShape('correctFact', key, value);
+  assertFactBeforeRead('correctFact', key, value, { actor, evidence: undefined });
 
   const previous = readExisting('correctFact', agentId, transactionId, baseDir);
   const previousFacts = previous.facts;
   if (!hasFact(previousFacts, key)) {
     throw new Error(`correctFact: no value set for key '${key}'`);
   }
-  assertRepresentationArrangementValidForType('correctFact', key, value, previous.type);
-  assertDateFactFitsTransaction('correctFact', key, value, previous);
+  assertFactFitsTransaction('correctFact', key, value, previous);
 
   const event = events.makeEvent({
     at,
@@ -264,4 +271,20 @@ function correctFact(agentId, transactionId, key, value, opts = {}) {
   return store.writeTransaction(agentId, next, { baseDir, now });
 }
 
-module.exports = { setFact, confirmFact, correctFact };
+// -- checkFact --------------------------------------------------------------------
+
+// The same rules setFact enforces, run against the deal as it is about to
+// be, so deal-open can validate every planned fact before creating
+// anything. Mirrors setFact only, not correctFact's extra rules. The
+// parity test in tests/transactions-facts.test.js pins that the two never
+// drift.
+function checkFact(label, key, value, { type, facts = {}, actor = 'operator', evidence } = {}) {
+  if (typeof type !== 'string' || type.trim() === '') {
+    throw new Error(`${label}: type is required`);
+  }
+
+  assertFactBeforeRead(label, key, value, { actor, evidence });
+  assertFactFitsTransaction(label, key, value, { type, facts });
+}
+
+module.exports = { setFact, confirmFact, correctFact, checkFact };
