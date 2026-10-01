@@ -6,8 +6,9 @@ const path = require('node:path');
 const { execFileSync, spawnSync } = require('child_process');
 
 const { openTransaction } = require('../scripts/open-transaction');
-const { readTransaction, createTransaction } = require('../src/transactions/store');
+const { readTransaction, createTransaction, listTransactionIds } = require('../src/transactions/store');
 const states = require('../src/transactions/states');
+const facts = require('../src/transactions/facts');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -118,6 +119,111 @@ describe('openTransaction', () => {
   });
 });
 
+describe('openTransaction with factPlan', () => {
+  test('1. sets all four date-related facts in order, each a fact_set event with actor operator', () => {
+    const factPlan = [
+      ['conditions', ['financing', 'inspection']],
+      ['conditionDates', { financing: '2026-10-06' }],
+      ['acceptedDate', '2026-10-01'],
+      ['additionalDepositDueDates', []],
+    ];
+
+    const result = openTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK, factPlan });
+
+    expect(result.facts).toEqual({
+      conditions: ['financing', 'inspection'],
+      conditionDates: { financing: '2026-10-06' },
+      acceptedDate: '2026-10-01',
+      additionalDepositDueDates: [],
+    });
+
+    const factSetEvents = result.events.filter((e) => e.kind === 'fact_set');
+    expect(factSetEvents).toHaveLength(4);
+    factSetEvents.forEach((e) => {
+      expect(e.actor).toBe('operator');
+    });
+  });
+
+  test('2. an invalid acceptedDate throws and nothing is created', () => {
+    const factPlan = [
+      ['conditions', ['financing', 'inspection']],
+      ['conditionDates', { financing: '2026-10-06' }],
+      ['acceptedDate', '2026-02-30'],
+      ['additionalDepositDueDates', []],
+    ];
+
+    expect(() => openTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK, factPlan }))
+      .toThrow('open-transaction: acceptedDate must be a calendar date');
+
+    expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual([]);
+  });
+
+  test('3. conditionDates for a condition not on the deal throws with the open-transaction label and nothing is created', () => {
+    const factPlan = [
+      ['conditions', ['financing']],
+      ['conditionDates', { inspection: '2026-10-04' }],
+    ];
+
+    expect(() => openTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK, factPlan }))
+      .toThrow("open-transaction: conditionDates has a date for 'inspection', but this deal's conditions are [financing]");
+
+    expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual([]);
+  });
+
+  test('4. additionalDepositDueDates is refused on tenant_lease and nothing is created', () => {
+    const factPlan = [['additionalDepositDueDates', []]];
+
+    expect(() => openTransaction(AGENT_ID, { type: 'tenant_lease', state: 'accepted', address: '12 Main St' }, { baseDir, now: CLOCK, factPlan }))
+      .toThrow("additionalDepositDueDates is not permitted on type 'tenant_lease'");
+
+    expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual([]);
+  });
+
+  test('5. an empty factPlan behaves exactly as before: no facts, no events', () => {
+    const result = openTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK, factPlan: [] });
+
+    expect(result).not.toHaveProperty('facts');
+    expect(result).not.toHaveProperty('events');
+  });
+
+  test('6. a partial failure wraps the error with transactionId and factsWritten, and the deal keeps what was written', () => {
+    const factPlan = [
+      ['conditions', ['financing']],
+      ['acceptedDate', '2026-10-01'],
+    ];
+
+    const realSetFact = facts.setFact;
+    let calls = 0;
+    const spy = jest.spyOn(facts, 'setFact').mockImplementation((...args) => {
+      calls++;
+      if (calls === 2) {
+        throw new Error('disk full');
+      }
+      return realSetFact(...args);
+    });
+
+    try {
+      let caught;
+      try {
+        openTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: CLOCK, factPlan });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught.message).toContain('created');
+      expect(caught.message).toContain('disk full');
+      expect(caught.transactionId).toBeDefined();
+      expect(caught.factsWritten).toEqual(['conditions']);
+
+      const onDisk = readTransaction(AGENT_ID, caught.transactionId, { baseDir });
+      expect(onDisk.facts).toEqual({ conditions: ['financing'] });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe('CLI argument handling (spawned subprocess)', () => {
   const scriptPath = path.join(__dirname, '..', 'scripts', 'open-transaction.js');
 
@@ -170,6 +276,112 @@ describe('CLI argument handling (spawned subprocess)', () => {
     const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
     expect(written.address).toBe('12 Main St');
     expect(written).not.toHaveProperty('unit');
+  });
+});
+
+describe('CLI: deal-open facts (spawned subprocess)', () => {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'open-transaction.js');
+
+  function run(args) {
+    return execFileSync('node', [scriptPath, ...args, '--no-folder'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+
+  function runExpectingFailure(args) {
+    const result = spawnSync('node', [scriptPath, ...args, '--no-folder'], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    return result;
+  }
+
+  test('7. conditions, conditionDates, acceptedDate and additionalDepositDueDates all land, and the digest-style lines appear', () => {
+    const stdout = run([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--condition', 'financing=2026-10-06', '--condition', 'inspection', '--accepted', '2026-10-01', '--no-additional-deposit',
+    ]);
+
+    expect(stdout).toContain('Facts set: conditions, conditionDates, acceptedDate, additionalDepositDueDates');
+    expect(stdout).toContain('Still unanswered: hasSelfRepresentedParty, representationArrangement, entityType');
+    expect(stdout).toContain('No date yet for: inspection');
+  });
+
+  test('8. --condition and --no-conditions together refuse, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--condition', 'financing', '--no-conditions',
+    ]);
+
+    expect(result.stderr).toContain('--condition and --no-conditions');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('9. --accepted given twice refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--accepted', '2026-10-01', '--accepted', '2026-10-02',
+    ]);
+
+    expect(result.stderr).toContain('--accepted given more than once');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('10. a duplicate condition name refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--condition', 'financing=2026-10-06', '--condition', 'financing',
+    ]);
+
+    expect(result.stderr).toContain("duplicate condition 'financing'");
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('11. --condition on a non-sale type refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'tenant_lease', 'accepted', '--address', '12 Main St', '--base-dir', baseDir,
+      '--condition', 'financing',
+    ]);
+
+    expect(result.stderr).toContain('apply to sales only');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('12. an invalid condition date refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--condition', 'financing=2026-02-30',
+    ]);
+
+    expect(result.stderr).toContain('open-transaction: conditionDates.financing must be a calendar date');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('13. no new flags: no Facts set line, and every unanswered fact is listed', () => {
+    const stdout = run([AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir]);
+
+    expect(stdout).not.toContain('Facts set');
+    expect(stdout).toContain('Still unanswered: hasSelfRepresentedParty, representationArrangement, entityType, additionalDepositDueDates, conditions');
+  });
+
+  // run/runExpectingFailure append --no-folder AFTER the given args, so a
+  // "last argument" test has to spawn directly, with --no-folder placed
+  // earlier, to leave --accepted/--additional-deposit as the true last
+  // argument with nothing after it to supply a value.
+  test('14. --accepted as the final argument refuses, nothing created', () => {
+    const result = spawnSync('node', [
+      scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--no-folder', '--address', '12 Main St', '--base-dir', baseDir, '--accepted',
+    ], { encoding: 'utf8' });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--accepted needs a date');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('15. --additional-deposit as the final argument refuses, nothing created', () => {
+    const result = spawnSync('node', [
+      scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--no-folder', '--address', '12 Main St', '--base-dir', baseDir, '--additional-deposit',
+    ], { encoding: 'utf8' });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--additional-deposit needs a date');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
   });
 });
 

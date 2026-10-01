@@ -19,7 +19,7 @@
 // report the agent confirms with --listing-id is not. Do not make this
 // write listingId automatically under any condition.
 //
-// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder]
+// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit]
 //
 // After a successful create, this also ensures a Drive folder exists for the
 // transaction (TC_SPEC 10.1/10.2), creating the agent's app-owned parent
@@ -33,11 +33,16 @@
 // the folder lazily on first filing if this attempt never ran or failed.
 // --no-folder skips the attempt entirely, for running this command with no
 // network access at all.
+//
+// The facts step sits between create and the Drive folder; validate first,
+// then write, so a typo leaves nothing behind.
 
 'use strict';
 
 const states = require('../src/transactions/states');
 const store = require('../src/transactions/store');
+const facts = require('../src/transactions/facts');
+const checklist = require('../src/transactions/checklist');
 const { loadAgent } = require('../src/agentConfig');
 const driveFolders = require('../src/driveFolders');
 
@@ -51,6 +56,7 @@ function openTransaction(agentId, fields, opts = {}) {
   }
 
   const { type, state, listingId, address, unit } = fields || {};
+  const factPlan = opts.factPlan || [];
 
   if (!states.TRANSACTION_TYPES.includes(type)) {
     throw new Error(`openTransaction: unknown type '${type}'. Must be one of: ${states.TRANSACTION_TYPES.join(', ')}`);
@@ -70,6 +76,16 @@ function openTransaction(agentId, fields, opts = {}) {
     throw new Error(`openTransaction: '${state}' is not a valid initial state for type '${type}'. Valid initial states: ${initial.join(', ')}`);
   }
 
+  // Validate every planned fact against the deal as it is about to be,
+  // before anything is created: a typo refuses the whole command instead
+  // of leaving a half-built deal. checkFact runs exactly setFact's rules
+  // (src/transactions/facts.js), so there is one set of rules, not two.
+  const accumulatedFacts = {};
+  factPlan.forEach(([key, value]) => {
+    facts.checkFact('open-transaction', key, value, { type, facts: accumulatedFacts, actor: 'operator' });
+    accumulatedFacts[key] = value;
+  });
+
   const txnFields = { type, state, address };
   if (listingId !== undefined) {
     txnFields.listingId = listingId;
@@ -78,7 +94,25 @@ function openTransaction(agentId, fields, opts = {}) {
     txnFields.unit = unit;
   }
 
-  return store.createTransaction(agentId, txnFields, { baseDir: opts.baseDir, now: opts.now });
+  const now = opts.now || new Date();
+  let transaction = store.createTransaction(agentId, txnFields, { baseDir: opts.baseDir, now });
+
+  const factsWritten = [];
+  for (const [key, value] of factPlan) {
+    try {
+      transaction = facts.setFact(agentId, transaction.transactionId, key, value, {
+        at: now.toISOString(), actor: 'operator', baseDir: opts.baseDir, now,
+      });
+      factsWritten.push(key);
+    } catch (err) {
+      const wrapped = new Error(`open-transaction: created ${transaction.transactionId} but could not finish setting facts: ${err.message}`);
+      wrapped.transactionId = transaction.transactionId;
+      wrapped.factsWritten = factsWritten;
+      throw wrapped;
+    }
+  }
+
+  return transaction;
 }
 
 module.exports = { openTransaction };
@@ -91,6 +125,13 @@ if (require.main === module) {
   let addressFromFlag;
   let unitFromFlag;
   let noFolder = false;
+  let acceptedFromFlag;
+  let acceptedCount = 0;
+  const conditionEntries = [];
+  let noConditions = false;
+  let additionalDepositFromFlag;
+  let additionalDepositCount = 0;
+  let noAdditionalDeposit = false;
   const positional = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--base-dir') {
@@ -107,16 +148,72 @@ if (require.main === module) {
       i++;
     } else if (args[i] === '--no-folder') {
       noFolder = true;
+    } else if (args[i] === '--accepted') {
+      acceptedFromFlag = args[i + 1];
+      acceptedCount++;
+      i++;
+    } else if (args[i] === '--condition') {
+      const raw = args[i + 1] || '';
+      const eqIndex = raw.indexOf('=');
+      if (eqIndex === -1) {
+        conditionEntries.push({ name: raw, date: undefined });
+      } else {
+        conditionEntries.push({ name: raw.slice(0, eqIndex), date: raw.slice(eqIndex + 1) });
+      }
+      i++;
+    } else if (args[i] === '--no-conditions') {
+      noConditions = true;
+    } else if (args[i] === '--additional-deposit') {
+      additionalDepositFromFlag = args[i + 1];
+      additionalDepositCount++;
+      i++;
+    } else if (args[i] === '--no-additional-deposit') {
+      noAdditionalDeposit = true;
     } else {
       positional.push(args[i]);
     }
   }
   const [agentId, type, state] = positional;
 
-  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder]';
+  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit]';
 
   if (!agentId || !type || !state) {
     console.error(usage);
+    process.exit(1);
+  }
+
+  if (conditionEntries.length > 0 && noConditions) {
+    console.error('open-transaction: --condition and --no-conditions cannot both be given');
+    process.exit(1);
+  }
+
+  if (acceptedCount > 1) {
+    console.error('open-transaction: --accepted given more than once');
+    process.exit(1);
+  }
+
+  if (additionalDepositCount > 1) {
+    console.error('open-transaction: --additional-deposit given more than once');
+    process.exit(1);
+  }
+
+  if (acceptedCount > 0 && acceptedFromFlag === undefined) {
+    console.error('open-transaction: --accepted needs a date (YYYY-MM-DD)');
+    process.exit(1);
+  }
+
+  if (additionalDepositCount > 0 && additionalDepositFromFlag === undefined) {
+    console.error('open-transaction: --additional-deposit needs a date (YYYY-MM-DD)');
+    process.exit(1);
+  }
+
+  if (additionalDepositFromFlag !== undefined && noAdditionalDeposit) {
+    console.error('open-transaction: --additional-deposit and --no-additional-deposit cannot both be given');
+    process.exit(1);
+  }
+
+  if ((conditionEntries.length > 0 || noConditions) && type !== 'buyer_purchase' && type !== 'seller_sale') {
+    console.error('open-transaction: --condition and --no-conditions apply to sales only (buyer_purchase, seller_sale)');
     process.exit(1);
   }
 
@@ -145,12 +242,44 @@ if (require.main === module) {
     process.exit(1);
   }
 
+  // Built in this order, including only what was given: conditions,
+  // conditionDates (only when at least one condition carries a date),
+  // acceptedDate, additionalDepositDueDates.
+  const factPlan = [];
+
+  if (conditionEntries.length > 0) {
+    factPlan.push(['conditions', conditionEntries.map((e) => e.name)]);
+  } else if (noConditions) {
+    factPlan.push(['conditions', []]);
+  }
+
+  const conditionDatesEntries = conditionEntries.filter((e) => e.date !== undefined);
+  if (conditionDatesEntries.length > 0) {
+    const conditionDates = {};
+    conditionDatesEntries.forEach((e) => { conditionDates[e.name] = e.date; });
+    factPlan.push(['conditionDates', conditionDates]);
+  }
+
+  if (acceptedFromFlag !== undefined) {
+    factPlan.push(['acceptedDate', acceptedFromFlag]);
+  }
+
+  if (additionalDepositFromFlag !== undefined) {
+    factPlan.push(['additionalDepositDueDates', [additionalDepositFromFlag]]);
+  } else if (noAdditionalDeposit) {
+    factPlan.push(['additionalDepositDueDates', []]);
+  }
+
   (async () => {
     let transaction;
     try {
-      transaction = openTransaction(agentId, { type, state, address: addressFromFlag, listingId: listingIdFromFlag, unit: unitFromFlag }, { baseDir });
+      transaction = openTransaction(agentId, { type, state, address: addressFromFlag, listingId: listingIdFromFlag, unit: unitFromFlag }, { baseDir, factPlan });
     } catch (err) {
       console.error(err.message);
+      if (err.transactionId) {
+        const written = err.factsWritten && err.factsWritten.length > 0 ? err.factsWritten.join(', ') : 'none';
+        console.error(`Facts set before the failure: ${written}`);
+      }
       process.exit(1);
       return;
     }
@@ -158,6 +287,31 @@ if (require.main === module) {
     const filePath = store._internal.transactionPath(baseDir, agentId, transaction.transactionId);
     console.log(`Transaction created: ${transaction.transactionId}`);
     console.log(`File: ${filePath}`);
+
+    if (factPlan.length > 0) {
+      console.log(`Facts set: ${factPlan.map(([key]) => key).join(', ')}`);
+    }
+
+    // Blanks are allowed but never silent: every indeterminate item's
+    // pendingFacts, deduplicated in first-seen order, so the agent sees
+    // exactly what the deal is still waiting on.
+    const checklistItems = checklist.resolveChecklistForTransaction(transaction);
+    const stillUnanswered = [];
+    checklistItems.forEach((item) => {
+      if (item.applicability === 'indeterminate') {
+        (item.pendingFacts || []).forEach((pendingFact) => {
+          if (!stillUnanswered.includes(pendingFact)) {
+            stillUnanswered.push(pendingFact);
+          }
+        });
+      }
+    });
+    console.log(`Still unanswered: ${stillUnanswered.length > 0 ? stillUnanswered.join(', ') : 'none'}`);
+
+    const conditionsWithoutDate = conditionEntries.filter((e) => e.date === undefined).map((e) => e.name);
+    if (conditionsWithoutDate.length > 0) {
+      console.log(`No date yet for: ${conditionsWithoutDate.join(', ')}`);
+    }
 
     // Order is createTransaction (above, already done and written) THEN the
     // folder, never the reverse -- see the file header. Best-effort and
