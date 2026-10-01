@@ -12,7 +12,8 @@
 const store = require('../src/transactions/store');
 const { setFact, confirmFact } = require('../src/transactions/facts');
 
-// Facts are strings, booleans, arrays and null today. Numbers are
+// Facts are strings, booleans, arrays, objects (conditionDates) and null
+// today. Values starting with '[' or '{' are parsed as JSON. Numbers are
 // deliberately NOT parsed: no fact key in FACT_KEYS holds one, and silently
 // turning '12' into 12 is the kind of coercion that surfaces as a resolver
 // mismatch months later. If a numeric fact is ever added, this decision
@@ -28,6 +29,13 @@ function parseFactValue(raw) {
     return null;
   }
   if (raw.startsWith('[')) {
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      throw new Error(`set-fact: could not parse '${raw}' as JSON: ${err.message}`);
+    }
+  }
+  if (raw.startsWith('{')) {
     try {
       return JSON.parse(raw);
     } catch (err) {

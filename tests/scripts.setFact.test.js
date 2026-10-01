@@ -43,6 +43,18 @@ describe('parseFactValue', () => {
     expect(() => parseFactValue('[oops')).toThrow(/^set-fact: could not parse '\[oops' as JSON/);
   });
 
+  it('parses a value starting with { as JSON', () => {
+    expect(parseFactValue('{"financing":"2026-10-06"}')).toEqual({ financing: '2026-10-06' });
+  });
+
+  it('parses {} as an empty object', () => {
+    expect(parseFactValue('{}')).toEqual({});
+  });
+
+  it('throws a clear message when a { value does not parse', () => {
+    expect(() => parseFactValue('{oops')).toThrow(/could not parse/);
+  });
+
   it('leaves a numeric-looking string as a string, unmodified', () => {
     expect(parseFactValue('12')).toBe('12');
   });
@@ -158,6 +170,29 @@ describe('CLI argument handling (spawned subprocess)', () => {
     expect(stderr).toContain("unknown condition 'finnancing'");
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
     expect(onDisk.facts).toBeUndefined();
+  });
+
+  it('a valid conditionDates object sets after conditions is set, exits 0', () => {
+    const created = create();
+    run([AGENT_ID, created.transactionId, 'conditions', '["financing"]', '--base-dir', baseDir]);
+
+    const stdout = run([AGENT_ID, created.transactionId, 'conditionDates', '{"financing":"2026-10-06"}', '--base-dir', baseDir]);
+
+    expect(stdout).toContain('Fact set: conditionDates');
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts.conditionDates).toEqual({ financing: '2026-10-06' });
+  });
+
+  it('a conditionDates object with an invalid date refuses, nonzero exit, and writes nothing new', () => {
+    const created = create();
+    run([AGENT_ID, created.transactionId, 'conditions', '["financing"]', '--base-dir', baseDir]);
+
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'conditionDates', '{"financing":"2026-02-30"}', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr).toContain('conditionDates.financing must be a calendar date');
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toEqual({ conditions: ['financing'] });
   });
 
   it('--confirm confirms an existing fact instead of setting one, and takes no value', () => {
