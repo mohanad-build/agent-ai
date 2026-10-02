@@ -19,7 +19,7 @@
 // report the agent confirms with --listing-id is not. Do not make this
 // write listingId automatically under any condition.
 //
-// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit]
+// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit] [--self-represented] [--no-self-represented] [--entity VALUE] [--representation VALUE]
 //
 // After a successful create, this also ensures a Drive folder exists for the
 // transaction (TC_SPEC 10.1/10.2), creating the agent's app-owned parent
@@ -45,6 +45,7 @@ const facts = require('../src/transactions/facts');
 const checklist = require('../src/transactions/checklist');
 const { loadAgent } = require('../src/agentConfig');
 const driveFolders = require('../src/driveFolders');
+const { ENTITY_TYPES, REPRESENTATION_ARRANGEMENTS } = require('../src/transactions/rules/factVocabularies');
 
 function openTransaction(agentId, fields, opts = {}) {
   if (typeof agentId !== 'string' || agentId.trim() === '') {
@@ -132,6 +133,12 @@ if (require.main === module) {
   let additionalDepositFromFlag;
   let additionalDepositCount = 0;
   let noAdditionalDeposit = false;
+  let selfRepresented = false;
+  let noSelfRepresented = false;
+  let entityFromFlag;
+  let entityCount = 0;
+  let representationFromFlag;
+  let representationCount = 0;
   const positional = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--base-dir') {
@@ -169,13 +176,25 @@ if (require.main === module) {
       i++;
     } else if (args[i] === '--no-additional-deposit') {
       noAdditionalDeposit = true;
+    } else if (args[i] === '--self-represented') {
+      selfRepresented = true;
+    } else if (args[i] === '--no-self-represented') {
+      noSelfRepresented = true;
+    } else if (args[i] === '--entity') {
+      entityFromFlag = args[i + 1];
+      entityCount++;
+      i++;
+    } else if (args[i] === '--representation') {
+      representationFromFlag = args[i + 1];
+      representationCount++;
+      i++;
     } else {
       positional.push(args[i]);
     }
   }
   const [agentId, type, state] = positional;
 
-  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit]';
+  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit] [--self-represented] [--no-self-represented] [--entity VALUE] [--representation VALUE]';
 
   if (!agentId || !type || !state) {
     console.error(usage);
@@ -197,6 +216,16 @@ if (require.main === module) {
     process.exit(1);
   }
 
+  if (entityCount > 1) {
+    console.error('open-transaction: --entity given more than once');
+    process.exit(1);
+  }
+
+  if (representationCount > 1) {
+    console.error('open-transaction: --representation given more than once');
+    process.exit(1);
+  }
+
   if (acceptedCount > 0 && acceptedFromFlag === undefined) {
     console.error('open-transaction: --accepted needs a date (YYYY-MM-DD)');
     process.exit(1);
@@ -207,8 +236,23 @@ if (require.main === module) {
     process.exit(1);
   }
 
+  if (entityCount > 0 && entityFromFlag === undefined) {
+    console.error(`open-transaction: --entity needs a value (${ENTITY_TYPES.join(', ')})`);
+    process.exit(1);
+  }
+
+  if (representationCount > 0 && representationFromFlag === undefined) {
+    console.error(`open-transaction: --representation needs a value (${REPRESENTATION_ARRANGEMENTS.join(', ')})`);
+    process.exit(1);
+  }
+
   if (additionalDepositFromFlag !== undefined && noAdditionalDeposit) {
     console.error('open-transaction: --additional-deposit and --no-additional-deposit cannot both be given');
+    process.exit(1);
+  }
+
+  if (selfRepresented && noSelfRepresented) {
+    console.error('open-transaction: --self-represented and --no-self-represented cannot both be given');
     process.exit(1);
   }
 
@@ -244,7 +288,8 @@ if (require.main === module) {
 
   // Built in this order, including only what was given: conditions,
   // conditionDates (only when at least one condition carries a date),
-  // acceptedDate, additionalDepositDueDates.
+  // acceptedDate, additionalDepositDueDates, hasSelfRepresentedParty,
+  // entityType, representationArrangement.
   const factPlan = [];
 
   if (conditionEntries.length > 0) {
@@ -268,6 +313,20 @@ if (require.main === module) {
     factPlan.push(['additionalDepositDueDates', [additionalDepositFromFlag]]);
   } else if (noAdditionalDeposit) {
     factPlan.push(['additionalDepositDueDates', []]);
+  }
+
+  if (selfRepresented) {
+    factPlan.push(['hasSelfRepresentedParty', true]);
+  } else if (noSelfRepresented) {
+    factPlan.push(['hasSelfRepresentedParty', false]);
+  }
+
+  if (entityFromFlag !== undefined) {
+    factPlan.push(['entityType', entityFromFlag]);
+  }
+
+  if (representationFromFlag !== undefined) {
+    factPlan.push(['representationArrangement', representationFromFlag]);
   }
 
   (async () => {

@@ -383,6 +383,97 @@ describe('CLI: deal-open facts (spawned subprocess)', () => {
     expect(result.stderr).toContain('--additional-deposit needs a date');
     expect(fs.readdirSync(baseDir)).toEqual([]);
   });
+
+  test('16. a full set of APS flags lands every fact and leaves nothing unanswered', () => {
+    const stdout = run([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--condition', 'financing=2026-10-06', '--accepted', '2026-10-01', '--no-additional-deposit',
+      '--no-self-represented', '--entity', 'individual', '--representation', 'single',
+    ]);
+
+    expect(stdout).toContain('Facts set: conditions, conditionDates, acceptedDate, additionalDepositDueDates, hasSelfRepresentedParty, entityType, representationArrangement');
+    expect(stdout).toContain('Still unanswered: none');
+
+    const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    expect(written.facts.hasSelfRepresentedParty).toBe(false);
+    expect(written.facts.entityType).toBe('individual');
+    expect(written.facts.representationArrangement).toBe('single');
+  });
+
+  test('17. --self-represented with --no-self-represented refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--self-represented', '--no-self-represented',
+    ]);
+
+    expect(result.stderr).toContain('cannot both be given');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test("18. --entity corperation refuses with the vocabulary message, nothing created", () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--entity', 'corperation',
+    ]);
+
+    expect(result.stderr).toContain("open-transaction: entityType must be one of individual, corporation, other_entity, got 'corperation'");
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('19. --representation double_ended on buyer_purchase refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--representation', 'double_ended',
+    ]);
+
+    expect(result.stderr).toContain("representationArrangement 'double_ended' is not permitted on type 'buyer_purchase'");
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('20. --entity as the final argument refuses, nothing created', () => {
+    const result = spawnSync('node', [
+      scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--no-folder', '--address', '12 Main St', '--base-dir', baseDir, '--entity',
+    ], { encoding: 'utf8' });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--entity needs a value (individual, corporation, other_entity)');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('21. --representation as the final argument refuses, nothing created', () => {
+    const result = spawnSync('node', [
+      scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--no-folder', '--address', '12 Main St', '--base-dir', baseDir, '--representation',
+    ], { encoding: 'utf8' });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--representation needs a value (single, double_ended, designated)');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('22. --entity given twice refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--entity', 'individual', '--entity', 'corporation',
+    ]);
+
+    expect(result.stderr).toContain('--entity given more than once');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('23. --representation double_ended on seller_sale succeeds', () => {
+    const stdout = run([
+      AGENT_ID, 'seller_sale', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--representation', 'double_ended',
+    ]);
+
+    const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    expect(written.facts.representationArrangement).toBe('double_ended');
+    expect(stdout).toContain('Transaction created:');
+  });
 });
 
 describe('CLI: Drive folder creation is non-fatal', () => {
