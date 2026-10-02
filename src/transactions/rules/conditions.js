@@ -110,7 +110,21 @@ const CONDITION_ITEMS = [
   },
 ];
 
+// The row whose completion means the condition is cleared, used by the
+// digest alerts; status_certificate is cleared by the review row, not the
+// receipt row, per their labels.
+const CONDITION_CLEARING_ITEMS = Object.freeze({
+  financing: 'financing_condition',
+  inspection: 'inspection_condition',
+  sale_of_property: 'sale_of_property_condition',
+  solicitor_approval: 'solicitor_approval_condition',
+  insurance: 'insurance_condition',
+  well_septic: 'well_septic_condition',
+  status_certificate: 'status_certificate_review',
+});
+
 module.exports = {
   CONDITION_ITEMS,
   CONDITION_NAMES,
+  CONDITION_CLEARING_ITEMS,
 };
