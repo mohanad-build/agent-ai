@@ -5,6 +5,7 @@ const events = require('./events');
 const states = require('./states');
 const { FACT_KEYS, DATE_FACT_KEYS } = require('./rules/factKeys');
 const { CONDITION_NAMES } = require('./rules/conditions');
+const { ENTITY_TYPES, REPRESENTATION_ARRANGEMENTS } = require('./rules/factVocabularies');
 const { isCalendarDate } = require('../calendarDate');
 
 // -- Argument assertions ------------------------------------------------------------
@@ -15,14 +16,16 @@ function assertKnownFactKey(fnName, key) {
   }
 }
 
-// Refuses representationArrangement: 'double_ended' at the write boundary
-// when the transaction's type has no buy-side counterpart (TC_SPEC 7.1.2b),
-// the same place and shape as store.js's listingId-not-permitted-on-type
-// check (store.js validateEnvelope). This is the only fact whose valid
-// values depend on the transaction's type, so it is the only one that
-// needs a type parameter here; every other key's validity is type-
-// independent. Only 'double_ended' is restricted: 'single' and
-// 'designated' carry no type requirement.
+// The three-value vocabulary is now enforced before the read by
+// assertFactValueShape; this function adds only the type rule for
+// 'double_ended'. Refuses representationArrangement: 'double_ended' at the
+// write boundary when the transaction's type has no buy-side counterpart
+// (TC_SPEC 7.1.2b), the same place and shape as store.js's
+// listingId-not-permitted-on-type check (store.js validateEnvelope). This
+// is the only fact whose valid values depend on the transaction's type, so
+// it is the only one that needs a type parameter here; every other key's
+// validity is type-independent. Only 'double_ended' is restricted: 'single'
+// and 'designated' carry no type requirement.
 function assertRepresentationArrangementValidForType(fnName, key, value, type) {
   if (key !== 'representationArrangement' || value !== 'double_ended') {
     return;
@@ -70,6 +73,26 @@ function describeValue(value) {
     return 'array';
   }
   return typeof value;
+}
+
+function assertFactValueShape(fnName, key, value) {
+  if (key === 'hasSelfRepresentedParty' || key === 'brokerageReceivedFunds') {
+    if (typeof value !== 'boolean') {
+      throw new Error(`${fnName}: ${key} must be true or false, got ${describeValue(value)}`);
+    }
+    return;
+  }
+  if (key === 'entityType') {
+    if (!ENTITY_TYPES.includes(value)) {
+      throw new Error(`${fnName}: entityType must be one of ${ENTITY_TYPES.join(', ')}, got ${describeValue(value)}`);
+    }
+    return;
+  }
+  if (key === 'representationArrangement') {
+    if (!REPRESENTATION_ARRANGEMENTS.includes(value)) {
+      throw new Error(`${fnName}: representationArrangement must be one of ${REPRESENTATION_ARRANGEMENTS.join(', ')}, got ${describeValue(value)}`);
+    }
+  }
 }
 
 const ACCEPTED_DATE_TYPES = Object.freeze(['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease']);
@@ -159,6 +182,7 @@ function assertFactBeforeRead(fnName, key, value, { actor, evidence } = {}) {
     throw new Error(`${fnName}: evidence may only be passed when actor is 'system'`);
   }
   assertConditionsValue(fnName, key, value);
+  assertFactValueShape(fnName, key, value);
   if (DATE_FACT_KEYS.includes(key) && actor === 'system') {
     throw new Error(`${fnName}: ${key} must be set by a person, not 'system'; extracted dates belong in a proposal, not a fact`);
   }

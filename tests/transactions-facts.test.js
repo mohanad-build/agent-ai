@@ -8,6 +8,8 @@ const { setFact, confirmFact, correctFact, checkFact } = require('../src/transac
 const { createTransaction, readTransaction, listTransactionIds } = require('../src/transactions/store');
 const { CATALOG } = require('../src/transactions/rules');
 const { FACT_KEYS, DATE_FACT_KEYS } = require('../src/transactions/rules/factKeys');
+const { ENTITY_TYPES, REPRESENTATION_ARRANGEMENTS } = require('../src/transactions/rules/factVocabularies');
+const { ENTITY_TYPES: PARTICIPANTS_ENTITY_TYPES } = require('../src/transactions/participants');
 
 const AGENT_ID = 'test-agent';
 const CLOCK = new Date('2026-07-15T10:00:00.000Z');
@@ -82,6 +84,28 @@ describe('DATE_FACT_KEYS', () => {
   });
 });
 
+describe('factVocabularies', () => {
+  it('ENTITY_TYPES is the hand-written three values, in order', () => {
+    expect(ENTITY_TYPES).toEqual(['individual', 'corporation', 'other_entity']);
+  });
+
+  it('ENTITY_TYPES is frozen', () => {
+    expect(Object.isFrozen(ENTITY_TYPES)).toBe(true);
+  });
+
+  it('REPRESENTATION_ARRANGEMENTS is the hand-written three values, in order', () => {
+    expect(REPRESENTATION_ARRANGEMENTS).toEqual(['single', 'double_ended', 'designated']);
+  });
+
+  it('REPRESENTATION_ARRANGEMENTS is frozen', () => {
+    expect(Object.isFrozen(REPRESENTATION_ARRANGEMENTS)).toBe(true);
+  });
+
+  it('participants.js exports the same ENTITY_TYPES array, not a copy', () => {
+    expect(PARTICIPANTS_ENTITY_TYPES).toBe(ENTITY_TYPES);
+  });
+});
+
 describe('setFact', () => {
   it('a first set omits before', () => {
     const created = create();
@@ -109,20 +133,19 @@ describe('setFact', () => {
     expect(result.facts).toEqual({ entityType: 'individual' });
   });
 
+  // no fact accepts a number or null since session 81
   it.each([
-    ['string', 'corporation'],
-    ['number', 42],
-    ['boolean', true],
-    ['null', null],
-    ['array', ['inspection', 'financing']],
-  ])('the value that lands on disk matches what was passed (%s)', (_label, value) => {
+    ['string', 'entityType', 'corporation'],
+    ['boolean', 'hasSelfRepresentedParty', true],
+    ['array', 'conditions', ['inspection', 'financing']],
+  ])('the value that lands on disk matches what was passed (%s)', (_label, key, value) => {
     const created = create();
-    setFact(AGENT_ID, created.transactionId, 'entityType', value, {
+    setFact(AGENT_ID, created.transactionId, key, value, {
       at: AT, actor: 'agent', baseDir, now: LATER,
     });
 
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
-    expect(onDisk.facts.entityType).toEqual(value);
+    expect(onDisk.facts[key]).toEqual(value);
   });
 
   it('throws on undefined and writes nothing to disk', () => {
@@ -263,6 +286,142 @@ describe('setFact', () => {
       });
       expect(result.facts).toEqual({ representationArrangement: 'designated' });
     });
+  });
+});
+
+describe('closed vocabularies: accepted values', () => {
+  it.each([
+    ['individual'],
+    ['corporation'],
+    ['other_entity'],
+  ])('entityType accepts %s', (value) => {
+    const created = create();
+    const result = setFact(AGENT_ID, created.transactionId, 'entityType', value, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(result.facts.entityType).toBe(value);
+  });
+
+  it.each([
+    ['single', 'buyer_purchase', 'conditional'],
+    ['designated', 'buyer_purchase', 'conditional'],
+    ['double_ended', 'seller_sale', 'conditional'],
+  ])('representationArrangement accepts %s on %s', (value, type, state) => {
+    const created = createTransaction(AGENT_ID, { type, state, address: '12 Main St' }, { baseDir, now: CLOCK });
+    const result = setFact(AGENT_ID, created.transactionId, 'representationArrangement', value, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(result.facts.representationArrangement).toBe(value);
+  });
+
+  it.each([
+    [true],
+    [false],
+  ])('hasSelfRepresentedParty accepts %s', (value) => {
+    const created = create();
+    const result = setFact(AGENT_ID, created.transactionId, 'hasSelfRepresentedParty', value, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(result.facts.hasSelfRepresentedParty).toBe(value);
+  });
+
+  it.each([
+    [true],
+    [false],
+  ])('brokerageReceivedFunds accepts %s', (value) => {
+    const created = create();
+    const result = setFact(AGENT_ID, created.transactionId, 'brokerageReceivedFunds', value, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(result.facts.brokerageReceivedFunds).toBe(value);
+  });
+});
+
+describe('closed vocabularies: rejections', () => {
+  it("1. hasSelfRepresentedParty 'true' (a string) is refused and writes nothing to disk", () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'hasSelfRepresentedParty', 'true', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow("setFact: hasSelfRepresentedParty must be true or false, got 'true'");
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('2. hasSelfRepresentedParty null is refused and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'hasSelfRepresentedParty', null, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow('setFact: hasSelfRepresentedParty must be true or false, got null');
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('3. brokerageReceivedFunds 1 is refused and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'brokerageReceivedFunds', 1, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow('setFact: brokerageReceivedFunds must be true or false, got number');
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it("4. entityType 'corperation' is refused and writes nothing to disk", () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'entityType', 'corperation', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow("setFact: entityType must be one of individual, corporation, other_entity, got 'corperation'");
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it('5. entityType null is refused and writes nothing to disk', () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'entityType', null, {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow('setFact: entityType must be one of individual, corporation, other_entity, got null');
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it("6. representationArrangement 'triple_ended' is refused and writes nothing to disk", () => {
+    const created = create();
+    expect(() => setFact(AGENT_ID, created.transactionId, 'representationArrangement', 'triple_ended', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow("setFact: representationArrangement must be one of single, double_ended, designated, got 'triple_ended'");
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts).toBeUndefined();
+    expect(onDisk.events).toBeUndefined();
+  });
+
+  it("7. ordering: entityType 'corperation' beats not-found for a transaction id that does not exist", () => {
+    expect(() => setFact(AGENT_ID, 'txn-20260101-deadbeef', 'entityType', 'corperation', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    })).toThrow("setFact: entityType must be one of individual, corporation, other_entity, got 'corperation'");
+  });
+
+  it("8. correctFact: after a valid entityType 'individual', correctFact with 'corperation' is refused and the stored value is unchanged", () => {
+    const created = create();
+    const afterSet = setFact(AGENT_ID, created.transactionId, 'entityType', 'individual', {
+      at: AT, actor: 'agent', baseDir, now: LATER,
+    });
+    expect(() => correctFact(AGENT_ID, created.transactionId, 'entityType', 'corperation', {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    })).toThrow("correctFact: entityType must be one of individual, corporation, other_entity, got 'corperation'");
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.facts.entityType).toBe('individual');
+    expect(onDisk.events).toHaveLength(afterSet.events.length);
   });
 });
 
@@ -857,6 +1016,9 @@ describe('checkFact and setFact agree', () => {
     { name: "acceptedDate with actor 'system'", type: 'buyer_purchase', priorFacts: {}, key: 'acceptedDate', value: '2026-10-01', actor: 'system' },
     { name: "representationArrangement 'double_ended' on buyer_purchase", type: 'buyer_purchase', priorFacts: {}, key: 'representationArrangement', value: 'double_ended', actor: 'agent' },
     { name: 'an unknown fact key', type: 'buyer_purchase', priorFacts: {}, key: 'notARealFact', value: 'x', actor: 'agent' },
+    { name: "entityType 'corperation'", type: 'buyer_purchase', priorFacts: {}, key: 'entityType', value: 'corperation', actor: 'agent' },
+    { name: "hasSelfRepresentedParty 'yes'", type: 'buyer_purchase', priorFacts: {}, key: 'hasSelfRepresentedParty', value: 'yes', actor: 'agent' },
+    { name: "representationArrangement 'triple_ended'", type: 'buyer_purchase', priorFacts: {}, key: 'representationArrangement', value: 'triple_ended', actor: 'agent' },
   ];
 
   CASES.forEach((testCase) => {

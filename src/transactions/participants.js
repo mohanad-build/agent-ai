@@ -53,6 +53,7 @@ const crypto = require('node:crypto');
 const store = require('./store');
 const events = require('./events');
 const { normalizeEmailAddress } = require('./emailAddress');
+const { ENTITY_TYPES } = require('./rules/factVocabularies');
 
 // -- ID generation --------------------------------------------------------------
 
@@ -442,13 +443,6 @@ function formatRoles(roles) {
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
   return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
-
-// Absent means unknown; entityType is optional on a participant, and a
-// participant with no entityType at all is a real, permitted state, not
-// an error. Adding a value here is safe at any time; removing or
-// renaming one is not, because a stored participant on an existing
-// transaction can already hold a value this list no longer accepts.
-const ENTITY_TYPES = Object.freeze(['individual', 'corporation', 'other_entity']);
 
 function isRepresented(participant) {
   return participant.roles.some((role) => REPRESENTED_ROLES.includes(role));

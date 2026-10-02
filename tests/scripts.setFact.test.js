@@ -141,13 +141,15 @@ describe('CLI argument handling (spawned subprocess)', () => {
     expect(onDisk.facts.conditions).toEqual([]);
   });
 
-  it("'12' stores the STRING '12', not the number 12", () => {
+  it('entityType 12 does not coerce to the number 12; it is refused as the string \'12\'', () => {
     const created = create();
-    run([AGENT_ID, created.transactionId, 'entityType', '12', '--base-dir', baseDir]);
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'entityType', '12', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr).toContain("got '12'");
 
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
-    expect(onDisk.facts.entityType).toBe('12');
-    expect(typeof onDisk.facts.entityType).toBe('string');
+    expect(onDisk.facts).toBeUndefined();
   });
 
   it('a malformed [ value refuses, nonzero exit', () => {
