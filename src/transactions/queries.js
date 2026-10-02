@@ -53,4 +53,34 @@ function readAllTransactions(agentId, opts = {}) {
     .filter((transaction) => transaction !== null);
 }
 
-module.exports = { readAllTransactions };
+// The digest reads every deal for an agent each morning, and one corrupt or
+// invalid file must not hide the others. readAllTransactions keeps throwing
+// because its callers rely on failing loudly; this is a second reader for
+// the one caller that needs partial results instead. A whole-folder listing
+// failure still throws: that is the digest section's concern, not a
+// per-file one.
+function readAllTransactionsSettled(agentId, opts = {}) {
+  if (typeof agentId !== 'string' || agentId.trim() === '') {
+    throw new Error('readAllTransactionsSettled: agentId required non-empty string');
+  }
+
+  const baseDir = opts.baseDir || getStorageRoot();
+
+  const transactions = [];
+  const unreadable = [];
+
+  store.listTransactionIds(agentId, { baseDir }).forEach((transactionId) => {
+    try {
+      const transaction = store.readTransaction(agentId, transactionId, { baseDir });
+      if (transaction !== null) {
+        transactions.push(transaction);
+      }
+    } catch (err) {
+      unreadable.push({ transactionId, error: err.message });
+    }
+  });
+
+  return { transactions, unreadable };
+}
+
+module.exports = { readAllTransactions, readAllTransactionsSettled };

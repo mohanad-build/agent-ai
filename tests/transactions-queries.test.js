@@ -4,7 +4,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { readAllTransactions } = require('../src/transactions/queries');
+const { readAllTransactions, readAllTransactionsSettled } = require('../src/transactions/queries');
 
 const store = require('../src/transactions/store');
 const {
@@ -171,5 +171,90 @@ describe('readAllTransactions', () => {
 
   test('throws on an empty agentId', () => {
     expect(() => readAllTransactions('', { baseDir })).toThrow();
+  });
+});
+
+// -- readAllTransactionsSettled -------------------------------------------------
+
+const NOW = new Date('2026-07-15T10:00:00.000Z');
+
+function setupMixedFixture(baseDir) {
+  const dir = transactionsDir(baseDir, AGENT_ID);
+
+  const good1 = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: NOW });
+  const good2 = createTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional', address: '34 Oak Ave' }, { baseDir, now: NOW });
+  const badJson = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '56 Pine Rd' }, { baseDir, now: NOW });
+  const badSchema = createTransaction(AGENT_ID, { type: 'tenant_lease', state: 'accepted', address: '78 Elm St' }, { baseDir, now: NOW });
+
+  fs.writeFileSync(path.join(dir, `${badJson.transactionId}.json`), '{ not valid json', 'utf8');
+
+  const invalidEnvelope = { ...badSchema, type: 'not_a_type' };
+  fs.writeFileSync(path.join(dir, `${badSchema.transactionId}.json`), JSON.stringify(invalidEnvelope), 'utf8');
+
+  return {
+    goodIds: [good1.transactionId, good2.transactionId],
+    badJsonId: badJson.transactionId,
+    badSchemaId: badSchema.transactionId,
+  };
+}
+
+describe('readAllTransactionsSettled', () => {
+  test('1. unreadable files do not hide the readable ones', () => {
+    const { goodIds, badJsonId, badSchemaId } = setupMixedFixture(baseDir);
+
+    const expectedOrder = store.listTransactionIds(AGENT_ID, { baseDir });
+    const expectedGoodOrder = expectedOrder.filter((id) => goodIds.includes(id));
+
+    const result = readAllTransactionsSettled(AGENT_ID, { baseDir });
+
+    expect(result.transactions.map((t) => t.transactionId)).toEqual(expectedGoodOrder);
+    expect(result.unreadable).toHaveLength(2);
+
+    const byId = Object.fromEntries(result.unreadable.map((entry) => [entry.transactionId, entry.error]));
+    expect(Object.keys(byId).sort()).toEqual([badJsonId, badSchemaId].sort());
+    expect(byId[badJsonId]).toEqual(expect.stringContaining('invalid JSON'));
+    expect(byId[badSchemaId]).toEqual(expect.stringContaining('validation failed'));
+  });
+
+  test('2. no transactions directory: empty settled result', () => {
+    expect(readAllTransactionsSettled(AGENT_ID, { baseDir })).toEqual({ transactions: [], unreadable: [] });
+  });
+
+  test('3. all files valid: unreadable is empty and every deal is present', () => {
+    const t1 = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: NOW });
+    const t2 = createTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional', address: '34 Oak Ave' }, { baseDir, now: NOW });
+    const t3 = createTransaction(AGENT_ID, { type: 'tenant_lease', state: 'accepted', address: '56 Pine Rd' }, { baseDir, now: NOW });
+
+    const expectedOrder = store.listTransactionIds(AGENT_ID, { baseDir });
+    expect(expectedOrder.sort()).toEqual([t1.transactionId, t2.transactionId, t3.transactionId].sort());
+
+    const result = readAllTransactionsSettled(AGENT_ID, { baseDir });
+
+    expect(result.unreadable).toEqual([]);
+    expect(result.transactions.map((t) => t.transactionId)).toEqual(expectedOrder);
+  });
+
+  test('4. readAllTransactions on the same fixture still throws', () => {
+    setupMixedFixture(baseDir);
+
+    expect(() => readAllTransactions(AGENT_ID, { baseDir })).toThrow();
+  });
+
+  test('5. a vanished file (read returns null) is skipped, not recorded as unreadable', () => {
+    const t1 = createTransaction(AGENT_ID, { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: NOW });
+    const t2 = createTransaction(AGENT_ID, { type: 'seller_sale', state: 'conditional', address: '34 Oak Ave' }, { baseDir, now: NOW });
+
+    const [firstId, secondId] = store.listTransactionIds(AGENT_ID, { baseDir });
+    const secondTransaction = secondId === t1.transactionId ? t1 : t2;
+
+    const originalReadTransaction = store.readTransaction.bind(store);
+    readSpy = jest.spyOn(store, 'readTransaction').mockImplementation((agentId, transactionId, opts) => {
+      if (transactionId === firstId) return null;
+      return originalReadTransaction(agentId, transactionId, opts);
+    });
+
+    const result = readAllTransactionsSettled(AGENT_ID, { baseDir });
+
+    expect(result).toEqual({ transactions: [secondTransaction], unreadable: [] });
   });
 });
