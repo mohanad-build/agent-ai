@@ -21,7 +21,7 @@ const { getNow, getNowIso, getNowDate } = require('./time');
 const followUp = require('./followUp');
 const outboundTracking = require('./outboundTracking');
 const agentState = require('./agentState');
-const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator } = require('./digest');
+const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator, alertOperatorSheetUnavailable } = require('./digest');
 const { runContentEngineForAgent, shouldRunContentEngine } = require('./content/engine');
 const { readContentProfile, isContentEngineEnabled } = require('./content/profile');
 const { generateWeeklyAngles, shouldRunAngleGeneration } = require('./content/angles');
@@ -515,6 +515,13 @@ async function maybeRunDailyDigest(agent, opts = {}) {
       // moves to Gmail Push.
       agentState.resetDailyNoiseFiltered(agent.agentId);
       agentState.resetDailyNoiseArchived(agent.agentId);
+      if (result.leads && result.leads.status === 'unavailable') {
+        try {
+          await alertOperatorSheetUnavailable(agent, result.leads);
+        } catch (err) {
+          console.error(`[${agent.agentId}] sheet alert failed: ${err.message}`);
+        }
+      }
     }
     const smsLabel   = result.smsResult   || 'n/a';
     const emailLabel = result.emailResult || 'n/a';

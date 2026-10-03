@@ -22,6 +22,7 @@ const gmail = require('./gmail');
 const agentState = require('./agentState');
 const twilio = require('./twilio');
 const { getFollowUpCadence, loadAgent, isInboxCleaningEnabled } = require('./agentConfig');
+const { loadOperator } = require('./operatorConfig');
 const { getNowIso, getNowDate } = require('./time');
 const { checkAllSourcesFreshness } = require('./content/sources');
 const { getStorageRoot } = require('./storagePaths');
@@ -466,7 +467,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
   // No stamp is written here, so the scheduler simply re-checks next cycle.
   if (leads.status === 'not_configured') {
     console.log(`[${agentConfig.agentId}] daily digest: nothing to send (no lead sheet configured)`);
-    return { skipped: 'nothing_to_send' };
+    return { skipped: 'nothing_to_send', leads };
   }
 
   const now        = getNowDate();
@@ -559,7 +560,89 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     }
   }
 
-  return { smsResult, emailResult, errors };
+  return { smsResult, emailResult, errors, leads };
+}
+
+// Tells the operator when an agent's Sheet comes back unavailable (403/404),
+// since the agent's own brief already went out without leads and said so,
+// but nobody else is told. Sent via the OPERATOR'S OWN Gmail credentials,
+// never the agent's: the agent's Google access may be exactly what broke,
+// so the agent's own account cannot be trusted to carry this message.
+// Fires only for 'unavailable', never 'not_configured': an agent with no
+// Sheet at all is a configuration, not a failure, and commit 8 already
+// sends it no brief at all. Called only from the branch where the agent's
+// brief was actually sent, so it fires once per morning rather than once
+// per retry. There is no fallback recipient: escalationEmail on the agent
+// config is the agent's own address for paying agents, not the operator's,
+// so silently redirecting there would tell the wrong person. There is no
+// dedupe state: it repeats every morning the Sheet stays unreadable, by
+// design, until the operator fixes it.
+async function alertOperatorSheetUnavailable(agentConfig, leads, deps = {}) {
+  const doLoadOperator = deps.loadOperator || loadOperator;
+  const agentId = agentConfig.agentId;
+
+  try {
+    if (!leads || leads.status !== 'unavailable') {
+      return { sent: false, reason: 'not_unavailable' };
+    }
+
+    if (!agentConfig.operatorId) {
+      console.warn(`[${agentId}] sheet alert: no operatorId, cannot alert operator`);
+      return { sent: false, reason: 'no_operator' };
+    }
+
+    let operatorConfig;
+    try {
+      operatorConfig = doLoadOperator(agentConfig.operatorId);
+    } catch (err) {
+      console.warn(`[${agentId}] sheet alert: loadOperator failed: ${err.message}`);
+      return { sent: false, reason: 'operator_load_failed' };
+    }
+
+    if (!operatorConfig.operatorEmail) {
+      console.warn(`[${agentId}] sheet alert: operator has no operatorEmail, cannot alert`);
+      return { sent: false, reason: 'no_operator_email' };
+    }
+
+    const agentName = agentConfig.agentName || agentConfig.agentId;
+    const detail = leads.errorKind === 'not_found' ? 'not found' : 'access denied';
+    const detailLine = leads.errorKind === 'not_found'
+      ? 'Check whether the Sheet was deleted or moved.'
+      : "Check that the Sheet is still shared with the agent's Google account.";
+
+    const subject = `[GetKlosed] ${agentName}'s lead sheet couldn't be read (${detail})`;
+    const body = [
+      `${agentName}'s lead sheet couldn't be read this morning (${detail}).`,
+      '',
+      'Their daily brief went out without leads and told them so.',
+      '',
+      `Agent: ${agentConfig.agentId}`,
+      `Sheet: ${agentConfig.googleSheetId}`,
+      '',
+      detailLine,
+      '',
+      'This repeats each morning until the Sheet can be read again.',
+    ].join('\n');
+
+    const sendRetry = await _sendWithRetry(
+      () => email.sendNewEmail(operatorConfig, { to: operatorConfig.operatorEmail, subject, body }),
+      'sheet-alert'
+    );
+
+    if (sendRetry.ok) {
+      return { sent: true };
+    }
+
+    _appendDigestErrorLog(
+      path.join(getStorageRoot(), `${agentId}.digest-errors.log`),
+      'sheet-alert',
+      sendRetry.lastError
+    );
+    return { sent: false, reason: 'send_failed' };
+  } catch (err) {
+    console.warn(`[${agentId}] sheet alert: unexpected error: ${err.message}`);
+    return { sent: false, reason: 'error' };
+  }
 }
 
 /**
@@ -1983,6 +2066,7 @@ function shouldRunWeeklyDigest(operatorConfig, now, operatorState) {
 module.exports = {
   runDailyDigestForAgent,
   runWeeklyDigestForOperator,
+  alertOperatorSheetUnavailable,
   // internal helpers exposed for unit testing
   gatherWindowData,
   categorizeRowsForDigest,

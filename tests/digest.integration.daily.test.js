@@ -342,6 +342,7 @@ describe('runDailyDigestForAgent integration', () => {
 
     expect(result.smsResult).toBe('sent');
     expect(result.emailResult).toBe('sent');
+    expect(result.leads).toEqual({ status: 'unavailable', errorKind: 'permission' });
     const line1 = capturedSmsArgs.split('\n')[0];
     expect(line1).toBe("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
     expect(capturedEmailArgs.body).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
@@ -354,7 +355,7 @@ describe('runDailyDigestForAgent integration', () => {
 
     const result = await runDailyDigestForAgent({ ...AGENT, googleSheetId: '' });
 
-    expect(result).toEqual({ skipped: 'nothing_to_send' });
+    expect(result).toEqual({ skipped: 'nothing_to_send', leads: { status: 'not_configured', errorKind: null } });
     expect(emailMod.readSheetRows).not.toHaveBeenCalled();
     expect(twilioMod.sendSMS).not.toHaveBeenCalled();
     expect(emailMod.sendNewEmail).not.toHaveBeenCalled();
