@@ -37,7 +37,7 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
-## Session 81: the TC alert foundation (on branch `session-81`, NOT yet merged or deployed)
+## Session 81: the TC alert foundation (merged to `main` and deployed at `720f007`; live check pending)
 
 Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before committing.
 
@@ -61,6 +61,7 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 | `726ec57` | Digest: a permanent Sheet failure no longer blanks the brief (four outcomes) |
 | `3a77336` | Digest: the operator is emailed when an agent's Sheet cannot be read |
 | `6d2ce4b` | `CLAUDE.md`: the standing instructions for building in this repo |
+| `720f007` | docs: move the project docs into the repo, with a current STATE.md |
 
 ### TC alert design, locked in session 81
 
@@ -83,8 +84,7 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. Merge `session-81` to `main`, deploy, and verify: a forced dry-run of the daily digest for
-   `mo-test`, and a clean log line.
+1. Verify the session 81 deploy: Railway logs show normal digest lines with no `daily digest failed`, and mo-test's next 7am brief arrives as usual.
 2. Finish the docs move: this folder, synced into the claude.ai Project from GitHub.
 3. The "Got it" tap: the `DONE` verb on `assistant@`. Design note goes in `docs/designs/`.
 4. The daily "Deals needing you" section: render the alerts with the tap, an email link and a Drive
@@ -100,8 +100,10 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 - Fold session 81's alert design into `TC_SPEC.md` as version 24.
 - Node 18 is end of life in production. Pin the Node version in the repo and move production to 22.
 - Weekly digest: an agent whose Sheet was not read shows as a row of zeros, identical to a quiet
-  agent. The weekly test setup never exercises a successful gather, so its totals and churn loops
-  are untested.
+  agent. The weekly test setup never exercises a successful gather: its mocked agentConfig module is
+  missing isInboxCleaningEnabled, so every gather throws (visible as "gather failed ...
+  isInboxCleaningEnabled is not a function" in the test output). Adding it to the mock is the likely
+  fix.
 - No brief at all for a whole morning (a transient error lasting the window) alerts nobody. Needs a
   small piece of state; then an SMS to Mo.
 - Test fixtures that hand-list catalog rows (`tests/transactions-transitions.test.js`) break every
