@@ -13,7 +13,10 @@ GetKlosed (repo: agent-ai) is a Node.js system for Ontario real estate agents. I
 - `src/content/`: the content engine.
 - `src/index.js`: the scheduler loop.
 - `src/calendarDate.js`: calendar dates, today in a timezone, day counting.
-- `docs/`: specs and design notes. Read the relevant one before building.
+- `docs/STATE.md`: read this first. The current picture: what is live, what is next, what is parked.
+- `docs/specs/`: the specs. `TC_SPEC.md` is the transaction coordinator. Some specs are design-era drafts. Where a spec and the code disagree, the code and `docs/STATE.md` win; report the disagreement rather than following the spec.
+- `docs/designs/`: one short design note per milestone. A milestone prompt points at one.
+- `docs/history/`: archives. Read only when asked or when a spec cites a past decision.
 - Local `agents/` holds runtime data. Never edit it. Tests use temp directories.
 
 ## How to work in this repo
@@ -27,6 +30,7 @@ GetKlosed (repo: agent-ai) is a Node.js system for Ontario real estate agents. I
 8. Never print .env, tokens, or any real agent or operator email address or phone number.
 9. Comments explain why, not what.
 10. Finish with a report: git status, full-suite totals before and after, each mutation (grep proof, failing tests, restore proof), and the dash check. Do not paste the diff; Mo reads it himself.
+11. When a milestone is finished, update docs/STATE.md in the same change: what was built, what is next, anything newly parked. Keep it short; history belongs in docs/history/.
 
 ## Two levels of care
 - Full care: anything that sends to an agent or operator, writes an agent's data, touches Gmail, Sheets or Drive, or runs on the scheduler. Read first, report your plan, and wait for approval before editing.
