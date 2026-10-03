@@ -174,7 +174,17 @@ function formatWeeklyDate(isoStr, timezone) {
   return `${month} ${day}`;
 }
 
-function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0) {
+// leads is optional; absent means 'ok', so every caller and test written
+// before this field existed behaves exactly as it did before.
+function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0, leads) {
+  const status = leads ? leads.status : 'ok';
+  if (status === 'unavailable') {
+    const errorKind = leads.errorKind;
+    return `Couldn't read your lead sheet this morning (${errorKind === 'not_found' ? 'not found' : 'access denied'}), so leads aren't in this brief.`;
+  }
+  if (status === 'not_configured') {
+    return null;
+  }
   const intaken = systemHandled.intaken || 0;
   const followUpsFired = systemHandled.followUpsFired || 0;
   const noiseFiltered = systemHandled.noiseFiltered || 0;
@@ -448,7 +458,16 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
   const startIso = new Date(endMs - 24 * 60 * 60 * 1000).toISOString();
 
   const gathered = await gatherWindowData(agentConfig, startIso, endIso, { digestCadence: 'daily' });
-  const { rows, stateCounters, reliability } = gathered;
+  const { rows, stateCounters, reliability, leads } = gathered;
+
+  // The TC section (a later commit) will extend this check: a no-Sheet
+  // agent should get a brief only on a day something there needs them.
+  // Until then, no Sheet means no content, so there is nothing to send.
+  // No stamp is written here, so the scheduler simply re-checks next cycle.
+  if (leads.status === 'not_configured') {
+    console.log(`[${agentConfig.agentId}] daily digest: nothing to send (no lead sheet configured)`);
+    return { skipped: 'nothing_to_send' };
+  }
 
   const now        = getNowDate();
   const categories = categorizeRowsForDigest(rows, now);
@@ -458,6 +477,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     ...categories,
     systemHandled,
     reliability,
+    leads,
   };
 
   const topUrgent = categories.urgent.length > 0 ? categories.urgent[0] : null;
@@ -466,6 +486,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     followUpsFired: systemHandled.followUpsFired || 0,
     noiseFiltered: systemHandled.noiseFiltered  || 0,
     urgentCount:   categories.urgent.length,
+    leads,
   };
 
   const smsBody         = renderSMS(smsStats, topUrgent);
@@ -622,7 +643,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
 
   for (const agentCfg of activeAgents) {
     const gathered = gatheredByAgent[agentCfg.agentId];
-    if (!gathered) continue;
+    if (!gathered || gathered.leads.status !== 'ok') continue;
     const sh = gathered.stateCounters.systemHandled;
     totalLeadsHandled  += sh.intaken        || 0;
     totalTouchesFired  += (sh.intaken || 0) + (sh.followUpsFired || 0);
@@ -660,7 +681,7 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
   const churnRisk = [];
   for (const agentCfg of activeAgents) {
     const gathered = gatheredByAgent[agentCfg.agentId];
-    if (!gathered) continue;
+    if (!gathered || gathered.leads.status !== 'ok') continue;
     const reasons = [];
     for (const row of gathered.rows) {
       if (row.status === 'needs_review' && row.lastActionTimestamp) {
@@ -801,13 +822,53 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
  * first entry), and status-change events. Also pulls counters from agent state
  * (weeklyPreflightSkips) and structured logs (reliability counts). See spec 7.4.
  *
+ * The Sheet read resolves to one of four outcomes, shared by both the daily
+ * and weekly entry points:
+ *   ok:              read succeeded; behaviour unchanged.
+ *   not_configured:  googleSheetId is absent or blank. The Sheets API is
+ *     never called. This is a configuration, an agent not using the lead
+ *     side, not a failure, so it never warns.
+ *   unavailable:     readSheetRows threw gmail.SheetAccessError (403 or
+ *     404). rows stay empty for this cycle; err.kind is carried so callers
+ *     can say which.
+ *   any other error: rethrown unchanged, so the existing retry within the
+ *     scheduling grace window still applies to a transient failure.
+ * When the outcome is not 'ok', systemHandled omits the Sheet-derived
+ * counts (intaken, followUpsFired, soiFiltered) entirely, since there are no
+ * rows to have counted; the state-derived counts (preflightSkips,
+ * noiseFiltered, noiseArchived) are still true and stay.
+ *
  * @param {object} agentConfig
  * @param {string} startIso  inclusive lower bound
  * @param {string} endIso    exclusive upper bound
- * @returns {Promise<{rows: object[], stateCounters: object, reliability: object}>}
+ * @returns {Promise<{rows: object[], stateCounters: object, reliability: object, leads: {status: string, errorKind: string|null}}>}
  */
 async function gatherWindowData(agentConfig, startIso, endIso, opts = {}) {
-  const rawRows = await email.readSheetRows(agentConfig);
+  const sheetId = agentConfig.googleSheetId;
+  const sheetConfigured = sheetId && String(sheetId).trim() !== '';
+
+  let rawRows;
+  let leadsStatus;
+  let leadsErrorKind = null;
+
+  if (!sheetConfigured) {
+    leadsStatus = 'not_configured';
+    rawRows = [];
+  } else {
+    try {
+      rawRows = await email.readSheetRows(agentConfig);
+      leadsStatus = 'ok';
+    } catch (err) {
+      if (err instanceof gmail.SheetAccessError) {
+        leadsStatus = 'unavailable';
+        leadsErrorKind = err.kind;
+        rawRows = [];
+      } else {
+        throw err;
+      }
+    }
+  }
+
   const cadence = getFollowUpCadence(agentConfig);
   // Named digestCadence, not cadence, because `cadence` throughout this
   // codebase means the follow-up touch-day array. This one is the digest
@@ -821,9 +882,11 @@ async function gatherWindowData(agentConfig, startIso, endIso, opts = {}) {
   const rows = actionable.map(row => annotateRow(row, cadence, mode, startMs, endMs));
   const state = agentState.getState(agentConfig.agentId);
   const preflightSkips = state.weeklyPreflightSkips || 0;
-  const intaken = rows.filter(r => r.createdInWindow === true).length;
-  const followUpsFired = rows.filter(r => r.lastFollowUpFire !== null).length;
-  const systemHandled = { intaken, followUpsFired, preflightSkips };
+  const systemHandled = { preflightSkips };
+  if (leadsStatus === 'ok') {
+    systemHandled.intaken = rows.filter(r => r.createdInWindow === true).length;
+    systemHandled.followUpsFired = rows.filter(r => r.lastFollowUpFire !== null).length;
+  }
   systemHandled.noiseFiltered = digestCadence === 'daily'
     ? (state.dailyNoiseFiltered || 0)
     : (state.weeklyNoiseFiltered || 0);
@@ -835,11 +898,12 @@ async function gatherWindowData(agentConfig, startIso, endIso, opts = {}) {
       ? (state.dailyNoiseArchived || 0)
       : (state.weeklyNoiseArchived || 0);
   }
-  if (soiCount > 0) systemHandled.soiFiltered = soiCount;
+  if (leadsStatus === 'ok' && soiCount > 0) systemHandled.soiFiltered = soiCount;
   return {
     rows,
     stateCounters: { systemHandled },
     reliability: { errors: 0, retries: 0, threadingSkipped: 0 },
+    leads: { status: leadsStatus, errorKind: leadsErrorKind },
   };
 }
 
@@ -1053,7 +1117,7 @@ function categorizeRowsForDigest(rows, now) {
  * Line 1 always renders (the "Handled N overnight" framing — never quiet).
  * Line 2 omitted if no urgent items. Line 3 always renders.
  *
- * @param {{intaken: number, followUpsFired: number, noiseFiltered: number, urgentCount: number}} stats
+ * @param {{intaken: number, followUpsFired: number, noiseFiltered: number, urgentCount: number, leads?: {status: string, errorKind: string|null}}} stats
  * @param {object|null} urgent  the top urgent item, or null if none
  * @returns {string}
  */
@@ -1062,10 +1126,12 @@ function renderSMS(stats, urgent) {
     { intaken: stats.intaken, followUpsFired: stats.followUpsFired, noiseFiltered: stats.noiseFiltered },
     urgent !== null,
     stats.urgentCount,
+    stats.leads,
   );
+  const opener = line1base === null ? '' : `${line1base}\n`;
 
   if (urgent === null) {
-    return `${line1base}\nFull brief in your inbox.`;
+    return `${opener}Full brief in your inbox.`;
   }
 
   const ctx = urgentShortContext(urgent);
@@ -1079,7 +1145,7 @@ function renderSMS(stats, urgent) {
     ? `\nReply CALLED ${urgent.leadId} to clear it. Add a note after with anything from the call.`
     : '';
 
-  return `${line1base}\n${line2}${calledLine}\nFull brief in your inbox.`;
+  return `${opener}${line2}${calledLine}\nFull brief in your inbox.`;
 }
 
 /**
@@ -1093,7 +1159,7 @@ function renderSMS(stats, urgent) {
  * @returns {{subject: string, body: string}}
  */
 function renderEmail(sections, agentConfig, now) {
-  const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability } = sections;
+  const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability, leads } = sections;
   const timezone = agentConfig.timezone || 'America/Toronto';
   const gid = agentConfig.googleSheetId;
 
@@ -1104,7 +1170,8 @@ function renderEmail(sections, agentConfig, now) {
   const parts = [];
 
   if (urgent.length === 0) {
-    parts.push(buildOpenerLine(systemHandled, false, 0));
+    const opener = buildOpenerLine(systemHandled, false, 0, leads);
+    if (opener !== null) parts.push(opener);
   }
 
   const CONTEXT_FALLBACKS = new Set(['HOT signal', 'needs review', 'escalated']);
@@ -1212,7 +1279,7 @@ function renderEmail(sections, agentConfig, now) {
  * @returns {{ subject: string, html: string }}
  */
 function renderEmailHtml(sections, agentConfig, now) {
-  const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability } = sections;
+  const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability, leads } = sections;
   const timezone = agentConfig.timezone || 'America/Toronto';
 
   const subject = urgent.length > 0
@@ -1247,7 +1314,10 @@ function renderEmailHtml(sections, agentConfig, now) {
 
   // Opener (suppressed when urgent rows exist — section headers carry the tone)
   if (urgent.length === 0) {
-    parts.push(`<p style="margin:0 0 16px 0;">${esc(buildOpenerLine(systemHandled, false, 0))}</p>`);
+    const opener = buildOpenerLine(systemHandled, false, 0, leads);
+    if (opener !== null) {
+      parts.push(`<p style="margin:0 0 16px 0;">${esc(opener)}</p>`);
+    }
   }
 
   // Urgent section

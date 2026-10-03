@@ -7,6 +7,7 @@ jest.mock('../src/agentState');
 const twilioMod    = require('../src/twilio');
 const emailMod     = require('../src/email');
 const agentStateMod = require('../src/agentState');
+const gmail        = require('../src/gmail');
 const { runDailyDigestForAgent } = require('../src/digest');
 
 // MOCK_NOW: Wednesday 2026-05-13T11:30:00.000Z = 07:30 EDT
@@ -332,5 +333,42 @@ describe('runDailyDigestForAgent integration', () => {
 
     expect(capturedEmailArgs.body).toContain('Noise filtered: 37');
     expect(capturedEmailArgs.body).not.toContain('99');
+  });
+
+  test('Sheet access denied (403): still sends, with the warning opener in both channels', async () => {
+    emailMod.readSheetRows.mockRejectedValue(new gmail.SheetAccessError(403, AGENT.agentId));
+
+    const result = await runDailyDigestForAgent(AGENT);
+
+    expect(result.smsResult).toBe('sent');
+    expect(result.emailResult).toBe('sent');
+    const line1 = capturedSmsArgs.split('\n')[0];
+    expect(line1).toBe("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
+    expect(capturedEmailArgs.body).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
+  });
+
+  test('agent with googleSheetId empty string: nothing to send, nothing read or sent', async () => {
+    emailMod.readSheetRows.mockClear();
+    twilioMod.sendSMS.mockClear();
+    emailMod.sendNewEmail.mockClear();
+
+    const result = await runDailyDigestForAgent({ ...AGENT, googleSheetId: '' });
+
+    expect(result).toEqual({ skipped: 'nothing_to_send' });
+    expect(emailMod.readSheetRows).not.toHaveBeenCalled();
+    expect(twilioMod.sendSMS).not.toHaveBeenCalled();
+    expect(emailMod.sendNewEmail).not.toHaveBeenCalled();
+  });
+
+  test('Sheet read fails with a non-SheetAccessError: rejects with it, nothing sent', async () => {
+    twilioMod.sendSMS.mockClear();
+    emailMod.sendNewEmail.mockClear();
+    const plainError = new Error('socket hang up');
+    emailMod.readSheetRows.mockRejectedValue(plainError);
+
+    await expect(runDailyDigestForAgent(AGENT)).rejects.toBe(plainError);
+
+    expect(twilioMod.sendSMS).not.toHaveBeenCalled();
+    expect(emailMod.sendNewEmail).not.toHaveBeenCalled();
   });
 });

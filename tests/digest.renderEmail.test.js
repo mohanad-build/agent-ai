@@ -228,6 +228,19 @@ test('systemHandled section renders the Noise filtered line when the field is pr
   expect(result.body).toContain('Noise filtered: 4');
 });
 
+test('leads unavailable (permission): warning opener, no Handled line, only noiseFiltered in systemHandled', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled = { noiseFiltered: 3 };
+  sections.leads = { status: 'unavailable', errorKind: 'permission' };
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
+  expect(result.body).not.toContain('Handled');
+  expect(result.body).toContain('Noise filtered: 3');
+  expect(result.body).not.toContain('Leads intaken:');
+  expect(result.body).not.toContain('Follow-ups fired:');
+});
+
 test('noiseArchived > 0 renders the archived-noise link line', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 3;

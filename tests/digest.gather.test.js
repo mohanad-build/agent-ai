@@ -5,6 +5,7 @@ jest.mock('../src/agentState');
 
 const emailMod = require('../src/email');
 const agentStateMod = require('../src/agentState');
+const gmail = require('../src/gmail');
 const digestMod = require('../src/digest');
 const { gatherWindowData } = digestMod;
 const {
@@ -24,6 +25,7 @@ const BASE_AGENT_CONFIG = {
   agentId: 'agent-1',
   mode: 'live',
   followUpCadence: [3, 7, 14],
+  googleSheetId: 'fake-sheet-id',
 };
 
 function makeRawRow(overrides) {
@@ -146,7 +148,7 @@ test('gatherWindowData: agentConfig.mode=shadow → row.lastFollowUpFire.mode=sh
 
 test('gatherWindowData: agentConfig.mode absent → lastFollowUpFire.mode defaults to live', async () => {
   emailMod.readSheetRows.mockResolvedValue([makeRawRow({ conversationHistory: inWindowFireHistory(7) })]);
-  const configNoMode = { agentId: 'agent-1', followUpCadence: [3, 7, 14] };
+  const configNoMode = { agentId: 'agent-1', followUpCadence: [3, 7, 14], googleSheetId: 'fake-sheet-id' };
   const result = await gatherWindowData(configNoMode, START_ISO, END_ISO);
   expect(result.rows[0].lastFollowUpFire.mode).toBe('live');
 });
@@ -192,6 +194,57 @@ test('gatherWindowData: two rows with separate annotations → correct combined 
   expect(result.stateCounters.systemHandled.intaken).toBe(1);
   expect(result.stateCounters.systemHandled.followUpsFired).toBe(1);
   expect(result.rows).toHaveLength(2);
+});
+
+// ── leads status ──────────────────────────────────────────────────────────────
+
+test('gatherWindowData: googleSheetId empty string → not_configured, readSheetRows not called', async () => {
+  emailMod.readSheetRows.mockClear();
+  const config = { ...BASE_AGENT_CONFIG, googleSheetId: '' };
+  const result = await gatherWindowData(config, START_ISO, END_ISO);
+  expect(emailMod.readSheetRows).not.toHaveBeenCalled();
+  expect(result.leads).toEqual({ status: 'not_configured', errorKind: null });
+  expect(result.rows).toEqual([]);
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('intaken');
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('followUpsFired');
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('soiFiltered');
+  expect(result.stateCounters.systemHandled.noiseFiltered).toBe(0);
+});
+
+test('gatherWindowData: googleSheetId absent → not_configured, readSheetRows not called', async () => {
+  emailMod.readSheetRows.mockClear();
+  const config = { agentId: 'agent-1', mode: 'live', followUpCadence: [3, 7, 14] };
+  const result = await gatherWindowData(config, START_ISO, END_ISO);
+  expect(emailMod.readSheetRows).not.toHaveBeenCalled();
+  expect(result.leads).toEqual({ status: 'not_configured', errorKind: null });
+  expect(result.rows).toEqual([]);
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('intaken');
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('followUpsFired');
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('soiFiltered');
+  expect(result.stateCounters.systemHandled.noiseFiltered).toBe(0);
+});
+
+test('gatherWindowData: readSheetRows rejects with SheetAccessError(403) → unavailable, permission', async () => {
+  emailMod.readSheetRows.mockRejectedValue(new gmail.SheetAccessError(403, 'test-agent'));
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
+  expect(result.leads).toEqual({ status: 'unavailable', errorKind: 'permission' });
+  expect(result.rows).toEqual([]);
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('intaken');
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('followUpsFired');
+  expect(result.stateCounters.systemHandled).not.toHaveProperty('soiFiltered');
+  expect(result.stateCounters.systemHandled.noiseFiltered).toBe(0);
+});
+
+test('gatherWindowData: readSheetRows rejects with SheetAccessError(404) → unavailable, not_found', async () => {
+  emailMod.readSheetRows.mockRejectedValue(new gmail.SheetAccessError(404, 'test-agent'));
+  const result = await gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO);
+  expect(result.leads).toEqual({ status: 'unavailable', errorKind: 'not_found' });
+});
+
+test('gatherWindowData: readSheetRows rejects with a plain error → rejects with that same error', async () => {
+  const plainError = new Error('socket hang up');
+  emailMod.readSheetRows.mockRejectedValue(plainError);
+  await expect(gatherWindowData(BASE_AGENT_CONFIG, START_ISO, END_ISO)).rejects.toBe(plainError);
 });
 
 // ── splitName ─────────────────────────────────────────────────────────────────

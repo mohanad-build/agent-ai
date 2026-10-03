@@ -266,6 +266,19 @@ test('systemHandled section always present, shows Leads intaken count', () => {
   expect(html).toContain('Leads intaken: 0');
 });
 
+test('leads unavailable (permission): warning opener, no Handled text, only noiseFiltered in systemHandled', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled = { noiseFiltered: 3 };
+  sections.leads = { status: 'unavailable', errorKind: 'permission' };
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+
+  expect(html).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
+  expect(html).not.toContain('Handled');
+  expect(html).toContain('Noise filtered: 3');
+  expect(html).not.toContain('Leads intaken:');
+  expect(html).not.toContain('Follow-ups fired:');
+});
+
 test('noiseArchived > 0 renders the archived-noise anchor with muted styling', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 3;

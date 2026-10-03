@@ -95,6 +95,24 @@ test('all stats zero and no urgent — totals to 0, two-line output', () => {
   expect(renderSMS(stats, null)).toBe(expected);
 });
 
+test('leads unavailable (permission) and no urgent: warning opener in place of Handled line', () => {
+  const stats = { ...makeStats(0, 0, 0, 0), leads: { status: 'unavailable', errorKind: 'permission' } };
+  const expected = [
+    "Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.",
+    'Full brief in your inbox.',
+  ].join('\n');
+  expect(renderSMS(stats, null)).toBe(expected);
+});
+
+test('leads unavailable (not_found) and no urgent: "(not found)" in place of "(access denied)"', () => {
+  const stats = { ...makeStats(0, 0, 0, 0), leads: { status: 'unavailable', errorKind: 'not_found' } };
+  const expected = [
+    "Couldn't read your lead sheet this morning (not found), so leads aren't in this brief.",
+    'Full brief in your inbox.',
+  ].join('\n');
+  expect(renderSMS(stats, null)).toBe(expected);
+});
+
 test('SMS output includes the CALLED affordance for a HOT urgent row with a leadId', () => {
   const stats = makeStats(1, 0, 0, 1);
   const urgent = { ...makeHotUrgent('Sarah', 'K', '45 Maple'), leadId: 'sarah@example.com' };
