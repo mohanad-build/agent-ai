@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 81 (2026-10-02 to 2026-10-03).
+Last updated: session 82 (2026-10-04).
 
 ## What GetKlosed is
 
@@ -24,7 +24,10 @@ alerts the agent when something needs them. Mo runs the business and is the oper
   resolver, the deal-open CLI, the document filing loop (inbox to Drive), participants and
   proposal sets, and the `assistant@` verbs CONFIRM, REJECT and WRONGDEAL.
 - Paying agents: none yet. TC deals in production: none yet.
-- Production runs Node 18.20.8 (end of life); local development runs Node 22. See Parked.
+- Production runs Node 18.20.8 (end of life); local development runs Node 22. See Next.
+- Agent phones are validated at signup and on the dashboard edit; any failed agent text emails Mo
+  (every hot lead, other kinds once a day); a welcome text goes out at signup and on a number change;
+  cycles cannot overlap, and a cycle stuck 30 minutes restarts the process.
 
 ## Spec status: how far to trust each spec
 
@@ -37,7 +40,25 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
-## Session 81: the TC alert foundation (merged to `main` and deployed at `720f007`; live check pending)
+## Session 82: phone validation, text-failure alerts, welcome text, cycle guard
+
+- Session 81's deploy verified live: the brief sent by SMS and email, no digest failures, no false
+  Sheet alert.
+- `unella-bolton` (the agent Google's reviewer created during OAuth review) deleted from the Volume.
+- Railway's restart policy set to Always (the cycle-guard watchdog in this session depends on it).
+
+Tests 3210/150 to 3315/161. Merged to `main` and deployed; live check pending.
+
+| Commit | What |
+|---|---|
+| `179e71f` | docs: agent phone design note (valid at signup, loud when a text fails) |
+| `b61a900` | `agentPhone.js`: `normalizeAgentPhone` turns North American numbers into +1 plus 10 digits |
+| `066666c` | Onboarding and dashboard refuse phone numbers Twilio cannot text; onboarding stops writing per-agent `operatorPhone` |
+| `efc1471` | Text-failure alerts: email Mo when an agent text fails (every hot lead, other kinds once a day) |
+| `979883c` | Welcome text: sent in the background at signup and on a dashboard number change; the done page says it's on its way |
+| `508320d` | Cycle guard: skip a tick while a cycle runs; a watchdog restarts the process when a cycle is stuck 30 minutes; the weekly digest counts restarts |
+
+## Session 81: the TC alert foundation (merged to `main` and deployed at `720f007`)
 
 Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before committing.
 
@@ -84,21 +105,36 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. Verify the session 81 deploy: Railway logs show normal digest lines with no `daily digest failed`, and mo-test's next 7am brief arrives as usual.
-2. Finish the docs move: this folder, synced into the claude.ai Project from GitHub.
-3. The "Got it" tap: the `DONE` verb on `assistant@`. Design note goes in `docs/designs/`.
-4. The daily "Deals needing you" section: render the alerts with the tap, an email link and a Drive
+1. The "Got it" tap: the `DONE` verb on `assistant@`. Design note goes in `docs/designs/`.
+2. The daily "Deals needing you" section: render the alerts with the tap, an email link and a Drive
    link; use the settled reader; an unreadable deal file gets an honest line.
-5. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
+3. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
+4. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
    (APS); Mo opens the deal. Watch what lands in their inbox at acceptance (this designs Phase B).
-6. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
+5. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
 
 Not on the shortest path: new product scope, the small-business side idea, Phase B deal detection.
 
-## Parked (new in session 81)
+## Parked
 
 - Fold session 81's alert design into `TC_SPEC.md` as version 24.
-- Node 18 is end of life in production. Pin the Node version in the repo and move production to 22.
+- An inactive agent logs "skipped (inactive)" followed by "sms=n/a email=n/a" every cycle for about
+  an hour after its brief time, and the second line contradicts the first.
+- Noted before session 82's cycle guard existed, and recorded here as written: `server.js`'s
+  `setInterval` did not wait for the previous orchestrator cycle to finish before starting the next
+  one, and nothing elsewhere guarded against it either, so overlapping cycles were possible when a
+  cycle ran past 5 minutes, with two cycles able to act on the same lead. Session 82's cycle guard
+  (above) is the fix; confirm it live before treating this as closed.
+- Pre-existing, kept as-is by session 82's reminder-branch split: when the reminder text sends but
+  the Sheet write fails, `reminderSent` is never recorded, so the reminder is sent again every cycle
+  until the Sheet recovers.
+- The existing weekly digest plain-text section headers (for example "Aggregate stats") are wrapped
+  in em dashes; convert them to hyphens. Session 82's new Restarts section already uses hyphens
+  (CLAUDE.md rule 7); the rest of that renderer predates the rule.
+- The onboarding done page writes the agent's name and Gmail address into the page unescaped (only
+  the person who typed them sees it).
+- The 30-minute watchdog assumes no healthy cycle runs that long. Watch the "cycle finished in Nm"
+  log line; past about 15 minutes, move heavy weekly work (content generation) out of the main cycle.
 - Weekly digest: an agent whose Sheet was not read shows as a row of zeros, identical to a quiet
   agent. The weekly test setup never exercises a successful gather: its mocked agentConfig module is
   missing isInboxCleaningEnabled, so every gather throws (visible as "gather failed ...
