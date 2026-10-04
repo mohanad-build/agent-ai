@@ -130,3 +130,25 @@ test('on refusal, re-renders the form with typed values HTML-escaped', async () 
   expect(body).not.toContain('<b>x</b>');
   expect(body).toContain('&quot;&gt;&lt;b&gt;x&lt;/b&gt;');
 });
+
+test('a hand-built request posting usesEmojis twice still gets the 400 form back, not a 500', async () => {
+  const params = new URLSearchParams();
+  params.append('firstName', 'Dup');
+  params.append('lastName', 'Field');
+  params.append('agentPhone', 'not-a-phone');
+  params.append('usesEmojis', 'yes');
+  params.append('usesEmojis', 'no');
+
+  const res = await fetch(`${baseUrl}/onboard/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+    redirect: 'manual',
+  });
+  const body = await res.text();
+
+  expect(res.status).toBe(400);
+  expect(body).toContain(
+    "That number doesn't look right. Enter your 10-digit mobile number, like 416-555-0123."
+  );
+});

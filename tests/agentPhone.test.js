@@ -1,6 +1,6 @@
 'use strict';
 
-const { normalizeAgentPhone } = require('../src/agentPhone');
+const { normalizeAgentPhone, formatAgentPhone } = require('../src/agentPhone');
 
 // ── accepted ──────────────────────────────────────────────────────────────
 
@@ -103,5 +103,37 @@ describe('normalizeAgentPhone: refused', () => {
 
   test('letter O in place of a digit', () => {
     expect(normalizeAgentPhone('416-555-O123')).toEqual({ ok: false, reason: 'invalid_characters' });
+  });
+});
+
+// ── formatAgentPhone ──────────────────────────────────────────────────────
+
+describe('formatAgentPhone', () => {
+  test('E.164 becomes hyphenated', () => {
+    expect(formatAgentPhone('+14165550188')).toBe('416-555-0188');
+  });
+
+  test('already hyphenated is returned unchanged', () => {
+    expect(formatAgentPhone('416-555-0188')).toBe('416-555-0188');
+  });
+
+  test('10 digits with no plus is returned unchanged', () => {
+    expect(formatAgentPhone('4165550188')).toBe('4165550188');
+  });
+
+  test('wrong length with a plus is returned unchanged', () => {
+    expect(formatAgentPhone('+1416555018')).toBe('+1416555018');
+  });
+
+  test('empty string is returned unchanged', () => {
+    expect(formatAgentPhone('')).toBe('');
+  });
+
+  test('null is returned unchanged', () => {
+    expect(formatAgentPhone(null)).toBe(null);
+  });
+
+  test('undefined is returned unchanged', () => {
+    expect(formatAgentPhone(undefined)).toBe(undefined);
   });
 });

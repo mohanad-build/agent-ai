@@ -249,3 +249,19 @@ test('missing error.code renders n/a', async () => {
   const [, opts] = emailMod.sendNewEmail.mock.calls[0];
   expect(opts.body).toContain('Twilio said: n/a network timeout');
 });
+
+test('welcome kind subject uses the "welcome text" label', async () => {
+  await alertAgentTextFailed(AGENT, { kind: 'welcome', smsBody: SMS_BODY, error: SOME_ERROR }, deps());
+
+  const [, opts] = emailMod.sendNewEmail.mock.calls[0];
+  expect(opts.subject).toBe("GetKlosed: a text to Sam Agent didn't send (welcome text)");
+});
+
+test('welcome kind is limited: respects the once-a-day cap like every other kind', async () => {
+  fake.recordAlertSent(AGENT.agentId, 'welcome', TODAY);
+
+  const result = await alertAgentTextFailed(AGENT, { kind: 'welcome', smsBody: SMS_BODY, error: SOME_ERROR }, deps());
+
+  expect(result).toEqual({ sent: false, reason: 'already_alerted_today' });
+  expect(emailMod.sendNewEmail).not.toHaveBeenCalled();
+});

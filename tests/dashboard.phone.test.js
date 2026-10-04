@@ -7,6 +7,11 @@ const http = require('http');
 
 const express = require('express');
 
+jest.mock('../src/welcomeText', () => ({
+  sendWelcomeText: jest.fn().mockResolvedValue(undefined),
+}));
+const { sendWelcomeText } = require('../src/welcomeText');
+
 let tmpDir;
 let server;
 let baseUrl;
@@ -115,3 +120,52 @@ test('accepts a valid phone and normalizes it', async () => {
   const config = JSON.parse(fs.readFileSync(agentFilePath, 'utf8'));
   expect(config.agentPhone).toBe('+14165550177');
 });
+
+test('submitting the same number in a different format does not start a welcome text', async () => {
+  writeAgentFixture(); // agentPhone: '+14165550100'
+  sendWelcomeText.mockClear();
+
+  const res = await fetch(`${baseUrl}/dashboard/agent/agent-a/edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'x-test-session': SESSION },
+    body: new URLSearchParams({
+      _csrf: 'test-csrf-token',
+      mode: 'shadow',
+      isActive: 'true',
+      agentPhone: '416-555-0100', // normalizes to the same +14165550100
+      escalationEmail: 'agent@example.com',
+    }).toString(),
+    redirect: 'manual',
+  });
+  await res.text();
+
+  expect(res.status).toBe(302);
+  expect(sendWelcomeText).not.toHaveBeenCalled();
+});
+
+test('a changed number starts a welcome text; a never-resolving send does not block the redirect', async () => {
+  writeAgentFixture(); // agentPhone: '+14165550100'
+  sendWelcomeText.mockClear();
+  sendWelcomeText.mockReturnValue(new Promise(() => {})); // never settles
+
+  const res = await fetch(`${baseUrl}/dashboard/agent/agent-a/edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'x-test-session': SESSION },
+    body: new URLSearchParams({
+      _csrf: 'test-csrf-token',
+      mode: 'shadow',
+      isActive: 'true',
+      agentPhone: '416-555-0199',
+      escalationEmail: 'agent@example.com',
+    }).toString(),
+    redirect: 'manual',
+  });
+  await res.text();
+
+  expect(res.status).toBe(302);
+  expect(res.headers.get('location')).toBe('/dashboard/agent/agent-a/edit?saved=1');
+  expect(sendWelcomeText).toHaveBeenCalledTimes(1);
+  expect(sendWelcomeText.mock.calls[0][0].agentPhone).toBe('+14165550199');
+
+  sendWelcomeText.mockResolvedValue(undefined); // restore for later tests
+}, 2000);

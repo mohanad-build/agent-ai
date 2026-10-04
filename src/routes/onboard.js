@@ -15,7 +15,8 @@ const { renderWelcomeEmail } = require('../welcomeEmail');
 const { isValidAgentId } = require('./dashboard');
 const { encryptToken } = require('../tokenCrypto');
 const { safeCompare } = require('../safeCompare');
-const { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE } = require('../agentPhone');
+const { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE, formatAgentPhone } = require('../agentPhone');
+const { sendWelcomeText } = require('../welcomeText');
 
 const router = express.Router();
 
@@ -82,7 +83,7 @@ function escHtml(s) {
 function renderForm({ values = {}, phoneError = null } = {}) {
   const v = (name) => escHtml(values[name]);
   const emailLength = values.emailLength || 'short';
-  const usesEmojis = (values.usesEmojis || 'no').toLowerCase();
+  const usesEmojis = String(values.usesEmojis || 'no').toLowerCase();
   const mode = values.mode === 'live' ? 'live' : 'shadow';
   const sel = (val) => (emailLength === val ? ' selected' : '');
 
@@ -622,7 +623,18 @@ router.get('/oauth/callback', async (req, res) => {
       console.error(`[onboard] welcome email failed for ${agentId}: ${welcomeErr.message}`);
     }
 
+    // Started, not awaited: sendWelcomeText never rejects on its own, but
+    // the .catch here is a backstop in case something upstream of it ever
+    // does. A Twilio send can take several seconds, sometimes over ten
+    // (verifyDelivery polls), and this response must not wait on it - a
+    // slow callback invites a page refresh, which would show "Connection
+    // didn't complete" even though signup already succeeded.
+    sendWelcomeText(config).catch((err) => {
+      console.error(`[onboard] sendWelcomeText rejected unexpectedly for ${agentId}: ${err.message}`);
+    });
+
     req.session.onboardedAgentId = agentId;
+    req.session.welcomeTextPhone = config.agentPhone;
     res.redirect('/onboard/done');
   } catch (err) {
     console.error('[onboard] GET /oauth/callback:', err.message);
@@ -659,6 +671,15 @@ router.get('/done', (req, res) => {
 
   const sheetLink = googleSheetId
     ? `<a class="sheet-link" href="https://docs.google.com/spreadsheets/d/${googleSheetId}/edit" target="_blank">Open Your Leads Sheet</a>`
+    : '';
+
+  // welcomeTextPhone is always already-normalized E.164 (set from
+  // config.agentPhone right after onboarding wrote it), so the line below
+  // is not escaped, same precedent as PHONE_REFUSAL_MESSAGE: a static
+  // sentence, not req.body echo.
+  const welcomeTextPhone = req.session.welcomeTextPhone;
+  const welcomeTextLine = welcomeTextPhone
+    ? `We're sending a welcome text to ${formatAgentPhone(welcomeTextPhone)}. If it hasn't arrived in a minute, let Mo know.`
     : '';
 
   res.send(`<!DOCTYPE html>
@@ -703,6 +724,7 @@ ${SHARED_HEADER}
         </div>
         <h1>You're all set${agentName ? ', ' + agentName.split(' ')[0] : ''}.</h1>
         <p class="subhead">GetKlosed is now connected${gmailAddress ? ' to ' + gmailAddress : ''} and ready to start handling your leads.</p>
+        ${welcomeTextLine ? `<p class="subhead">${welcomeTextLine}</p>` : ''}
 
         <p class="steps-label">What happens next</p>
         <div class="step-list">

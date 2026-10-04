@@ -11,10 +11,8 @@
 
 const CHAR_PATTERN = /^\+?[0-9 ().-]*$/;
 
-// Shown on the form for every reason code; the code itself goes to the
-// server log only (CLAUDE.md rule 8 says never print a real phone number,
-// and a reason-specific message would otherwise require echoing the bad
-// input back inside the message to make sense of it).
+// One plain sentence is all the agent needs to fix the form; the reason
+// code is for the server log only.
 const PHONE_REFUSAL_MESSAGE =
   "That number doesn't look right. Enter your 10-digit mobile number, like 416-555-0123.";
 
@@ -61,4 +59,15 @@ function normalizeAgentPhone(raw) {
   return { ok: true, phone: '+1' + tenDigits };
 }
 
-module.exports = { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE };
+// Display formatting only, the reverse direction of normalizeAgentPhone's
+// output shape. Anything not already "+1" plus 10 digits (a hand-edited
+// agent file, a future non-NANP number) is returned unchanged rather than
+// mangled.
+function formatAgentPhone(phone) {
+  const match = /^\+1(\d{10})$/.exec(phone);
+  if (!match) return phone;
+  const digits = match[1];
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+module.exports = { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE, formatAgentPhone };

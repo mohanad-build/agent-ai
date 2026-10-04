@@ -35,6 +35,7 @@ const { normalizeLeads, landLeads } = require('../leadImport');
 const { discoverAgentIds } = require('../agentDiscovery');
 const { safeCompare } = require('../safeCompare');
 const { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE } = require('../agentPhone');
+const { sendWelcomeText } = require('../welcomeText');
 
 function getAgentsDir() { return getStorageRoot(); }
 // Matches a bare agentId (no extension), same character class as
@@ -925,6 +926,7 @@ router.post('/agent/:agentId/edit', verifyCsrfToken, (req, res) => {
 
     agent.isActive = b.isActive === 'true';
 
+    const oldPhone = agent.agentPhone;
     const phoneResult = normalizeAgentPhone(b.agentPhone);
     if (!phoneResult.ok) {
       console.log(`[dashboard] phone refused: reason=${phoneResult.reason}`);
@@ -962,6 +964,14 @@ router.post('/agent/:agentId/edit', verifyCsrfToken, (req, res) => {
     const tmpPath = filePath + '.tmp';
     fs.writeFileSync(tmpPath, JSON.stringify(agent, null, 2), 'utf8');
     fs.renameSync(tmpPath, filePath);
+
+    if (oldPhone !== agent.agentPhone) {
+      // Started, not awaited: see src/welcomeText.js. This handler stays
+      // synchronous; the .catch is a backstop only.
+      sendWelcomeText(agent).catch((err) => {
+        console.error(`[dashboard] sendWelcomeText rejected unexpectedly for ${agentId}: ${err.message}`);
+      });
+    }
 
     res.redirect(`/dashboard/agent/${encodeURIComponent(agentId)}/edit?saved=1`);
   } catch (err) {

@@ -84,12 +84,18 @@ fail silently, for every agent at once.
    changes the number:
    "GetKlosed here. This is the number your morning brief and hot-lead alerts
    will come from. Save it as a contact so you never miss one."
-   Signup done page, when Twilio accepted the send: "We've sent a welcome text
-   to <number>. If it hasn't arrived in a minute, let Mo know." When Twilio
-   refused it: "We couldn't send a text to that number. Mo has been notified
-   and will follow up." That failure goes through decision 3 as kind welcome.
-   The page says sent, not delivered: Twilio accepting a message is not
-   delivery.
+   Sent in the background (src/welcomeText.js, sendWelcomeText): neither
+   caller awaits it. A Twilio send can take several seconds, sometimes over
+   ten (verifyDelivery polls), and nothing should make the OAuth callback or
+   the dashboard save wait on it; a long wait on the callback invites a page
+   refresh, which shows "Connection didn't complete" even though signup
+   already succeeded. A send failure alerts Mo through decision 3 as kind
+   welcome, same once-a-day limit as every other kind.
+   The signup done page shows one line whenever it has a number to show:
+   "We're sending a welcome text to <formatted number>. If it hasn't arrived
+   in a minute, let Mo know." formatAgentPhone (src/agentPhone.js) turns
+   "+14165550188" into "416-555-0188" for this one line; the stored value
+   stays E.164.
 
 ## Commits
 

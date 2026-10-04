@@ -57,6 +57,12 @@ const TEMPLATES = {
     if (opts.propertyReference) parts.push(`about ${opts.propertyReference}`);
     return `[${token}] ${leadName} (${parts.join(', ')}): "${question}"\n\nReply: ${token} <your answer>`;
   },
+
+  // Decision 4: sent once at signup and again if the dashboard phone edit
+  // changes the number.
+  welcomeText() {
+    return "GetKlosed here. This is the number your morning brief and hot-lead alerts will come from. Save it as a contact so you never miss one.";
+  },
 };
 
 // ---------------------------------------------------------------------------

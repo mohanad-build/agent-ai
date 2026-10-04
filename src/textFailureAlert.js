@@ -21,6 +21,7 @@ const KIND_LABELS = {
   needs_review: 'urgent review alert',
   path1b_question: 'property question',
   path1b_reminder: '2-hour reminder',
+  welcome: 'welcome text',
 };
 
 const UNLIMITED_KINDS = new Set(['hot_lead']);
