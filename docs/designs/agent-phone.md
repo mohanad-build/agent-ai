@@ -1,0 +1,74 @@
+# Agent phone: valid at signup, loud when a text fails
+
+Session 82. Design locked in chat.
+
+## Why
+
+Onboarding stores the phone exactly as typed (trim only) into agentPhone and
+copies it into operatorPhone. The agent created by Google's OAuth reviewer
+stored 10 digits with no "+". Twilio rejected every daily brief text for six
+days, and the only trace was a log file nobody reads.
+
+agentPhone carries five texts: the daily brief, the hot-lead alert, the urgent
+needs_review alert, the Path 1B question and the Path 1B reminder. When any of
+them fails, nobody is told, and the hot-lead path still reports ok. A bad
+number, an empty Twilio balance, a Twilio outage or a carrier block would all
+fail silently, for every agent at once.
+
+## Decisions
+
+1. One pure helper: src/agentPhone.js, normalizeAgentPhone(raw). Returns
+   { ok: true, phone } with phone as "+1" plus 10 digits, or
+   { ok: false, reason }. Never throws, because it sits on a form path.
+   - null, undefined, or blank after trimming: empty. Any other non-string:
+     invalid_input.
+   - Allowed characters: digits, spaces, hyphens, dots, parentheses, and one
+     "+" only as the first character. Anything else: invalid_characters.
+   - With a leading "+": exactly 11 digits starting with 1. Without one:
+     10 digits, or 11 digits starting with 1. Otherwise: wrong_length.
+   - Of the 10-digit number: the area code's first digit must be 2 to 9
+     (else invalid_area_code), and the exchange's first digit (the fourth
+     digit) must be 2 to 9 (else invalid_exchange).
+   - North American numbers only in v1. leadImport's normalizePhone does a
+     different job (leads may be international) and is not touched.
+2. Onboarding and the dashboard phone edit both use the helper and refuse a
+   bad number on the form with a plain message. Onboarding stops writing the
+   per-agent operatorPhone. The daily brief dry-run uses the global operator
+   phone (operatorConfig) instead of the per-agent field.
+3. When any agent-facing text fails, Mo gets an email, the same channel as
+   the session 81 Sheet alert. Email, not SMS: if Twilio is what failed, an
+   SMS alert fails too. At most one email per agent per kind per calendar day
+   in the agent's timezone. Kinds: daily_brief, hot_lead, needs_review,
+   path1b_question, path1b_reminder, welcome. One place in the code does
+   this, not five copies. The lead paths' return values do not change: the
+   lead was handled, only the text failed, and flipping ok could trigger
+   reprocessing.
+4. A welcome text at the end of signup, and again when the dashboard edit
+   changes the number:
+   "GetKlosed here. This is the number your morning brief and hot-lead alerts
+   will come from. Save it as a contact so you never miss one."
+   Signup done page, when Twilio accepted the send: "We've sent a welcome text
+   to <number>. If it hasn't arrived in a minute, let Mo know." When Twilio
+   refused it: "We couldn't send a text to that number. Mo has been notified
+   and will follow up." That failure goes through decision 3 as kind welcome.
+   The page says sent, not delivered: Twilio accepting a message is not
+   delivery.
+
+## Commits
+
+1. src/agentPhone.js and its tests. Light care.
+2. Onboarding and dashboard use the helper; operatorPhone; dry-run. Full care.
+3. The failure email to Mo with the daily limit. Full care.
+4. The welcome text and the done page lines. Full care.
+
+When the milestone is done, docs/STATE.md records: the session 81 deploy was
+verified live (brief sent by SMS and email, no digest failures, no false
+Sheet alert); unella-bolton (the agent Google's reviewer created) was deleted
+from the Volume; this milestone; and one new parked item: an inactive agent
+logs "skipped (inactive)" followed by "sms=n/a email=n/a" every cycle for
+about an hour after its brief time, and the second line contradicts the first.
+
+## Test numbers
+
+Tests use 555-01XX numbers, which are reserved for fiction (for example
++14165550123). Never a real number.
