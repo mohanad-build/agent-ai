@@ -29,6 +29,7 @@ const { checkAllSourcesFreshness } = require('./content/sources');
 const { getStorageRoot } = require('./storagePaths');
 const { CALL_NOTE_LABEL } = require('./callNote');
 const { isAgentConfigFilename } = require('./agentDiscovery');
+const cycleGuard = require('./cycleGuard');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -837,6 +838,8 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     }];
   }
 
+  const { count: restartCount, error: restartLogError } = cycleGuard.countRecentRestarts(endMs, 7);
+
   const weeklySections = {
     windowStart: startIso,
     windowEnd:   endIso,
@@ -848,6 +851,8 @@ async function runWeeklyDigestForOperator(operatorConfig, options = {}) {
     shadowAgentsCovered,
     shadowAgentsTimedOut,
     dataFreshness,
+    restartCount,
+    restartLogError,
   };
 
   const { subject, body } = renderWeeklyEmail(weeklySections, operatorConfig, nowDate);
@@ -1677,6 +1682,8 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
     shadowCatches = {},
     shadowAgentsCovered = 0,
     shadowAgentsTimedOut = 0,
+    restartCount = 0,
+    restartLogError = null,
   } = weeklySections;
   const totalLeads = aggregate.totalLeadsHandled || 0;
   const agentCount = perAgent.length;
@@ -1749,6 +1756,15 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
     }
   }
 
+  // Restarts (docs/designs/cycle-guard.md decision 4). Hyphens, not the
+  // em dash the rest of this renderer's section headers use (CLAUDE.md
+  // rule 7; the rest of this file predates the rule, see STATE.md).
+  if (restartLogError) {
+    parts.push(`-- Restarts --\n\nThe restart log could not be read: ${restartLogError}`);
+  } else if (restartCount > 0) {
+    parts.push(`-- Restarts --\n\n${restartCount} stuck-cycle restart${restartCount === 1 ? '' : 's'} in the last 7 days.`);
+  }
+
   if (perAgent && perAgent.length > 0) {
     const blocks = perAgent.map(a => [
       `${a.agentName} (${a.agentId})`,
@@ -1791,6 +1807,8 @@ function renderWeeklyEmailHtml(weeklySections, operatorConfig, now) {
     shadowCatches = {},
     shadowAgentsCovered = 0,
     shadowAgentsTimedOut = 0,
+    restartCount = 0,
+    restartLogError = null,
   } = weeklySections;
   const totalLeads = aggregate.totalLeadsHandled || 0;
   const agentCount = perAgent.length;
@@ -1894,6 +1912,15 @@ function renderWeeklyEmailHtml(weeklySections, operatorConfig, now) {
         parts.push(sectionHeader('Data layer') + statLines(lines));
       }
     }
+  }
+
+  // Restarts (docs/designs/cycle-guard.md decision 4). sectionHeader
+  // already renders a plain border, no dash of any kind, so it needs no
+  // rule-7 adjustment the way the plain-text renderer's header did.
+  if (restartLogError) {
+    parts.push(sectionHeader('Restarts') + statLines([`The restart log could not be read: ${restartLogError}`]));
+  } else if (restartCount > 0) {
+    parts.push(sectionHeader('Restarts') + statLines([`${restartCount} stuck-cycle restart${restartCount === 1 ? '' : 's'} in the last 7 days.`]));
   }
 
   // Per-agent breakdown

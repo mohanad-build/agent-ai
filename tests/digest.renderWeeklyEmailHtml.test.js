@@ -251,3 +251,31 @@ test('data layer renders loud alert when checkAllSourcesFreshness threw (check_f
   expect(html).toContain('Data freshness check failed: ENOENT: no such file or directory');
   expect(html).not.toContain('all sources current');
 });
+
+// ── Restarts section (docs/designs/cycle-guard.md decision 4) ────────────
+
+test('restartCount 0, no error: no Restarts section at all', () => {
+  const { html } = renderWeeklyEmailHtml(makeWeeklySections({ restartCount: 0, restartLogError: null }), BASE_OPERATOR, NOW);
+  expect(html).not.toContain('Restarts');
+});
+
+test('restartCount 2: section header and plural count line', () => {
+  const { html } = renderWeeklyEmailHtml(makeWeeklySections({ restartCount: 2, restartLogError: null }), BASE_OPERATOR, NOW);
+  expect(html).toContain('Restarts');
+  expect(html).toContain('2 stuck-cycle restarts in the last 7 days.');
+});
+
+test('restartCount 1: singular wording', () => {
+  const { html } = renderWeeklyEmailHtml(makeWeeklySections({ restartCount: 1, restartLogError: null }), BASE_OPERATOR, NOW);
+  expect(html).toContain('1 stuck-cycle restart in the last 7 days.');
+});
+
+test('restartLogError set: the unreadable line, even when restartCount is also nonzero', () => {
+  const { html } = renderWeeklyEmailHtml(
+    makeWeeklySections({ restartCount: 5, restartLogError: 'EACCES: permission denied' }),
+    BASE_OPERATOR,
+    NOW
+  );
+  expect(html).toContain('The restart log could not be read: EACCES: permission denied');
+  expect(html).not.toContain('stuck-cycle restart');
+});

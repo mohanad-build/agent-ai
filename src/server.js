@@ -6,6 +6,7 @@ const path = require('path');
 const { createSessionStore, startSessionSweep } = require('./sessionStore');
 const { createApp: createWebhookApp } = require('./webhook');
 const { runCycle } = require('./index');
+const cycleGuard = require('./cycleGuard');
 const onboardRouter = require('./routes/onboard');
 const dashboardRouter = require('./routes/dashboard');
 const { applySecurityHeaders } = require('./securityHeaders');
@@ -115,13 +116,22 @@ app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
 });
 
-// Orchestrator loop: run one cycle every 5 minutes
+// Orchestrator loop: run one cycle every 5 minutes, guarded against
+// overlapping cycles (docs/designs/cycle-guard.md).
 const CYCLE_INTERVAL_MS = 5 * 60 * 1000;
 console.log('[server] orchestrator loop starting (interval: 5 min)');
 setInterval(() => {
-  runCycle().catch((err) => {
+  cycleGuard.runGuardedCycle(runCycle).catch((err) => {
     console.error('[server] orchestrator cycle error:', err.message);
   });
 }, CYCLE_INTERVAL_MS);
+
+// Watchdog: exits the process if a cycle has been stuck for 30+ minutes,
+// so Railway restarts it. Checked independently of the 5-minute interval
+// above, roughly once a minute.
+const WATCHDOG_CHECK_INTERVAL_MS = 60 * 1000;
+setInterval(() => {
+  cycleGuard.checkWatchdog();
+}, WATCHDOG_CHECK_INTERVAL_MS);
 
 module.exports = { app };
