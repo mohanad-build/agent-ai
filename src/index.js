@@ -37,6 +37,7 @@ const email = require('./email');
 const claude = require('./claude');
 const prompts = require('./prompts');
 const twilio = require('./twilio');
+const { alertAgentTextFailed } = require('./textFailureAlert');
 const {
   pathHotSignal,
   pathStopSignal,
@@ -463,17 +464,32 @@ async function checkStaleQuestions(agent) {
     if (Number.isNaN(last)) continue;
     const elapsed = getNow() - last;
 
-    // Branch A: 2-hour reminder SMS
+    // Branch A: 2-hour reminder SMS. The send is isolated in its own
+    // try/catch so a text-failure alert only fires for a genuine Twilio
+    // failure, never for a Sheet-write failure after the text already went
+    // out (those two used to share one catch, see docs/designs/agent-phone.md
+    // decision 3).
     if (elapsed >= STALE_REMINDER_MS && !row.reminderSent) {
+      const reminderSmsBody = twilio.TEMPLATES.path1BReminder({ leadName: row.name });
+      let smsOk = true;
       try {
-        await twilio.sendSMS(agent, twilio.TEMPLATES.path1BReminder({ leadName: row.name }));
-        const ts = getNowIso();
-        await email.updateSheetRow(agent, row.rowIndex, { reminderSent: ts });
-        await email.appendToConversationHistory(agent, row.rowIndex, `[${ts}] 2hr reminder SMS sent to agent`);
-        remindersSent++;
+        await twilio.sendSMS(agent, reminderSmsBody);
       } catch (e) {
+        smsOk = false;
         errors.push({ rowIndex: row.rowIndex, branch: 'reminder', message: e.message });
         console.warn(`[${agent.agentId}] row ${row.rowIndex}: reminder failed: ${e.message}`);
+        await alertAgentTextFailed(agent, { kind: 'path1b_reminder', smsBody: reminderSmsBody, error: e });
+      }
+      if (smsOk) {
+        try {
+          const ts = getNowIso();
+          await email.updateSheetRow(agent, row.rowIndex, { reminderSent: ts });
+          await email.appendToConversationHistory(agent, row.rowIndex, `[${ts}] 2hr reminder SMS sent to agent`);
+          remindersSent++;
+        } catch (e) {
+          errors.push({ rowIndex: row.rowIndex, branch: 'reminder', message: e.message });
+          console.warn(`[${agent.agentId}] row ${row.rowIndex}: reminder failed: ${e.message}`);
+        }
       }
     }
 

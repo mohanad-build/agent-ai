@@ -49,12 +49,37 @@ fail silently, for every agent at once.
    same as a missing field does today.
 3. When any agent-facing text fails, Mo gets an email, the same channel as
    the session 81 Sheet alert. Email, not SMS: if Twilio is what failed, an
-   SMS alert fails too. At most one email per agent per kind per calendar day
-   in the agent's timezone. Kinds: daily_brief, hot_lead, needs_review,
-   path1b_question, path1b_reminder, welcome. One place in the code does
-   this, not five copies. The lead paths' return values do not change: the
-   lead was handled, only the text failed, and flipping ok could trigger
-   reprocessing.
+   SMS alert fails too. Single-attempt send, no retry: the task is "log it
+   and move on," not another delay on an already-degraded path. hot_lead is
+   exempt from the daily limit: every hot-lead text failure alerts. Every
+   other kind keeps at most one email per agent per kind per calendar day in
+   the agent's timezone, recorded only after the email actually sends, so a
+   failed alert email does not silence the next failure. Kinds: daily_brief,
+   hot_lead, needs_review, path1b_question, path1b_reminder, welcome. One
+   place in the code does this (src/textFailureAlert.js), not five copies.
+   The lead paths' return values do not change: the lead was handled, only
+   the text failed, and flipping ok could trigger reprocessing.
+
+   Every alert email includes the exact text that failed to send.
+   Subject: GetKlosed: a text to <agent name> didn't send (<kind label>).
+   Body, hot_lead only, first line:
+     A hot lead came in and <agent name> wasn't told. Worth a call.
+   Body, every kind:
+     Twilio said: <error code> <error message>
+     The text they didn't get:
+     <the SMS body>
+   Body, every kind except hot_lead, last line:
+     You'll get at most one of these a day for this kind of text.
+   Subject and body use agentConfig.agentName, falling back to agentId when
+   the name is missing. Kind labels: daily_brief "daily brief", hot_lead
+   "hot-lead alert", needs_review "urgent review alert", path1b_question
+   "property question", path1b_reminder "2-hour reminder" (welcome arrives
+   in commit 4).
+
+   checkStaleQuestions's reminder branch (src/index.js) splits its SMS send
+   into its own try/catch, separate from the Sheet-write try/catch that
+   follows it. The two used to share one catch, so a Sheet-write failure
+   after a successful text would have been misreported as a failed text.
 4. A welcome text at the end of signup, and again when the dashboard edit
    changes the number:
    "GetKlosed here. This is the number your morning brief and hot-lead alerts
@@ -76,9 +101,17 @@ fail silently, for every agent at once.
 When the milestone is done, docs/STATE.md records: the session 81 deploy was
 verified live (brief sent by SMS and email, no digest failures, no false
 Sheet alert); unella-bolton (the agent Google's reviewer created) was deleted
-from the Volume; this milestone; and one new parked item: an inactive agent
-logs "skipped (inactive)" followed by "sms=n/a email=n/a" every cycle for
-about an hour after its brief time, and the second line contradicts the first.
+from the Volume; this milestone; and three parked items:
+- An inactive agent logs "skipped (inactive)" followed by "sms=n/a
+  email=n/a" every cycle for about an hour after its brief time, and the
+  second line contradicts the first.
+- server.js's setInterval does not wait for the previous orchestrator cycle
+  to finish before starting the next one, and nothing elsewhere (runCycle,
+  main()) guards against it either. Overlapping cycles are possible when a
+  cycle runs past 5 minutes; the risk is two cycles acting on the same lead.
+- Pre-existing, kept as-is by the reminder split: when the reminder text
+  sends but the Sheet write fails, reminderSent is never recorded, so the
+  reminder is sent again every cycle until the Sheet recovers.
 
 ## Test numbers
 

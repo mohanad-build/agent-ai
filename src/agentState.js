@@ -103,6 +103,22 @@ function recordDailyDigestRun(agentId, iso) {
   setState(agentId, { ...state, lastDailyDigestRun: iso });
 }
 
+// Per-kind, once-a-day cap on agent-facing text-failure alert emails
+// (docs/designs/agent-phone.md decision 3). hot_lead is exempt and never
+// recorded here; callers skip this pair entirely for that kind.
+function hasAlertedToday(agentId, kind, today) {
+  const state = getState(agentId);
+  return !!(state.smsAlertDates && state.smsAlertDates[kind] === today);
+}
+
+function recordAlertSent(agentId, kind, today) {
+  const state = getState(agentId);
+  setState(agentId, {
+    ...state,
+    smsAlertDates: { ...(state.smsAlertDates || {}), [kind]: today },
+  });
+}
+
 module.exports = {
   getState,
   setState,
@@ -116,4 +132,6 @@ module.exports = {
   resetDailyNoiseArchived,
   resetWeeklyNoiseArchived,
   recordDailyDigestRun,
+  hasAlertedToday,
+  recordAlertSent,
 };

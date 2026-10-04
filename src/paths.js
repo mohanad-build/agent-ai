@@ -20,6 +20,7 @@ const email = require('./email');
 const twilio = require('./twilio');
 const { parsePendingQuestions, serializePendingQuestions } = require('./pendingQuestions');
 const { issueToken } = require('./agentState');
+const { alertAgentTextFailed } = require('./textFailureAlert');
 const prompts = require('./prompts');
 const claude = require('./claude');
 const { getNowIso } = require('./time');
@@ -159,6 +160,7 @@ async function pathHotSignal(agent, row, msg, cat) {
     } catch (err) {
       console.log(`${prefix} STEP sms failed: ${err.message}`);
       errors.push({ step: 'sms', error: err.message });
+      await alertAgentTextFailed(agent, { kind: 'hot_lead', smsBody, error: err });
     }
   } else {
     skipped.push('sms_below_threshold');
@@ -280,6 +282,7 @@ async function pathNeedsReview(agent, row, msg, cat) {
       console.log(`${prefix} STEP sms failed: ${err.message}`);
       actions.sms = 'failed';
       errors.push({ step: 'sms', error: err.message });
+      await alertAgentTextFailed(agent, { kind: 'needs_review', smsBody, error: err });
     }
   } else {
     actions.sms = 'skipped';
@@ -780,6 +783,7 @@ async function pathAskAgent(agent, row, msg, cat) {
     actions.sms = 'failed';
     actions.smsAttempted = true;
     errors.push({ step: 'sms', error: err.message });
+    await alertAgentTextFailed(agent, { kind: 'path1b_question', smsBody, error: err });
   }
 
   // Step e: No lead-facing email on this path (intentional)

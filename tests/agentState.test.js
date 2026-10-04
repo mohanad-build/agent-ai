@@ -17,6 +17,8 @@ const {
   resetDailyNoiseArchived,
   resetWeeklyNoiseArchived,
   recordDailyDigestRun,
+  hasAlertedToday,
+  recordAlertSent,
 } = require('../src/agentState');
 
 const AGENT_ID = 'test-agent-state';
@@ -276,5 +278,41 @@ describe('recordDailyDigestRun', () => {
     setState(AGENT_ID, { lastTokenIssued: 4, weeklyPreflightSkips: 0, lastDailyDigestRun: null, deactivatedAt: null });
     recordDailyDigestRun(AGENT_ID, '2026-06-01T08:00:00.000Z');
     expect(getState(AGENT_ID).lastTokenIssued).toBe(4);
+  });
+});
+
+// ── hasAlertedToday / recordAlertSent ─────────────────────────────────────────
+
+describe('hasAlertedToday / recordAlertSent', () => {
+  test('hasAlertedToday is false when nothing was ever recorded', () => {
+    expect(hasAlertedToday(AGENT_ID, 'needs_review', '2026-06-15')).toBe(false);
+  });
+
+  test('recordAlertSent then hasAlertedToday is true for that kind and date', () => {
+    recordAlertSent(AGENT_ID, 'needs_review', '2026-06-15');
+    expect(hasAlertedToday(AGENT_ID, 'needs_review', '2026-06-15')).toBe(true);
+  });
+
+  test('hasAlertedToday is false for a different date', () => {
+    recordAlertSent(AGENT_ID, 'needs_review', '2026-06-15');
+    expect(hasAlertedToday(AGENT_ID, 'needs_review', '2026-06-16')).toBe(false);
+  });
+
+  test('hasAlertedToday is false for a different kind on the same date', () => {
+    recordAlertSent(AGENT_ID, 'needs_review', '2026-06-15');
+    expect(hasAlertedToday(AGENT_ID, 'daily_brief', '2026-06-15')).toBe(false);
+  });
+
+  test('recordAlertSent preserves other state fields', () => {
+    setState(AGENT_ID, { lastTokenIssued: 7, weeklyPreflightSkips: 0, lastDailyDigestRun: null, deactivatedAt: null });
+    recordAlertSent(AGENT_ID, 'needs_review', '2026-06-15');
+    expect(getState(AGENT_ID).lastTokenIssued).toBe(7);
+  });
+
+  test('recordAlertSent preserves a previously recorded different kind', () => {
+    recordAlertSent(AGENT_ID, 'needs_review', '2026-06-15');
+    recordAlertSent(AGENT_ID, 'daily_brief', '2026-06-15');
+    expect(hasAlertedToday(AGENT_ID, 'needs_review', '2026-06-15')).toBe(true);
+    expect(hasAlertedToday(AGENT_ID, 'daily_brief', '2026-06-15')).toBe(true);
   });
 });

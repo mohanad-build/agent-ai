@@ -23,6 +23,7 @@ const agentState = require('./agentState');
 const twilio = require('./twilio');
 const { getFollowUpCadence, loadAgent, isInboxCleaningEnabled } = require('./agentConfig');
 const { loadOperator } = require('./operatorConfig');
+const { alertAgentTextFailed } = require('./textFailureAlert');
 const { getNowIso, getNowDate } = require('./time');
 const { checkAllSourcesFreshness } = require('./content/sources');
 const { getStorageRoot } = require('./storagePaths');
@@ -525,6 +526,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
         'daily-sms',
         smsRetry.lastError
       );
+      await alertAgentTextFailed(agentConfig, { kind: 'daily_brief', smsBody, error: smsRetry.lastError });
     }
   }
 
