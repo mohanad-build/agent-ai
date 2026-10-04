@@ -15,6 +15,7 @@ const { renderWelcomeEmail } = require('../welcomeEmail');
 const { isValidAgentId } = require('./dashboard');
 const { encryptToken } = require('../tokenCrypto');
 const { safeCompare } = require('../safeCompare');
+const { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE } = require('../agentPhone');
 
 const router = express.Router();
 
@@ -62,7 +63,30 @@ const {
   renderErrorPage,
 } = require('../brandChrome');
 
-const FORM_HTML = `<!DOCTYPE html>
+// Only phone refusal re-renders this form today, so `values` only ever
+// carries the fields a refused POST actually submitted (req.body as-is);
+// every value is escaped since it is attacker-controlled form input being
+// echoed back.
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// phoneError is always PHONE_REFUSAL_MESSAGE (a static constant), never
+// derived from req.body, so unlike every `values` field below it is not
+// escaped.
+function renderForm({ values = {}, phoneError = null } = {}) {
+  const v = (name) => escHtml(values[name]);
+  const emailLength = values.emailLength || 'short';
+  const usesEmojis = (values.usesEmojis || 'no').toLowerCase();
+  const mode = values.mode === 'live' ? 'live' : 'shadow';
+  const sel = (val) => (emailLength === val ? ' selected' : '');
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -98,6 +122,7 @@ const FORM_HTML = `<!DOCTYPE html>
     .field textarea { min-height: 80px; resize: vertical; }
     .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b8b93' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; cursor: pointer; }
     .field .help { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
+    .field .field-error { font-size: 13px; color: #DC2626; margin-top: 6px; line-height: 1.5; }
     .radio-group { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
     .radio-option { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: border-color 0.15s; }
     .radio-option input[type=radio] { accent-color: var(--violet); width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; margin-top: 2px; }
@@ -129,19 +154,20 @@ ${SHARED_HEADER}
             <h2>Your info</h2>
             <div class="field">
               <label for="firstName">First Name<span class="required">*</span></label>
-              <input type="text" id="firstName" name="firstName" required placeholder="Sarah">
+              <input type="text" id="firstName" name="firstName" required placeholder="Sarah" value="${v('firstName')}">
             </div>
             <div class="field">
               <label for="lastName">Last Name<span class="required">*</span></label>
-              <input type="text" id="lastName" name="lastName" required placeholder="Ahmed">
+              <input type="text" id="lastName" name="lastName" required placeholder="Ahmed" value="${v('lastName')}">
             </div>
             <div class="field">
               <label for="gmailAddress">Email Address<span class="required">*</span></label>
-              <input type="email" id="gmailAddress" name="gmailAddress" required placeholder="sarah@gmail.com">
+              <input type="email" id="gmailAddress" name="gmailAddress" required placeholder="sarah@gmail.com" value="${v('gmailAddress')}">
             </div>
             <div class="field">
-              <label for="agentPhone">Phone Number<span class="required">*</span></label>
-              <input type="tel" id="agentPhone" name="agentPhone" required placeholder="+16471234567">
+              <label for="agentPhone">Mobile number (for texts)<span class="required">*</span></label>
+              <input type="tel" id="agentPhone" name="agentPhone" required placeholder="416-555-0123" value="${v('agentPhone')}">
+              ${phoneError ? `<div class="field-error">${phoneError}</div>` : ''}
             </div>
           </div>
 
@@ -149,11 +175,11 @@ ${SHARED_HEADER}
             <h2>Brokerage</h2>
             <div class="field">
               <label for="brokerage">Brokerage Name<span class="required">*</span></label>
-              <input type="text" id="brokerage" name="brokerage" required placeholder="Royal LePage">
+              <input type="text" id="brokerage" name="brokerage" required placeholder="Royal LePage" value="${v('brokerage')}">
             </div>
             <div class="field">
               <label for="brokerageLocation">Brokerage City<span class="required">*</span></label>
-              <input type="text" id="brokerageLocation" name="brokerageLocation" required placeholder="Toronto, Ontario">
+              <input type="text" id="brokerageLocation" name="brokerageLocation" required placeholder="Toronto, Ontario" value="${v('brokerageLocation')}">
             </div>
           </div>
 
@@ -161,36 +187,36 @@ ${SHARED_HEADER}
             <h2>Communication</h2>
             <div class="field">
               <label for="escalationEmail">Escalation Email<span class="required">*</span></label>
-              <input type="email" id="escalationEmail" name="escalationEmail" required placeholder="sarah@gmail.com">
+              <input type="email" id="escalationEmail" name="escalationEmail" required placeholder="sarah@gmail.com" value="${v('escalationEmail')}">
               <div class="help">Where urgent leads or questions get forwarded. Usually the same as your email.</div>
             </div>
             <div class="field">
               <label for="agentSignature">Agent Signature</label>
-              <input type="text" id="agentSignature" name="agentSignature" placeholder="Sarah | Royal LePage">
+              <input type="text" id="agentSignature" name="agentSignature" placeholder="Sarah | Royal LePage" value="${v('agentSignature')}">
               <div class="help">Optional. If left blank, we'll use your existing Gmail signature.</div>
             </div>
             <div class="field">
               <label for="tone">Tone<span class="required">*</span></label>
-              <input type="text" id="tone" name="tone" required placeholder="warm, professional, and concise">
+              <input type="text" id="tone" name="tone" required placeholder="warm, professional, and concise" value="${v('tone')}">
             </div>
             <div class="field">
               <label for="emailLength">Email Length<span class="required">*</span></label>
               <select id="emailLength" name="emailLength">
-                <option value="short" selected>Short</option>
-                <option value="medium">Medium</option>
-                <option value="long">Long</option>
+                <option value="short"${sel('short')}>Short</option>
+                <option value="medium"${sel('medium')}>Medium</option>
+                <option value="long"${sel('long')}>Long</option>
               </select>
             </div>
             <div class="field">
               <label for="usesEmojis">Uses Emojis</label>
               <select id="usesEmojis" name="usesEmojis">
-                <option value="no" selected>No</option>
-                <option value="yes">Yes</option>
+                <option value="no"${usesEmojis === 'yes' ? '' : ' selected'}>No</option>
+                <option value="yes"${usesEmojis === 'yes' ? ' selected' : ''}>Yes</option>
               </select>
             </div>
             <div class="field">
               <label for="avoidPhrases">Avoid Phrases</label>
-              <textarea id="avoidPhrases" name="avoidPhrases" placeholder="Just checking in, thanks for reaching out"></textarea>
+              <textarea id="avoidPhrases" name="avoidPhrases" placeholder="Just checking in, thanks for reaching out">${v('avoidPhrases')}</textarea>
               <div class="help">Comma-separated. The AI will never use these phrases.</div>
             </div>
           </div>
@@ -199,16 +225,16 @@ ${SHARED_HEADER}
             <h2>Market focus</h2>
             <div class="field">
               <label for="targetMarket">Target Market</label>
-              <input type="text" id="targetMarket" name="targetMarket" placeholder="first-time buyers in Toronto">
+              <input type="text" id="targetMarket" name="targetMarket" placeholder="first-time buyers in Toronto" value="${v('targetMarket')}">
             </div>
             <div class="field">
               <label for="specialties">Specialties</label>
-              <input type="text" id="specialties" name="specialties" placeholder="condos, investment properties">
+              <input type="text" id="specialties" name="specialties" placeholder="condos, investment properties" value="${v('specialties')}">
               <div class="help">Comma-separated.</div>
             </div>
             <div class="field">
               <label for="yearsExperience">Years of Experience</label>
-              <input type="number" id="yearsExperience" name="yearsExperience" min="0" placeholder="5">
+              <input type="number" id="yearsExperience" name="yearsExperience" min="0" placeholder="5" value="${v('yearsExperience')}">
             </div>
           </div>
 
@@ -218,14 +244,14 @@ ${SHARED_HEADER}
               <label>Mode</label>
               <div class="radio-group">
                 <label class="radio-option">
-                  <input type="radio" name="mode" value="shadow" checked>
+                  <input type="radio" name="mode" value="shadow"${mode === 'shadow' ? ' checked' : ''}>
                   <div>
                     <span class="radio-label">Shadow Mode (recommended)</span>
                     <span class="radio-desc">AI drafts every reply for you to review and send. Nothing goes out without your approval.</span>
                   </div>
                 </label>
                 <label class="radio-option">
-                  <input type="radio" name="mode" value="live">
+                  <input type="radio" name="mode" value="live"${mode === 'live' ? ' checked' : ''}>
                   <div>
                     <span class="radio-label">Live Mode</span>
                     <span class="radio-desc">AI sends replies directly. You'll still get notified for anything urgent.</span>
@@ -248,6 +274,7 @@ ${SHARED_HEADER}
 ${SHARED_FOOTER}
 </body>
 </html>`;
+}
 
 // ---- Onboarding passcode gate (7.25.1) ----
 
@@ -358,17 +385,24 @@ router.post('/access', onboardAccessLimiter, (req, res) => {
 
 // GET /onboard
 router.get('/', requireOnboardAccess, (req, res) => {
-  res.send(FORM_HTML);
+  res.send(renderForm());
 });
 
 // POST /onboard
 router.post('/', requireOnboardAccess, (req, res) => {
   try {
     const b = req.body;
+
+    const phoneResult = normalizeAgentPhone(b.agentPhone);
+    if (!phoneResult.ok) {
+      console.log(`[onboard] phone refused: reason=${phoneResult.reason}`);
+      return res.status(400).send(renderForm({ values: b, phoneError: PHONE_REFUSAL_MESSAGE }));
+    }
+
     const firstName = (b.firstName || '').trim();
     const lastName = (b.lastName || '').trim();
     const agentName = (firstName + ' ' + lastName).trim();
-    const agentPhone = (b.agentPhone || '').trim();
+    const agentPhone = phoneResult.phone;
 
     const splitArr = (val) =>
       (val || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -403,7 +437,6 @@ router.post('/', requireOnboardAccess, (req, res) => {
       isActive: true,
       mode: b.mode === 'live' ? 'live' : 'shadow',
       provider: 'gmail',
-      operatorPhone: agentPhone,
       googleRefreshToken: '',
       googleSheetId: '',
     };

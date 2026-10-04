@@ -11,6 +11,13 @@
 
 const CHAR_PATTERN = /^\+?[0-9 ().-]*$/;
 
+// Shown on the form for every reason code; the code itself goes to the
+// server log only (CLAUDE.md rule 8 says never print a real phone number,
+// and a reason-specific message would otherwise require echoing the bad
+// input back inside the message to make sense of it).
+const PHONE_REFUSAL_MESSAGE =
+  "That number doesn't look right. Enter your 10-digit mobile number, like 416-555-0123.";
+
 function normalizeAgentPhone(raw) {
   if (raw === null || raw === undefined) {
     return { ok: false, reason: 'empty' };
@@ -54,4 +61,4 @@ function normalizeAgentPhone(raw) {
   return { ok: true, phone: '+1' + tenDigits };
 }
 
-module.exports = { normalizeAgentPhone };
+module.exports = { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE };

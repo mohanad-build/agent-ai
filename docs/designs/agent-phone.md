@@ -31,10 +31,22 @@ fail silently, for every agent at once.
      digit) must be 2 to 9 (else invalid_exchange).
    - North American numbers only in v1. leadImport's normalizePhone does a
      different job (leads may be international) and is not touched.
-2. Onboarding and the dashboard phone edit both use the helper and refuse a
-   bad number on the form with a plain message. Onboarding stops writing the
-   per-agent operatorPhone. The daily brief dry-run uses the global operator
-   phone (operatorConfig) instead of the per-agent field.
+2. Onboarding and the dashboard phone edit both run the submitted number
+   through the helper. The onboarding phone field's label becomes "Mobile
+   number (for texts)" and its placeholder becomes "416-555-0123" (the old
+   placeholder, +16471234567, fails the new exchange rule). On refusal, both
+   forms show the same message regardless of reason code: "That number
+   doesn't look right. Enter your 10-digit mobile number, like
+   416-555-0123." The reason code goes to the server log only, never the
+   typed number (rule 8), and nothing is written. Onboarding re-renders the
+   form with every other typed value still in the fields, HTML-escaped, so
+   one phone typo does not cost the rest of the form; the dashboard edit
+   keeps its existing plain 400 response, matching the other field
+   validations already on that route. Onboarding stops writing the
+   per-agent operatorPhone. The daily brief dry-run is left alone: it is
+   never called in production, and once onboarding stops writing
+   operatorPhone, a new agent's dry-run simply skips the SMS there, the
+   same as a missing field does today.
 3. When any agent-facing text fails, Mo gets an email, the same channel as
    the session 81 Sheet alert. Email, not SMS: if Twilio is what failed, an
    SMS alert fails too. At most one email per agent per kind per calendar day

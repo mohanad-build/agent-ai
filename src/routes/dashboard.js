@@ -34,6 +34,7 @@ const { enableLeads } = require('../leadEnrich');
 const { normalizeLeads, landLeads } = require('../leadImport');
 const { discoverAgentIds } = require('../agentDiscovery');
 const { safeCompare } = require('../safeCompare');
+const { normalizeAgentPhone, PHONE_REFUSAL_MESSAGE } = require('../agentPhone');
 
 function getAgentsDir() { return getStorageRoot(); }
 // Matches a bare agentId (no extension), same character class as
@@ -924,9 +925,12 @@ router.post('/agent/:agentId/edit', verifyCsrfToken, (req, res) => {
 
     agent.isActive = b.isActive === 'true';
 
-    const phone = (b.agentPhone || '').trim();
-    if (!phone) return res.status(400).send('agentPhone is required');
-    agent.agentPhone = phone;
+    const phoneResult = normalizeAgentPhone(b.agentPhone);
+    if (!phoneResult.ok) {
+      console.log(`[dashboard] phone refused: reason=${phoneResult.reason}`);
+      return res.status(400).send(PHONE_REFUSAL_MESSAGE);
+    }
+    agent.agentPhone = phoneResult.phone;
 
     const esc = (b.escalationEmail || '').trim();
     if (!esc.includes('@')) return res.status(400).send('escalationEmail must contain @');
