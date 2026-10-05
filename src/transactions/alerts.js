@@ -35,10 +35,10 @@ const DEPOSIT_OVERDUE_DAYS_AFTER = Object.freeze([2, 7]);
 // How far back from now a document_filing_abandoned event still counts as recent.
 const FILING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-const HOLDING_DEPOSIT_CHAIN = Object.freeze(deposit.HOLDING_SIDE_DEPOSIT_ITEMS.map((item) => item.id));
-const PAYING_DEPOSIT_CHAIN = Object.freeze(deposit.PAYING_SIDE_DEPOSIT_ITEMS.map((item) => item.id));
-const HOLDING_ADDITIONAL_DEPOSIT_ID = deposit.HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS[0].id;
-const PAYING_ADDITIONAL_DEPOSIT_ID = deposit.PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS[0].id;
+const HOLDING_DEPOSIT_CHAIN = deposit.chainEndingAt('brokerage_deposit_receipt_issued');
+const PAYING_DEPOSIT_CHAIN = deposit.chainEndingAt('brokerage_deposit_receipt_received');
+const HOLDING_ADDITIONAL_DEPOSIT_ID = deposit.chainEndingAt('additional_deposit_receipt_issued')[0];
+const PAYING_ADDITIONAL_DEPOSIT_ID = deposit.chainEndingAt('additional_deposit_receipt_received')[0];
 
 function findResolvedItem(resolvedItems, itemId) {
   return resolvedItems.find((item) => item.id === itemId);

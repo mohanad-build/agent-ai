@@ -123,9 +123,28 @@ const PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS = [
   },
 ];
 
+// The chain of step ids ending at receiptId, in catalog order, inclusive.
+// A chain of one (the additional deposit) answers the same question the
+// same way: its only id is its own last element. Returns null when
+// receiptId is not the last id of any known chain -- not a step partway
+// through one, and not an unknown id -- so a caller (the RECEIPT verb)
+// can refuse cleanly instead of completing the wrong rows.
+const DEPOSIT_CHAINS = [
+  HOLDING_SIDE_DEPOSIT_ITEMS,
+  PAYING_SIDE_DEPOSIT_ITEMS,
+  HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
+  PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
+].map((items) => Object.freeze(items.map((item) => item.id)));
+
+function chainEndingAt(receiptId) {
+  const chain = DEPOSIT_CHAINS.find((ids) => ids[ids.length - 1] === receiptId);
+  return chain || null;
+}
+
 module.exports = {
   HOLDING_SIDE_DEPOSIT_ITEMS,
   PAYING_SIDE_DEPOSIT_ITEMS,
   HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
   PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
+  chainEndingAt,
 };

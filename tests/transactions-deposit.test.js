@@ -5,6 +5,7 @@ const {
   PAYING_SIDE_DEPOSIT_ITEMS,
   HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
   PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS,
+  chainEndingAt,
 } = require('../src/transactions/rules/deposit');
 const { CATALOG } = require('../src/transactions/rules');
 
@@ -170,5 +171,38 @@ describe('deposit chain is contiguous on each deal type', () => {
       expect(secondIndex).toBe(firstIndex + 1);
       expect(thirdIndex).toBe(secondIndex + 1);
     });
+  });
+});
+
+describe('chainEndingAt', () => {
+  it('each of the four receipt ids returns its full chain, in catalog order', () => {
+    expect(chainEndingAt('brokerage_deposit_receipt_issued')).toEqual([
+      'deposit_slip_received',
+      'deposit_forwarded_to_accounting',
+      'brokerage_deposit_receipt_issued',
+    ]);
+    expect(chainEndingAt('brokerage_deposit_receipt_received')).toEqual([
+      'deposit_obtained_from_client',
+      'deposit_delivered_to_listing_agent',
+      'brokerage_deposit_receipt_received',
+    ]);
+    expect(chainEndingAt('additional_deposit_receipt_issued')).toEqual([
+      'additional_deposit_receipt_issued',
+    ]);
+    expect(chainEndingAt('additional_deposit_receipt_received')).toEqual([
+      'additional_deposit_receipt_received',
+    ]);
+  });
+
+  it('a mid-chain id (deposit_slip_received) returns null', () => {
+    expect(chainEndingAt('deposit_slip_received')).toBeNull();
+  });
+
+  it('an unknown id returns null', () => {
+    expect(chainEndingAt('not_a_real_item')).toBeNull();
+  });
+
+  it('the returned array is frozen', () => {
+    expect(Object.isFrozen(chainEndingAt('brokerage_deposit_receipt_issued'))).toBe(true);
   });
 });
