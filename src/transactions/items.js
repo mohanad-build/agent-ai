@@ -53,6 +53,11 @@ function markItemComplete(agentId, transactionId, itemId, opts = {}) {
   const previous = readExisting('markItemComplete', agentId, transactionId, baseDir);
   assertKnownItemId('markItemComplete', previous.type, itemId);
 
+  const existingEntry = previous.items ? previous.items[itemId] : undefined;
+  if (existingEntry && existingEntry.completed === true) {
+    throw new Error(`markItemComplete: item '${itemId}' is already complete (completedAt ${existingEntry.completedAt})`);
+  }
+
   const entry = { completed: true, completedAt };
   const payload = { itemId, completedAt };
   if (documents !== undefined) {

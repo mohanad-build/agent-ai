@@ -153,20 +153,34 @@ describe('markItemComplete', () => {
     })).toThrow(/^markItemComplete: unknown item id 'listing_agreement' for type 'buyer_purchase'/);
   });
 
-  it('re-completing an already-complete item writes a second event and replaces the entry details', () => {
+  it('re-completing an already-complete item throws and writes nothing to disk', () => {
     const created = create();
     markItemComplete(AGENT_ID, created.transactionId, 'reco_information_guide', {
       at: AT, actor: 'agent', completedAt: COMPLETED_AT, documents: ['guide.pdf'], baseDir, now: LATER,
     });
-    const result = markItemComplete(AGENT_ID, created.transactionId, 'reco_information_guide', {
+    const beforeSecondAttempt = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    expect(() => markItemComplete(AGENT_ID, created.transactionId, 'reco_information_guide', {
       at: AT2, actor: 'agent', completedAt: COMPLETED_AT2, note: 'corrected date', baseDir, now: EVEN_LATER,
+    })).toThrow(`markItemComplete: item 'reco_information_guide' is already complete (completedAt ${COMPLETED_AT})`);
+
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk).toEqual(beforeSecondAttempt);
+  });
+
+  it('completing, uncompleting, then completing again succeeds (the undo-then-redo path)', () => {
+    const created = create();
+    markItemComplete(AGENT_ID, created.transactionId, 'reco_information_guide', {
+      at: AT, actor: 'agent', completedAt: COMPLETED_AT, baseDir, now: LATER,
+    });
+    markItemIncomplete(AGENT_ID, created.transactionId, 'reco_information_guide', {
+      at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+    });
+    const result = markItemComplete(AGENT_ID, created.transactionId, 'reco_information_guide', {
+      at: AT2, actor: 'agent', completedAt: COMPLETED_AT2, baseDir, now: EVEN_LATER,
     });
 
-    expect(result.events).toHaveLength(2);
-    expect(result.events.map((e) => e.kind)).toEqual(['item_completed', 'item_completed']);
-    expect(result.items.reco_information_guide).toEqual({
-      completed: true, completedAt: COMPLETED_AT2, note: 'corrected date',
-    });
+    expect(result.items.reco_information_guide).toEqual({ completed: true, completedAt: COMPLETED_AT2 });
   });
 
   it('throws when the transaction does not exist', () => {
