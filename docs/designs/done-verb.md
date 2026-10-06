@@ -67,11 +67,14 @@ exist to catch exactly that.
 
 ## Recon findings carried to commits 2 and 3
 
-- On a double-ended deal the paying chain is not in the resolved
-  checklist (resolver.js omitWhenDoubleEnded). RECEIPT checks the receipt
-  id and every chain step against the resolved rows, never the static
-  catalog arrays. Decision 6's "currently required" check covers this;
-  the refusal reply is the same.
+- Double-ending never removes a chain from a deal's resolved rows. The
+  resolver's merge only adds the paired side's unique rows or upgrades
+  a shared row (resolver.js mergeDoubleEnded), and buyer and tenant
+  deals ignore the fact. A receipt from the other side's chain is not
+  in this deal type's catalog, so RECEIPT returns unknown_item for it.
+  RECEIPT still checks every chain step against the resolved rows,
+  which is what refuses a stale tap (for example, an additional deposit
+  whose due date was removed after the alert went out).
 - No exported chain lookup exists; alerts.js derives private id arrays.
   Commit 2 adds one export in rules/deposit.js (the chain ending at a
   given receipt id) and alerts.js switches to it, so the alert and the
