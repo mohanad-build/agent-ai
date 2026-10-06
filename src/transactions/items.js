@@ -41,16 +41,17 @@ function readExisting(fnName, agentId, transactionId, baseDir) {
   return previous;
 }
 
-// -- markItemComplete ---------------------------------------------------------------
+// -- buildItemComplete ---------------------------------------------------------------
 
-function markItemComplete(agentId, transactionId, itemId, opts = {}) {
-  const { at, actor, completedAt, documents, note, baseDir, now } = opts;
-
+// Pure: previous in, { transaction } out, no disk access. Every check that
+// used to live in markItemComplete lives here instead, so a caller that
+// chains this builder directly (src/transactions/taps.js, commit 2c) cannot
+// skip a check by calling the builder without the wrapper around it.
+function buildItemComplete(previous, { itemId, completedAt, documents, note, at, actor }) {
   if (typeof completedAt !== 'string' || completedAt.trim() === '') {
     throw new Error('markItemComplete: completedAt must be a non-empty string');
   }
 
-  const previous = readExisting('markItemComplete', agentId, transactionId, baseDir);
   assertKnownItemId('markItemComplete', previous.type, itemId);
 
   const existingEntry = previous.items ? previous.items[itemId] : undefined;
@@ -77,15 +78,23 @@ function markItemComplete(agentId, transactionId, itemId, opts = {}) {
     events: events.appendEvent(previous.events, event),
   };
 
-  return store.writeTransaction(agentId, next, { baseDir, now });
+  return { transaction: next };
 }
 
-// -- markItemIncomplete -------------------------------------------------------------
+// -- markItemComplete ---------------------------------------------------------------
 
-function markItemIncomplete(agentId, transactionId, itemId, opts = {}) {
-  const { at, actor, baseDir, now } = opts;
+function markItemComplete(agentId, transactionId, itemId, opts = {}) {
+  const { at, actor, completedAt, documents, note, baseDir, now } = opts;
 
-  const previous = readExisting('markItemIncomplete', agentId, transactionId, baseDir);
+  const previous = readExisting('markItemComplete', agentId, transactionId, baseDir);
+  const { transaction } = buildItemComplete(previous, { itemId, completedAt, documents, note, at, actor });
+
+  return store.writeTransaction(agentId, transaction, { baseDir, now });
+}
+
+// -- buildItemIncomplete -------------------------------------------------------------
+
+function buildItemIncomplete(previous, { itemId, at, actor }) {
   assertKnownItemId('markItemIncomplete', previous.type, itemId);
 
   const previousItems = previous.items;
@@ -102,7 +111,18 @@ function markItemIncomplete(agentId, transactionId, itemId, opts = {}) {
     events: events.appendEvent(previous.events, event),
   };
 
-  return store.writeTransaction(agentId, next, { baseDir, now });
+  return { transaction: next };
 }
 
-module.exports = { markItemComplete, markItemIncomplete };
+// -- markItemIncomplete -------------------------------------------------------------
+
+function markItemIncomplete(agentId, transactionId, itemId, opts = {}) {
+  const { at, actor, baseDir, now } = opts;
+
+  const previous = readExisting('markItemIncomplete', agentId, transactionId, baseDir);
+  const { transaction } = buildItemIncomplete(previous, { itemId, at, actor });
+
+  return store.writeTransaction(agentId, transaction, { baseDir, now });
+}
+
+module.exports = { markItemComplete, markItemIncomplete, buildItemComplete, buildItemIncomplete };
