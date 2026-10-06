@@ -23,7 +23,9 @@ const { confirmProposalSet }      = require('../transactions/confirmSet');
 const { markWrongDeal }           = require('../transactions/wrongDeal');
 const { formatRoles }             = require('../transactions/participants');
 const { loadOperator }            = require('../operatorConfig');
-const { plainTextToHtml }         = require('../plainTextHtml');
+const { plainTextToHtml, escapeHtml } = require('../plainTextHtml');
+const rules                       = require('../transactions/rules');
+const { completeOne, completeChain, uncompleteRows } = require('../transactions/taps');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
 const ASSISTANT_EMAIL      = 'assistant@getklosed.ca';
@@ -94,12 +96,17 @@ async function _sendWithRetry(sendFn, label) {
 // statement and ignores the return value, but the tc-verb branch (below)
 // needs to know whether the send actually landed, to keep its "send failed"
 // path honest instead of silently swallowing it.
-async function sendConfirmation(assistantConfig, { to, subject, body }) {
+//
+// html is optional: when absent, behaviour is exactly as before this
+// parameter existed (plainTextToHtml(body)). Only DONE/RECEIPT's completed
+// reply passes one, to carry a real Undo <a href="mailto:..."> that
+// plainTextToHtml would otherwise escape into inert text.
+async function sendConfirmation(assistantConfig, { to, subject, body, html }) {
   // No address in the label: it is printed by _sendWithRetry's log lines
   // (7.55.9, 7.57.3); a failure is attributable by position, since messages
   // are processed one at a time and each logs its messageId first.
   return _sendWithRetry(
-    () => gmail.sendNewEmail(assistantConfig, { to, subject, body, html: plainTextToHtml(body), autoSubmitted: true }),
+    () => gmail.sendNewEmail(assistantConfig, { to, subject, body, html: html !== undefined ? html : plainTextToHtml(body), autoSubmitted: true }),
     'confirm'
   );
 }
@@ -390,27 +397,35 @@ async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSub
   }
 }
 
-// ── Track TC (CONFIRM / REJECT / WRONGDEAL) ────────────────────────────────────
+// ── Track TC (CONFIRM / REJECT / WRONGDEAL / DONE / RECEIPT / UNDO) ───────────
 
 // Loose claim: decides whether this branch is entered at all. No Re:/Fwd:
 // stripping -- a forwarded/replied subject is not claimed, same as CALLED.
-const TC_CLAIM_RE = /^\s*(CONFIRM|REJECT|WRONGDEAL)\s+txn-/i;
+// txn- directly after the verb is what keeps an ordinary "Done with the
+// showing" email out of this branch and on Track 2 (docs/designs/done-verb.md).
+const TC_CLAIM_RE = /^\s*(CONFIRM|REJECT|WRONGDEAL|DONE|RECEIPT|UNDO)\s+txn-/i;
 
 const TC_GENERIC_ERROR_BODY = 'Nothing was changed. Something went wrong on our end. Mo has been told and will follow up.';
 
 // Used only when a write outcome (confirmed / wrong_deal_recorded /
-// rejected) happened but DESCRIBE then failed to build the real reply: the
-// write is a fact, so the reply must stay truthful ("Done."/"Got it.")
-// rather than fall back to the generic error wording.
+// rejected / completed / uncompleted) happened but DESCRIBE then failed to
+// build the real reply: the write is a fact, so the reply must stay
+// truthful ("Done."/"Got it.") rather than fall back to the generic error
+// wording.
 const TC_WRITE_OUTCOME_FALLBACK = {
   CONFIRM:   'Done. The people were added to the deal.',
   WRONGDEAL: 'Got it. The document is marked as not belonging to this deal, and no one from it was added.',
   REJECT:    "Done. That person won't be added to the deal.",
+  DONE:      'Done. The item was marked complete.',
+  RECEIPT:   'Done. The deposit was marked complete.',
+  UNDO:      'Done. Those items are back on the checklist.',
 };
 
 // Strict parse of a claimed subject. Verb word case-insensitive; ids
-// validated as-is, never case-normalized. Anything that doesn't match this
-// shape exactly is a parse failure, never a composition call.
+// validated as-is (never case-normalized, never checked against a deal's
+// catalog here -- that is taps.js's job, surfaced as unknown_item).
+// Anything that doesn't match this shape exactly is a parse failure, never
+// a composition call.
 function parseTcCommand(subject) {
   const tokens = subject.trim().split(/\s+/);
   const verb = (tokens[0] || '').toUpperCase();
@@ -422,6 +437,28 @@ function parseTcCommand(subject) {
     if (!proposals.isProposalSetId(setId)) return null;
     if (!proposals.isProposalMemberId(memberId)) return null;
     return { verb, transactionId, setId, memberId };
+  }
+
+  if (verb === 'DONE') {
+    if (tokens.length !== 3) return null;
+    const [, transactionId, itemId] = tokens;
+    if (!store.isTransactionId(transactionId)) return null;
+    return { verb, transactionId, itemId };
+  }
+
+  if (verb === 'RECEIPT') {
+    if (tokens.length !== 3) return null;
+    const [, transactionId, receiptItemId] = tokens;
+    if (!store.isTransactionId(transactionId)) return null;
+    return { verb, transactionId, receiptItemId };
+  }
+
+  if (verb === 'UNDO') {
+    // txn- plus one to three item ids: at most 3, the longest deposit chain.
+    if (tokens.length < 3 || tokens.length > 5) return null;
+    const [, transactionId, ...itemIds] = tokens;
+    if (!store.isTransactionId(transactionId)) return null;
+    return { verb, transactionId, itemIds };
   }
 
   if (verb !== 'CONFIRM' && verb !== 'WRONGDEAL') return null;
@@ -508,16 +545,160 @@ function buildRejectReply(outcome, transaction, setId, memberId) {
   }
 }
 
-function buildTcReply(verb, outcome, transaction, writeResult, setId, memberId) {
+// label lives on the static catalog item (rules.CATALOG[type]) and is never
+// stripped by the resolver (resolver.js annotateItem spreads the item), but
+// a reply only ever needs the static lookup: by the time DONE/RECEIPT/UNDO
+// reach a reply, the id is already known to taps.js's own checks.
+function catalogItemLabel(type, itemId) {
+  const item = rules.CATALOG[type].find((candidate) => candidate.id === itemId);
+  return item ? item.label : itemId;
+}
+
+// No exported helper turns an ISO instant into a human date in a timezone
+// (calendarDate.js works in calendar dates, not instants); this mirrors
+// digest.js's formatDailyDate/formatWeeklyDate pattern locally.
+function formatCompletedDate(isoString, timezone) {
+  const tz = timezone || 'America/Toronto';
+  return new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: tz }).format(new Date(isoString));
+}
+
+function undoSubjectText(transactionId, itemIds) {
+  return `UNDO ${transactionId} ${itemIds.join(' ')}`;
+}
+
+function undoMailtoHref(transactionId, itemIds) {
+  return `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(undoSubjectText(transactionId, itemIds))}`;
+}
+
+// Plain-text fallback line every completed DONE/RECEIPT reply ends with.
+// The html part (buildUndoLinkHtml) replaces this line with a real link;
+// this text is what a plain-text-only reader sees instead.
+function undoPlainTextLine(transactionId, itemIds) {
+  return `Tapped by mistake? Email ${ASSISTANT_EMAIL} with the subject: ${undoSubjectText(transactionId, itemIds)}`;
+}
+
+// Styled like digest.js's calledAffordanceHtml: a muted-grey inline link,
+// not a button. The href is escaped the same way digest.js escapes its own
+// mailtoHref; the visible label is a literal, not interpolated.
+function undoLinkHtml(transactionId, itemIds) {
+  const href = escapeHtml(undoMailtoHref(transactionId, itemIds));
+  return `<a href="${href}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+}
+
+// Shared by DONE, RECEIPT and UNDO: the wording only depends on address and
+// state, never on which verb refused. Any state outside this switch is a
+// programmer error -- states.isTerminal (already true by construction here)
+// only ever reports one of these three across every deal and listing type
+// (src/transactions/states.js).
+function dealClosedReplyBody(transaction) {
+  const address = transaction.address;
+  switch (transaction.state) {
+    case 'closed':
+      return `Nothing was changed. ${address} is closed.`;
+    case 'collapsed':
+      return `Nothing was changed. ${address} fell through.`;
+    case 'terminated':
+      return `Nothing was changed. The listing for ${address} has ended.`;
+    default:
+      throw new Error(`dealClosedReplyBody: unexpected terminal state '${transaction.state}'`);
+  }
+}
+
+function unknownItemReplyBody(transaction) {
+  return `Nothing was changed. We couldn't find that item on ${transaction.address}. Mo has been told and will follow up.`;
+}
+
+function buildDoneReply(outcome, transaction, writeResult, transactionId, itemId, timezone) {
+  const address = transaction.address;
+  switch (outcome) {
+    case 'deal_closed':
+      return { body: dealClosedReplyBody(transaction), noted: false };
+    case 'unknown_item':
+      return { body: unknownItemReplyBody(transaction), noted: true };
+    case 'not_required':
+      return { body: `Nothing was changed. ${catalogItemLabel(transaction.type, itemId)} isn't on the checklist for ${address} right now.`, noted: false };
+    case 'already_complete':
+      return {
+        body: `${catalogItemLabel(transaction.type, itemId)} for ${address}. Already marked done on ${formatCompletedDate(writeResult.completedAt, timezone)}.`,
+        noted: false,
+      };
+    case 'completed': {
+      const labels = writeResult.itemIds.map((id) => catalogItemLabel(transaction.type, id)).join(', ');
+      const sentence = `Done. Marked complete for ${address}: ${labels}.`;
+      return {
+        body: `${sentence}\n\n${undoPlainTextLine(transactionId, writeResult.itemIds)}`,
+        html: `${plainTextToHtml(sentence)}<br><br>${undoLinkHtml(transactionId, writeResult.itemIds)}`,
+        noted: false,
+      };
+    }
+    default:
+      throw new Error(`buildDoneReply: unexpected outcome ${outcome}`);
+  }
+}
+
+function buildReceiptReply(outcome, transaction, writeResult, transactionId, receiptItemId, timezone) {
+  const address = transaction.address;
+  switch (outcome) {
+    case 'deal_closed':
+      return { body: dealClosedReplyBody(transaction), noted: false };
+    case 'unknown_item':
+      return { body: unknownItemReplyBody(transaction), noted: true };
+    case 'not_required':
+      return { body: `Nothing was changed. ${catalogItemLabel(transaction.type, receiptItemId)} isn't on the checklist for ${address} right now.`, noted: false };
+    case 'already_complete':
+      return {
+        body: `${catalogItemLabel(transaction.type, receiptItemId)} for ${address}. Already marked done on ${formatCompletedDate(writeResult.completedAt, timezone)}.`,
+        noted: false,
+      };
+    case 'completed': {
+      const labels = writeResult.itemIds.map((id) => catalogItemLabel(transaction.type, id)).join(', ');
+      const sentence = `Done. Marked complete for ${address}: ${labels}.`;
+      return {
+        body: `${sentence}\n\n${undoPlainTextLine(transactionId, writeResult.itemIds)}`,
+        html: `${plainTextToHtml(sentence)}<br><br>${undoLinkHtml(transactionId, writeResult.itemIds)}`,
+        noted: false,
+      };
+    }
+    default:
+      throw new Error(`buildReceiptReply: unexpected outcome ${outcome}`);
+  }
+}
+
+function buildUndoReply(outcome, transaction, writeResult) {
+  const address = transaction.address;
+  switch (outcome) {
+    case 'deal_closed':
+      return { body: dealClosedReplyBody(transaction), noted: false };
+    case 'unknown_item':
+      return { body: unknownItemReplyBody(transaction), noted: true };
+    case 'nothing_to_undo':
+      return { body: `Nothing was changed. None of those were marked done for ${address}.`, noted: false };
+    case 'uncompleted': {
+      const undoneLabels = writeResult.itemIds.map((id) => catalogItemLabel(transaction.type, id)).join(', ');
+      let body = `Done. Back on the checklist for ${address}: ${undoneLabels}.`;
+      writeResult.skipped.forEach((id) => {
+        body += ` ${catalogItemLabel(transaction.type, id)} wasn't marked done, so nothing changed there.`;
+      });
+      return { body, noted: false };
+    }
+    default:
+      throw new Error(`buildUndoReply: unexpected outcome ${outcome}`);
+  }
+}
+
+function buildTcReply(verb, outcome, transaction, writeResult, parsed, timezone) {
   if (verb === 'CONFIRM')   return buildConfirmReply(outcome, transaction, writeResult);
   if (verb === 'WRONGDEAL') return buildWrongDealReply(outcome, transaction);
-  return buildRejectReply(outcome, transaction, setId, memberId);
+  if (verb === 'REJECT')    return buildRejectReply(outcome, transaction, parsed.setId, parsed.memberId);
+  if (verb === 'DONE')      return buildDoneReply(outcome, transaction, writeResult, parsed.transactionId, parsed.itemId, timezone);
+  if (verb === 'RECEIPT')   return buildReceiptReply(outcome, transaction, writeResult, parsed.transactionId, parsed.receiptItemId, timezone);
+  return buildUndoReply(outcome, transaction, writeResult);
 }
 
 // Best-effort, IDs only (no names, no email addresses). Runs only after the
 // agent's own reply has already been sent successfully, so nothing in here
 // can change what the agent was told.
-async function sendTcOperatorNote(agentConfig, msg, assistantConfig, { verb, transactionId, setId, memberId, outcome, noteErrorMessage }) {
+async function sendTcOperatorNote(agentConfig, msg, assistantConfig, { verb, transactionId, setId, memberId, itemIds, outcome, noteErrorMessage }) {
   try {
     const operator = loadOperator(agentConfig.operatorId);
     if (!operator || !operator.operatorEmail) {
@@ -532,6 +713,10 @@ async function sendTcOperatorNote(agentConfig, msg, assistantConfig, { verb, tra
       `setId: ${setId || '-'}`,
     ];
     if (memberId) lines.push(`memberId: ${memberId}`);
+    // DONE/RECEIPT/UNDO only: the tapped item id(s), exactly as parsed from
+    // the subject -- for UNDO, every token before uncompleteRows' own
+    // dedup, so the note matches what the agent actually typed.
+    if (itemIds) lines.push(`item: ${itemIds.join(' ')}`);
     lines.push(`outcome: ${outcome}`);
     if (noteErrorMessage) lines.push(`error: ${noteErrorMessage}`);
 
@@ -553,19 +738,31 @@ async function sendTcOperatorNote(agentConfig, msg, assistantConfig, { verb, tra
 // is exactly the case where Mo most needs to know, so NOTE still runs
 // regardless of REPLY's outcome.
 async function finishTcVerb(agentConfig, msg, assistantConfig, replyTo, subject, opts) {
-  const { verb, transactionId, setId, memberId, outcome, body, noted, noteErrorMessage } = opts;
+  const { verb, transactionId, setId, memberId, itemIds, outcome, body, html, noted, noteErrorMessage } = opts;
 
-  const sendResult = await sendConfirmation(assistantConfig, { to: replyTo, subject: 'Re: ' + subject, body });
+  const sendResult = await sendConfirmation(assistantConfig, { to: replyTo, subject: 'Re: ' + subject, body, html });
   const replied = sendResult.ok;
   if (!replied) {
     console.log(`[actionHandler] tc-verb reply send failed messageId=${msg.messageId}: ${sendResult.lastError && sendResult.lastError.message}`);
   }
 
   if (noted) {
-    await sendTcOperatorNote(agentConfig, msg, assistantConfig, { verb, transactionId, setId, memberId, outcome, noteErrorMessage });
+    await sendTcOperatorNote(agentConfig, msg, assistantConfig, { verb, transactionId, setId, memberId, itemIds, outcome, noteErrorMessage });
   }
 
   console.log(`[tc-verb] agent=${agentConfig.agentId} messageId=${msg.messageId} verb=${verb || '-'} outcome=${outcome} noted=${noted} replied=${replied}`);
+}
+
+// gmail.js turns a missing internalDate into 0 (fetchUnreadInboxEmails);
+// completedAt (DONE, RECEIPT) is when the agent said it was done, so 0 is
+// never trusted as that date. The event's own at stays processing time
+// regardless (point A, docs/designs/done-verb.md), matching CONFIRM.
+function resolveCompletedAt(msg, now) {
+  if (msg.internalDate > 0) {
+    return new Date(msg.internalDate).toISOString();
+  }
+  console.log(`[tc-verb] messageId=${msg.messageId} missing internalDate, using processing time for completedAt`);
+  return now.toISOString();
 }
 
 // WRITE: composition called synchronously, its save is the last throwable
@@ -588,8 +785,16 @@ async function handleTcVerb(agentConfig, msg, subject, assistantConfig, replyTo)
     return;
   }
 
-  const { verb, transactionId, setId, memberId } = parsed;
+  const { verb, transactionId, setId, memberId, itemId, receiptItemId, itemIds } = parsed;
   const now = new Date();
+  const at  = now.toISOString();
+
+  // DONE/RECEIPT: the one tapped id, wrapped so the note line and the
+  // reply-building label lookups share one shape. UNDO: itemIds exactly as
+  // parsed (parseTcCommand never dedups), so the note shows every id the
+  // agent actually typed. undefined for CONFIRM/REJECT/WRONGDEAL, whose
+  // notes are unchanged.
+  const noteItemIds = itemId ? [itemId] : receiptItemId ? [receiptItemId] : itemIds;
 
   let writeResult = null;
   let writeError  = null;
@@ -598,11 +803,17 @@ async function handleTcVerb(agentConfig, msg, subject, assistantConfig, replyTo)
       writeResult = confirmProposalSet(agentConfig.agentId, transactionId, setId, { now });
     } else if (verb === 'WRONGDEAL') {
       writeResult = markWrongDeal(agentConfig.agentId, transactionId, setId, { now });
-    } else {
+    } else if (verb === 'REJECT') {
       writeResult = proposals.rejectProposalMember(
         agentConfig.agentId, transactionId, setId, memberId,
-        { now, at: now.toISOString(), actor: 'agent' }
+        { now, at, actor: 'agent' }
       );
+    } else if (verb === 'DONE') {
+      writeResult = completeOne(agentConfig.agentId, transactionId, itemId, { at, completedAt: resolveCompletedAt(msg, now), now });
+    } else if (verb === 'RECEIPT') {
+      writeResult = completeChain(agentConfig.agentId, transactionId, receiptItemId, { at, completedAt: resolveCompletedAt(msg, now), now });
+    } else {
+      writeResult = uncompleteRows(agentConfig.agentId, transactionId, itemIds, { at, now });
     }
   } catch (err) {
     writeError = err;
@@ -610,7 +821,7 @@ async function handleTcVerb(agentConfig, msg, subject, assistantConfig, replyTo)
 
   if (writeError) {
     await finishTcVerb(agentConfig, msg, assistantConfig, replyTo, subject, {
-      verb, transactionId, setId, memberId,
+      verb, transactionId, setId, memberId, itemIds: noteItemIds,
       outcome: 'error',
       body: TC_GENERIC_ERROR_BODY,
       noted: true,
@@ -623,9 +834,13 @@ async function handleTcVerb(agentConfig, msg, subject, assistantConfig, replyTo)
   const isWriteOutcome =
     (verb === 'CONFIRM'   && outcome === 'confirmed') ||
     (verb === 'WRONGDEAL' && outcome === 'wrong_deal_recorded') ||
-    (verb === 'REJECT'    && outcome === 'rejected');
+    (verb === 'REJECT'    && outcome === 'rejected') ||
+    (verb === 'DONE'      && outcome === 'completed') ||
+    (verb === 'RECEIPT'   && outcome === 'completed') ||
+    (verb === 'UNDO'      && outcome === 'uncompleted');
 
   let body;
+  let html;
   let noted;
   let noteErrorMessage = null;
 
@@ -638,18 +853,31 @@ async function handleTcVerb(agentConfig, msg, subject, assistantConfig, replyTo)
       if (transaction === null) {
         throw new Error(`readTransaction returned null for ${transactionId}`);
       }
-      const built = buildTcReply(verb, outcome, transaction, writeResult, setId, memberId);
+      const built = buildTcReply(verb, outcome, transaction, writeResult, parsed, agentConfig.timezone);
       body  = built.body;
+      html  = built.html;
       noted = built.noted;
     } catch (describeErr) {
-      body  = isWriteOutcome ? TC_WRITE_OUTCOME_FALLBACK[verb] : TC_GENERIC_ERROR_BODY;
+      // DONE/RECEIPT: decision 3 is every confirmation reply carries the
+      // Undo, fallback included. writeResult (the composition's own return
+      // value, from before this describe-read ever ran) already has
+      // itemIds, so this needs no re-read of the transaction that just
+      // failed to read cleanly. UNDO's fallback carries no link, matching
+      // its normal reply.
+      if (isWriteOutcome && (verb === 'DONE' || verb === 'RECEIPT')) {
+        const sentence = TC_WRITE_OUTCOME_FALLBACK[verb];
+        body = `${sentence}\n\n${undoPlainTextLine(transactionId, writeResult.itemIds)}`;
+        html = `${plainTextToHtml(sentence)}<br><br>${undoLinkHtml(transactionId, writeResult.itemIds)}`;
+      } else {
+        body = isWriteOutcome ? TC_WRITE_OUTCOME_FALLBACK[verb] : TC_GENERIC_ERROR_BODY;
+      }
       noted = true;
       noteErrorMessage = `describe_failed: ${describeErr.message}`;
     }
   }
 
   await finishTcVerb(agentConfig, msg, assistantConfig, replyTo, subject, {
-    verb, transactionId, setId, memberId, outcome, body, noted, noteErrorMessage,
+    verb, transactionId, setId, memberId, itemIds: noteItemIds, outcome, body, html, noted, noteErrorMessage,
   });
 }
 

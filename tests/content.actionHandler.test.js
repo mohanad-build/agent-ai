@@ -48,6 +48,11 @@ jest.mock('../src/transactions/proposals', () => ({
 
 jest.mock('../src/transactions/confirmSet', () => ({ confirmProposalSet: jest.fn() }));
 jest.mock('../src/transactions/wrongDeal',  () => ({ markWrongDeal:      jest.fn() }));
+jest.mock('../src/transactions/taps', () => ({
+  completeOne:     jest.fn(),
+  completeChain:   jest.fn(),
+  uncompleteRows:  jest.fn(),
+}));
 jest.mock('../src/operatorConfig',          () => ({ loadOperator:       jest.fn() }));
 
 jest.mock('../src/content/profile', () => ({ readContentProfile: jest.fn() }));
@@ -69,6 +74,8 @@ const store                               = require('../src/transactions/store')
 const { rejectProposalMember }            = require('../src/transactions/proposals');
 const { confirmProposalSet }              = require('../src/transactions/confirmSet');
 const { markWrongDeal }                   = require('../src/transactions/wrongDeal');
+const { completeOne, completeChain, uncompleteRows } = require('../src/transactions/taps');
+const { plainTextToHtml }                 = require('../src/plainTextHtml');
 const { loadOperator }                    = require('../src/operatorConfig');
 const { readContentProfile }              = require('../src/content/profile');
 const { renderReelScript }                = require('../src/content/renderReelScript');
@@ -960,6 +967,554 @@ describe('runActionHandler', () => {
       const line = logSpy.mock.calls.map((c) => c[0]).find((l) => typeof l === 'string' && l.startsWith('[tc-verb]'));
       expect(line).toBeDefined();
       expect(line).not.toContain('@');
+    });
+
+    test("CONFIRM's sent html is byte-identical to plainTextToHtml(body): the new optional html argument changes nothing for existing callers", async () => {
+      confirmProposalSet.mockReturnValue({ outcome: 'confirmed', participantIds: {} });
+      const msg = makeMsg({ subject: `CONFIRM ${TXN_ID} ${SET_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const call = gmail.sendNewEmail.mock.calls.find((c) => c[1].to === AGENT_EMAIL);
+      expect(call[1].html).toBe(plainTextToHtml(call[1].body));
+    });
+
+    test("CONFIRM set_discarded's operator note is byte-identical to today: adding DONE/RECEIPT/UNDO's item line changes nothing here", async () => {
+      confirmProposalSet.mockReturnValue({ outcome: 'set_discarded' });
+      const msg = makeMsg({ subject: `CONFIRM ${TXN_ID} ${SET_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          to: OPERATOR_EMAIL,
+          body: `agent: ${AGENT_ID}\nmessageId: msg-1\nverb: CONFIRM\ntransactionId: ${TXN_ID}\nsetId: ${SET_ID}\noutcome: set_discarded`,
+        })
+      );
+    });
+  });
+
+  describe('DONE / RECEIPT / UNDO subject verbs', () => {
+    const DONE_ITEM_ID       = 'deal_sheet';
+    const DONE_ITEM_LABEL    = 'Deal sheet or brokerage submission summary on file';
+    const PAYING_CHAIN       = ['deposit_obtained_from_client', 'deposit_delivered_to_listing_agent', 'brokerage_deposit_receipt_received'];
+    const PAYING_CHAIN_LABELS = ['Deposit Obtained from Client', 'Deposit Delivered to Listing Agent', 'Brokerage Deposit Receipt Received'];
+    const RECEIPT_ID         = PAYING_CHAIN[2];
+    const COMPLETED_AT       = '2026-07-14T12:00:00.000Z';
+
+    function makeDoneTransaction(overrides = {}) {
+      return makeTcTransaction({ type: 'buyer_purchase', ...overrides });
+    }
+
+    // ── claim / parse ────────────────────────────────────────────────────────
+
+    test('DONE with a valid id calls completeOne with the right ids, completedAt from internalDate, at and now as processing time', async () => {
+      completeOne.mockReturnValue({ outcome: 'completed', itemIds: [DONE_ITEM_ID] });
+      const internalDate = Date.parse('2026-07-14T12:00:00.000Z');
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}`, internalDate });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(completeOne).toHaveBeenCalledTimes(1);
+      const [agentIdArg, txnArg, itemArg, opts] = completeOne.mock.calls[0];
+      expect(agentIdArg).toBe(AGENT_ID);
+      expect(txnArg).toBe(TXN_ID);
+      expect(itemArg).toBe(DONE_ITEM_ID);
+      expect(opts.completedAt).toBe(new Date(internalDate).toISOString());
+      expect(opts.at).toBe(opts.now.toISOString());
+      expect(opts.now).toBeInstanceOf(Date);
+      expect(completeChain).not.toHaveBeenCalled();
+      expect(uncompleteRows).not.toHaveBeenCalled();
+      expect(callRaw).not.toHaveBeenCalled();
+    });
+
+    test('RECEIPT with a valid id calls completeChain with the receipt id, completedAt from internalDate, at as processing time', async () => {
+      completeChain.mockReturnValue({ outcome: 'completed', itemIds: PAYING_CHAIN });
+      const internalDate = Date.parse('2026-07-14T12:00:00.000Z');
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}`, internalDate });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(completeChain).toHaveBeenCalledTimes(1);
+      const [agentIdArg, txnArg, receiptArg, opts] = completeChain.mock.calls[0];
+      expect(agentIdArg).toBe(AGENT_ID);
+      expect(txnArg).toBe(TXN_ID);
+      expect(receiptArg).toBe(RECEIPT_ID);
+      expect(opts.completedAt).toBe(new Date(internalDate).toISOString());
+      expect(opts.at).toBe(opts.now.toISOString());
+      expect(completeOne).not.toHaveBeenCalled();
+    });
+
+    test('UNDO with one to three ids calls uncompleteRows with the id array, at as processing time, no completedAt', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: [DONE_ITEM_ID], skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(uncompleteRows).toHaveBeenCalledTimes(1);
+      const [agentIdArg, txnArg, idsArg, opts] = uncompleteRows.mock.calls[0];
+      expect(agentIdArg).toBe(AGENT_ID);
+      expect(txnArg).toBe(TXN_ID);
+      expect(idsArg).toEqual([DONE_ITEM_ID]);
+      expect(opts.at).toBe(opts.now.toISOString());
+      expect(opts).not.toHaveProperty('completedAt');
+    });
+
+    test('UNDO with three ids passes all three through, in order, uncapped at the longest chain', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: PAYING_CHAIN, skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const [, , idsArg] = uncompleteRows.mock.calls[0];
+      expect(idsArg).toEqual(PAYING_CHAIN);
+    });
+
+    test('fall-through: "Done with the showing" calls no composition and goes down Track 2', async () => {
+      const msg = makeMsg({ subject: 'Done with the showing' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(completeOne).not.toHaveBeenCalled();
+      expect(callRaw).toHaveBeenCalledTimes(1);
+    });
+
+    test('fall-through: "Receipt attached for the inspection" calls no composition and goes down Track 2', async () => {
+      const msg = makeMsg({ subject: 'Receipt attached for the inspection' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(completeChain).not.toHaveBeenCalled();
+      expect(callRaw).toHaveBeenCalledTimes(1);
+    });
+
+    test('fall-through: "Undo this please" calls no composition and goes down Track 2', async () => {
+      const msg = makeMsg({ subject: 'Undo this please' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(uncompleteRows).not.toHaveBeenCalled();
+      expect(callRaw).toHaveBeenCalledTimes(1);
+    });
+
+    test('malformed: DONE missing itemId -> no composition call, parse-failure reply, note sent', async () => {
+      const msg = makeMsg({ subject: `DONE ${TXN_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(completeOne).not.toHaveBeenCalled();
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: "Nothing was changed. We couldn't read that request. Mo has been told and will follow up." })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('malformed: UNDO with four ids (over the three-id cap) -> no composition call, parse-failure reply', async () => {
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} a b c d` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(uncompleteRows).not.toHaveBeenCalled();
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: "Nothing was changed. We couldn't read that request. Mo has been told and will follow up." })
+      );
+    });
+
+    // ── DONE outcomes ────────────────────────────────────────────────────────
+
+    test('DONE transaction_not_found: exact reply, note sent', async () => {
+      completeOne.mockReturnValue({ outcome: 'transaction_not_found' });
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: "Nothing was changed. We couldn't find that deal. Mo has been told and will follow up." })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test.each([
+      ['closed',     `Nothing was changed. ${ADDRESS} is closed.`],
+      ['collapsed',  `Nothing was changed. ${ADDRESS} fell through.`],
+    ])('DONE deal_closed, state %s: exact reply, no note', async (state, expectedBody) => {
+      completeOne.mockReturnValue({ outcome: 'deal_closed', state });
+      store.readTransaction.mockReturnValue(makeDoneTransaction({ state }));
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody })
+      );
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('DONE deal_closed, state terminated (a listing): exact reply', async () => {
+      completeOne.mockReturnValue({ outcome: 'deal_closed', state: 'terminated' });
+      store.readTransaction.mockReturnValue(makeDoneTransaction({ type: 'seller_listing', state: 'terminated' }));
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. The listing for ${ADDRESS} has ended.` })
+      );
+    });
+
+    test('DONE unknown_item: exact reply, note sent with an item line', async () => {
+      completeOne.mockReturnValue({ outcome: 'unknown_item' });
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} not_a_real_item` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. We couldn't find that item on ${ADDRESS}. Mo has been told and will follow up.` })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          to: OPERATOR_EMAIL,
+          body: `agent: ${AGENT_ID}\nmessageId: msg-1\nverb: DONE\ntransactionId: ${TXN_ID}\nsetId: -\nitem: not_a_real_item\noutcome: unknown_item`,
+        })
+      );
+    });
+
+    test('DONE not_required: exact reply, no note', async () => {
+      completeOne.mockReturnValue({ outcome: 'not_required' });
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. ${DONE_ITEM_LABEL} isn't on the checklist for ${ADDRESS} right now.` })
+      );
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('DONE already_complete: exact reply naming the label, address and formatted date, no note', async () => {
+      completeOne.mockReturnValue({ outcome: 'already_complete', completedAt: '2026-07-11T00:00:00.000Z' });
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `${DONE_ITEM_LABEL} for ${ADDRESS}. Already marked done on July 10, 2026.` })
+      );
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('DONE completed: exact plain body, html carries a real Undo link, no note', async () => {
+      completeOne.mockReturnValue({ outcome: 'completed', itemIds: [DONE_ITEM_ID] });
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = `Done. Marked complete for ${ADDRESS}: ${DONE_ITEM_LABEL}.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${DONE_ITEM_ID}`;
+      const expectedHtml = `Done. Marked complete for ${ADDRESS}: ${DONE_ITEM_LABEL}.<br><br>` +
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody, html: expectedHtml })
+      );
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    // ── internalDate fallback ────────────────────────────────────────────────
+
+    test('DONE: missing internalDate falls back to processing time for completedAt and logs one line', async () => {
+      completeOne.mockReturnValue({ outcome: 'completed', itemIds: [DONE_ITEM_ID] });
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}`, internalDate: 0 });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const [, , , opts] = completeOne.mock.calls[0];
+      expect(opts.completedAt).toBe(opts.now.toISOString());
+      const lines = logSpy.mock.calls.map((c) => c[0]).filter((l) => typeof l === 'string');
+      expect(lines.some((l) => l === `[tc-verb] messageId=msg-1 missing internalDate, using processing time for completedAt`)).toBe(true);
+    });
+
+    // ── RECEIPT outcomes ─────────────────────────────────────────────────────
+
+    test('RECEIPT deal_closed: exact reply, no note (its own case branch, not just DONE\'s)', async () => {
+      completeChain.mockReturnValue({ outcome: 'deal_closed', state: 'closed' });
+      store.readTransaction.mockReturnValue(makeTcTransaction({ state: 'closed' }));
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. ${ADDRESS} is closed.` })
+      );
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('RECEIPT not_required: names the receipt label, not a deeper step', async () => {
+      completeChain.mockReturnValue({ outcome: 'not_required' });
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. ${PAYING_CHAIN_LABELS[2]} isn't on the checklist for ${ADDRESS} right now.` })
+      );
+    });
+
+    test('RECEIPT unknown_item: exact reply, note sent with an item line (its own case branch, not just DONE\'s)', async () => {
+      completeChain.mockReturnValue({ outcome: 'unknown_item' });
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} not_a_real_item` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. We couldn't find that item on ${ADDRESS}. Mo has been told and will follow up.` })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          to: OPERATOR_EMAIL,
+          body: `agent: ${AGENT_ID}\nmessageId: msg-1\nverb: RECEIPT\ntransactionId: ${TXN_ID}\nsetId: -\nitem: not_a_real_item\noutcome: unknown_item`,
+        })
+      );
+    });
+
+    test('RECEIPT already_complete: names the receipt label', async () => {
+      completeChain.mockReturnValue({ outcome: 'already_complete', completedAt: '2026-07-13T00:00:00.000Z' });
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `${PAYING_CHAIN_LABELS[2]} for ${ADDRESS}. Already marked done on July 12, 2026.` })
+      );
+    });
+
+    test('RECEIPT completed, fresh chain: all three labels, Undo link lists all three ids', async () => {
+      completeChain.mockReturnValue({ outcome: 'completed', itemIds: PAYING_CHAIN });
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = `Done. Marked complete for ${ADDRESS}: ${PAYING_CHAIN_LABELS.join(', ')}.\n\n` +
+        `Tapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`;
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody })
+      );
+    });
+
+    test('RECEIPT completed, partial chain: itemIds returned by the tap is what the reply and the Undo link use, not the full chain', async () => {
+      const freshIds = [PAYING_CHAIN[1], PAYING_CHAIN[2]];
+      completeChain.mockReturnValue({ outcome: 'completed', itemIds: freshIds });
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = `Done. Marked complete for ${ADDRESS}: ${PAYING_CHAIN_LABELS[1]}, ${PAYING_CHAIN_LABELS[2]}.\n\n` +
+        `Tapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${freshIds.join(' ')}`;
+      const expectedHtml = `Done. Marked complete for ${ADDRESS}: ${PAYING_CHAIN_LABELS[1]}, ${PAYING_CHAIN_LABELS[2]}.<br><br>` +
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${freshIds.join(' ')}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody, html: expectedHtml })
+      );
+      expect(expectedBody).not.toContain(PAYING_CHAIN_LABELS[0]);
+    });
+
+    // ── UNDO outcomes ────────────────────────────────────────────────────────
+
+    test('UNDO deal_closed: exact reply, no note (its own case branch, not just DONE\'s)', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'deal_closed', state: 'collapsed' });
+      store.readTransaction.mockReturnValue(makeTcTransaction({ state: 'collapsed' }));
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. ${ADDRESS} fell through.` })
+      );
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('UNDO nothing_to_undo: exact reply, no note', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'nothing_to_undo', skipped: [DONE_ITEM_ID] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. None of those were marked done for ${ADDRESS}.` })
+      );
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('UNDO unknown_item: exact reply, note sent with an item line listing every id before dedup (its own case branch, not just DONE\'s)', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'unknown_item' });
+      // A duplicate id in the subject: uncompleteRows would dedup this
+      // internally, but the note must show exactly what was typed.
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} not_a_real_item not_a_real_item` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Nothing was changed. We couldn't find that item on ${ADDRESS}. Mo has been told and will follow up.` })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          to: OPERATOR_EMAIL,
+          body: `agent: ${AGENT_ID}\nmessageId: msg-1\nverb: UNDO\ntransactionId: ${TXN_ID}\nsetId: -\nitem: not_a_real_item not_a_real_item\noutcome: unknown_item`,
+        })
+      );
+    });
+
+    test('UNDO uncompleted, all rows reversed: no skipped sentence, no Undo link on its own reply', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: [DONE_ITEM_ID], skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const call = gmail.sendNewEmail.mock.calls.find((c) => c[1].to === AGENT_EMAIL);
+      expect(call[1].body).toBe(`Done. Back on the checklist for ${ADDRESS}: ${DONE_ITEM_LABEL}.`);
+      // UNDO's own reply never builds a custom html part (no Undo-the-Undo
+      // link), so sendConfirmation falls back to its default derivation.
+      expect(call[1].html).toBe(`Done. Back on the checklist for ${ADDRESS}: ${DONE_ITEM_LABEL}.`);
+    });
+
+    test('UNDO uncompleted, a mixed list: undone row named, skipped row gets its own sentence', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: [PAYING_CHAIN[0]], skipped: [PAYING_CHAIN[1]] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${PAYING_CHAIN[0]} ${PAYING_CHAIN[1]}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = `Done. Back on the checklist for ${ADDRESS}: ${PAYING_CHAIN_LABELS[0]}. ` +
+        `${PAYING_CHAIN_LABELS[1]} wasn't marked done, so nothing changed there.`;
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody })
+      );
+    });
+
+    // ── write-outcome fallback ───────────────────────────────────────────────
+
+    test('DONE completed but describe throws: fallback text carries the Undo line and link, listing writeResult.itemIds, note sent', async () => {
+      completeOne.mockReturnValue({ outcome: 'completed', itemIds: [DONE_ITEM_ID] });
+      store.readTransaction.mockReturnValue(null);
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = `Done. The item was marked complete.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${DONE_ITEM_ID}`;
+      const expectedHtml = `Done. The item was marked complete.<br><br>` +
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody, html: expectedHtml })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('RECEIPT completed but describe throws: fallback text carries the Undo line and link, listing writeResult.itemIds, note sent', async () => {
+      completeChain.mockReturnValue({ outcome: 'completed', itemIds: PAYING_CHAIN });
+      store.readTransaction.mockReturnValue(null);
+      const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = `Done. The deposit was marked complete.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`;
+      const expectedHtml = `Done. The deposit was marked complete.<br><br>` +
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody, html: expectedHtml })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    test('UNDO uncompleted but describe throws: fallback text carries no Undo link, matching its normal reply', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: [DONE_ITEM_ID], skipped: [] });
+      store.readTransaction.mockReturnValue(null);
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${DONE_ITEM_ID}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = 'Done. Those items are back on the checklist.';
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody, html: plainTextToHtml(expectedBody) })
+      );
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ to: OPERATOR_EMAIL }));
+    });
+
+    // ── logging ──────────────────────────────────────────────────────────────
+
+    test('the [tc-verb] log line for DONE matches the shared format', async () => {
+      completeOne.mockReturnValue({ outcome: 'completed', itemIds: [DONE_ITEM_ID] });
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const msg = makeMsg({ subject: `DONE ${TXN_ID} ${DONE_ITEM_ID}`, internalDate: Date.parse('2026-07-14T12:00:00.000Z') });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      // Distinct from the internalDate-fallback line, which also starts
+      // with the [tc-verb] tag -- match the summary line's own shape.
+      const line = logSpy.mock.calls.map((c) => c[0]).find((l) => typeof l === 'string' && l.startsWith('[tc-verb] agent='));
+      expect(line).toBe(`[tc-verb] agent=${AGENT_ID} messageId=msg-1 verb=DONE outcome=completed noted=false replied=true`);
     });
   });
 
