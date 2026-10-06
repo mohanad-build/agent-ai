@@ -82,6 +82,6 @@ exist to catch exactly that.
 - gmail.js turns a missing internalDate into 0. Commit 3 never writes
   that as completedAt: it falls back to processing time and logs one
   line saying so.
-- CONFIRM stamps its write with processing time, not the message date.
-  DONE, RECEIPT and UNDO use the message date per decision 5; CONFIRM is
-  left as is.
+- completedAt (DONE, RECEIPT) is the tapped message's date: when the
+  agent said it was done. Every event's at, UNDO's included, is
+  processing time: when the system recorded it, matching CONFIRM.
