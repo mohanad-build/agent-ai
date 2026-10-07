@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 82 (2026-10-04).
+Last updated: session 83 (2026-10-06).
 
 ## What GetKlosed is
 
@@ -22,7 +22,8 @@ alerts the agent when something needs them. Mo runs the business and is the oper
   for real agent voice samples.
 - TC, Phase A foundations: deal store, full Ontario checklist catalog for six deal types, the
   resolver, the deal-open CLI, the document filing loop (inbox to Drive), participants and
-  proposal sets, and the `assistant@` verbs CONFIRM, REJECT and WRONGDEAL.
+  proposal sets, and the `assistant@` verbs CONFIRM, REJECT and WRONGDEAL. The `assistant@` taps
+  DONE, RECEIPT and UNDO, live-verified 2026-10-06.
 - Paying agents: none yet. TC deals in production: none yet.
 - Production runs Node 18.20.8 (end of life); local development runs Node 22. See Next.
 - Agent phones are validated at signup and on the dashboard edit; any failed agent text emails Mo
@@ -40,6 +41,26 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
+## Session 83: the DONE verb (DONE, RECEIPT, UNDO on `assistant@`)
+
+Tests 3315/161 to 3404/163. Merged to `main` and deployed; live-verified 2026-10-06.
+
+| Commit | What |
+|---|---|
+| `c052ea2` | docs: DONE verb design note (the alert tap states the fact it records) |
+| `3ca8f2f` | `markItemComplete` refuses an item that is already complete |
+| `0d0b617` | `chainEndingAt`: one chain lookup shared by the alerts and the RECEIPT tap |
+| `d47584c` | Pure builders for completing and uncompleting an item; the checks live in the builders |
+| `cb3c8f5` | docs: corrected the double-end finding in the DONE design note |
+| `deb0bb7` | `taps.js`: one-save DONE, RECEIPT and UNDO compositions, outcomes only, never a partial write |
+| `b2221c2` | docs: completedAt is the message date, every event's `at` is processing time, matching CONFIRM |
+| `e289cf8` | `assistant@`: DONE, RECEIPT and UNDO verbs live, with a real Undo link on every completed reply |
+
+Live check on a seeded `mo-test` deal: DONE on a fresh item; RECEIPT on a partial deposit chain;
+the Undo link tapped from the reply, on an iPhone; DONE again on the same item, already done;
+DONE on an unknown item, with its operator note; and "Done with the showing" reaching Track 2, not
+the verb. Seed deal removed.
+
 ## Session 82: phone validation, text-failure alerts, welcome text, cycle guard
 
 - Session 81's deploy verified live: the brief sent by SMS and email, no digest failures, no false
@@ -47,7 +68,8 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `unella-bolton` (the agent Google's reviewer created during OAuth review) deleted from the Volume.
 - Railway's restart policy set to Always (the cycle-guard watchdog in this session depends on it).
 
-Tests 3210/150 to 3315/161. Merged to `main` and deployed; live check pending.
+Tests 3210/150 to 3315/161. Merged to `main` and deployed; verified live 2026-10-05: cycle-guard
+lines every cycle, no orchestrator cycle error in a week, welcome text received.
 
 | Commit | What |
 |---|---|
@@ -92,7 +114,9 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
   condition heads-up 2 days before its date; condition passed 1 and 4 days after; deposit and
   additional deposit overdue 2 and 7 days after their date; a failed filing in the 24 hours before
   the brief. Stateless: each threshold fires once; the Monday picture is the backstop.
-- Every alert will carry a "Got it" tap (`DONE` via `assistant@`) that ticks the item. A "fell
+- Superseded by `docs/designs/done-verb.md`: the tap states the fact it records, not "Got it" --
+  "Waived or fulfilled" for a condition, "Deposit received" for an additional deposit, the stuck
+  step's own label for a deposit step, and "Receipt in hand" for the whole deposit chain. A "fell
   through" response emails Mo instead, because a collapsed deal cannot be undone.
 - The deposit is a three-step chain, the same on leases and sales. The receipt closes it. On a
   double-end only the holding side applies. Additional deposits: sales only in v1, at most one.
@@ -105,13 +129,13 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. The "Got it" tap: the `DONE` verb on `assistant@`. Design note goes in `docs/designs/`.
-2. The daily "Deals needing you" section: render the alerts with the tap, an email link and a Drive
-   link; use the settled reader; an unreadable deal file gets an honest line.
-3. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
-4. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
+1. The daily "Deals needing you" section: render the alerts with the tap, an email link and a Drive
+   link; use the settled reader; an unreadable deal file gets an honest line. Readers decide done
+   from `completed` alone, never from a date being present.
+2. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
+3. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
    (APS); Mo opens the deal. Watch what lands in their inbox at acceptance (this designs Phase B).
-5. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
+4. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
 
 Not on the shortest path: new product scope, the small-business side idea, Phase B deal detection.
 
@@ -120,11 +144,6 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 - Fold session 81's alert design into `TC_SPEC.md` as version 24.
 - An inactive agent logs "skipped (inactive)" followed by "sms=n/a email=n/a" every cycle for about
   an hour after its brief time, and the second line contradicts the first.
-- Noted before session 82's cycle guard existed, and recorded here as written: `server.js`'s
-  `setInterval` did not wait for the previous orchestrator cycle to finish before starting the next
-  one, and nothing elsewhere guarded against it either, so overlapping cycles were possible when a
-  cycle ran past 5 minutes, with two cycles able to act on the same lead. Session 82's cycle guard
-  (above) is the fix; confirm it live before treating this as closed.
 - Pre-existing, kept as-is by session 82's reminder-branch split: when the reminder text sends but
   the Sheet write fails, `reminderSent` is never recorded, so the reminder is sent again every cycle
   until the Sheet recovers.
@@ -158,6 +177,12 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
   deal" nudge to Mo. A `--deposit-received` flag on deal-open.
 - Domain question for Mo: trusts and estates (`other_entity`) may need a separate FINTRAC entity
   record that the catalog does not have.
+- `scripts/complete-item.js` defaults actor to `'agent'`, so Mo's own CLI completions are recorded
+  as the agent's; deal-open correctly records `'operator'`.
+- Catalog labels mix Title Case (the deposit steps) and sentence case (the deal sheet); agents see
+  both in one reply.
+- An undone row keeps its `completedAt` and `note` with `completed: false` (by design, so the
+  history is kept); any reader must key on `completed`, never on a date or note being present.
 
 Carried from earlier sessions (details in `docs/history/PROJECT_STATE_to_session_80.md`, section 7
 and the session 80 board): 7.58.1 to 7.58.14, 7.57.5 to 7.57.12, 7.56.x, 7.54.x, the `listingId`
@@ -171,6 +196,8 @@ adoption trap, `WEBHOOK_SKIP_SIGNATURE_CHECK` removal, 7.49.4.
 - The claude.ai Project syncs `docs/` and `CLAUDE.md` from GitHub, so the chat always knows the
   current state. The chat is for strategy, sales, design decisions and reviewing risky changes.
 - Mo commits, pushes and deploys. Nothing reaches production without his review of the raw diff.
+- After each push to `main`, sync the claude.ai Project's GitHub source by hand, or the next chat
+  starts a session behind.
 
 ## Session 81 notes for the record
 
