@@ -183,7 +183,7 @@ describe('transitionTransaction', () => {
     expect(result.transaction.state).toBe('closed');
   });
 
-  test('transitioning to collapsed with items outstanding writes no closed_with_items_outstanding event', () => {
+  test('transitioning to collapsed with items outstanding writes no closed_with_items_outstanding event, but does write a state_transitioned event', () => {
     const created = createInState('firm');
 
     const result = transitionTransaction(AGENT_ID, created.transactionId, 'collapsed', {
@@ -195,7 +195,10 @@ describe('transitionTransaction', () => {
 
     expect(result.valid).toBe(true);
     expect(result.transaction.state).toBe('collapsed');
-    expect(result.transaction.events).toBeUndefined();
+    expect(closeEvents(result.transaction)).toHaveLength(0);
+    expect(result.transaction.events).toEqual([
+      { at: AT, actor: 'system', kind: 'state_transitioned', payload: { fromState: 'firm', toState: 'collapsed', reason: null } },
+    ]);
   });
 
   test('the caller cannot supply items: passing an items option has no effect on the payload', () => {
@@ -232,7 +235,7 @@ describe('transitionTransaction', () => {
     expect(closeEvents(onDisk)).toHaveLength(1);
   });
 
-  test('a non-close transition never writes an event', () => {
+  test('a non-close transition writes only a state_transitioned event', () => {
     const created = createInState('conditional');
 
     const result = transitionTransaction(AGENT_ID, created.transactionId, 'firm', {
@@ -244,10 +247,14 @@ describe('transitionTransaction', () => {
 
     expect(result.valid).toBe(true);
     expect(result.transaction.state).toBe('firm');
-    expect(result.transaction.events).toBeUndefined();
+    expect(result.transaction.events).toEqual([
+      { at: AT, actor: 'system', kind: 'state_transitioned', payload: { fromState: 'conditional', toState: 'firm', reason: null } },
+    ]);
 
     const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
-    expect(onDisk.events).toBeUndefined();
+    expect(onDisk.events).toEqual([
+      { at: AT, actor: 'system', kind: 'state_transitioned', payload: { fromState: 'conditional', toState: 'firm', reason: null } },
+    ]);
   });
 
   test('closing does not count a client-scoped item as outstanding once every represented person has satisfied it', () => {
@@ -308,5 +315,59 @@ describe('transitionTransaction', () => {
       baseDir,
       now: CLOCK,
     })).toThrow(/no transaction txn-20260715-00000000 for agent test-agent/);
+  });
+
+  test('closing with items outstanding writes closed_with_items_outstanding before state_transitioned', () => {
+    const created = createInState('firm');
+
+    const result = transitionTransaction(AGENT_ID, created.transactionId, 'closed', {
+      at: AT,
+      actor: 'agent',
+      baseDir,
+      now: LATER,
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.transaction.events).toHaveLength(2);
+    expect(result.transaction.events[0].kind).toBe('closed_with_items_outstanding');
+    expect(result.transaction.events[1].kind).toBe('state_transitioned');
+  });
+
+  test('a reason is carried on the state_transitioned event payload, and is null when not given', () => {
+    const created = createInState('conditional');
+
+    const withReason = transitionTransaction(AGENT_ID, created.transactionId, 'firm', {
+      at: AT,
+      actor: 'operator',
+      reason: 'buyer backed out',
+      baseDir,
+      now: CLOCK,
+    });
+    expect(withReason.transaction.events[0].payload.reason).toBe('buyer backed out');
+
+    const createdNoReason = createInState('conditional');
+    const withoutReason = transitionTransaction(AGENT_ID, createdNoReason.transactionId, 'firm', {
+      at: AT,
+      actor: 'operator',
+      baseDir,
+      now: CLOCK,
+    });
+    expect(withoutReason.transaction.events[0].payload.reason).toBeNull();
+  });
+
+  test('missing at throws transitionTransaction: at is required, before reading the transaction', () => {
+    expect(() => transitionTransaction(AGENT_ID, 'txn-20260715-00000000', 'firm', {
+      actor: 'operator',
+      baseDir,
+      now: CLOCK,
+    })).toThrow('transitionTransaction: at is required');
+  });
+
+  test('missing actor throws transitionTransaction: actor is required, before reading the transaction', () => {
+    expect(() => transitionTransaction(AGENT_ID, 'txn-20260715-00000000', 'firm', {
+      at: AT,
+      baseDir,
+      now: CLOCK,
+    })).toThrow('transitionTransaction: actor is required');
   });
 });
