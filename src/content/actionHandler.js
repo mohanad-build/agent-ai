@@ -26,6 +26,7 @@ const { loadOperator }            = require('../operatorConfig');
 const { plainTextToHtml, escapeHtml } = require('../plainTextHtml');
 const { completeOne, completeChain, uncompleteRows } = require('../transactions/taps');
 const { ASSISTANT_EMAIL } = require('../assistantAddress');
+const { OPERATOR_CONTACT_EMAIL } = require('../operatorAddress');
 const { TC_CLAIM_RE, parseTcCommand, catalogItemLabel, buildUndoSubject, buildUndoMailtoHref } = require('../transactions/tapLinks');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
@@ -33,7 +34,6 @@ function getTokenPath() { return path.join(getStorageRoot(), 'assistant.json'); 
 function getAgentsDir()  { return getStorageRoot(); }
 const REGEN_CAP            = 5;
 const CONFIDENCE_THRESHOLD = 0.7;
-const OPERATOR_CONTACT_EMAIL = 'mohanad@getklosed.ca';
 
 // Unrecognized-sender reply gates (7.54.8): never authorize a verb, only
 // decide whether a fixed "we don't know this address" notice goes out.

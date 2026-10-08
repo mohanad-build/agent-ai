@@ -30,6 +30,12 @@ const { getStorageRoot } = require('./storagePaths');
 const { CALL_NOTE_LABEL } = require('./callNote');
 const { isAgentConfigFilename } = require('./agentDiscovery');
 const cycleGuard = require('./cycleGuard');
+const { ASSISTANT_EMAIL } = require('./assistantAddress');
+const { OPERATOR_CONTACT_EMAIL } = require('./operatorAddress');
+const { readAllTransactionsSettled } = require('./transactions/queries');
+const { collectDealAlerts } = require('./transactions/dealAlerts');
+const { todayInTimeZone } = require('./calendarDate');
+const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject } = require('./digestDeals');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -263,7 +269,7 @@ function calledAffordanceHtml(leadId, firstName, T) {
   if (!leadId) return '';
   const calledSubject = encodeURIComponent('CALLED ' + leadId);
   const calledBody = encodeURIComponent(CALL_NOTE_LABEL + ' ');
-  const mailtoHref = 'mailto:assistant@getklosed.ca?subject=' + calledSubject + '&body=' + calledBody;
+  const mailtoHref = 'mailto:' + ASSISTANT_EMAIL + '?subject=' + calledSubject + '&body=' + calledBody;
   return `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};margin-top:4px;">` +
     `<a href="${esc(mailtoHref)}" style="color:${T.mutedTextColor};">${esc(`Called ${firstName}? Tap to clear and add a note`)}</a>` +
     `</div>`;
@@ -448,6 +454,52 @@ function _appendDigestErrorLog(filepath, label, error) {
  * @param {object} agentConfig
  * @returns {Promise<{smsSent: boolean, emailSent: boolean, sections: object}>}
  */
+// Plain, hardcoded one-off: the same section-header shape renderDealsHtml's
+// own local sectionHeader() builds, but that is a closure private to that
+// function, and this is the one line digest.js needs when the deals path
+// itself cannot be trusted to render anything (see runDailyDigestForAgent's
+// fault-isolating try/catch). Not worth exporting a shared header builder
+// for one line used in one place.
+function dealsErrorHtml() {
+  const T = STYLE_TOKENS;
+  return `<div style="margin-top:24px;margin-bottom:12px;padding-bottom:8px;` +
+    `border-bottom:1px solid ${T.sectionDividerColor};` +
+    `font-weight:${T.buttonFontWeight};color:${T.bodyTextColor};">Deals needing you</div>` +
+    `<div>Deal updates couldn't be loaded this morning. Mo has been told.</div>`;
+}
+
+function dealsErrorPlain() {
+  return `-- Deals needing you --\n\nDeal updates couldn't be loaded this morning. Mo has been told.`;
+}
+
+// Same checks alertOperatorSheetUnavailable already makes (agentConfig.operatorId
+// present, loadOperator succeeds, operatorEmail present), reused here because the
+// fell-through link needs an operator address too and must degrade the same way:
+// never let a broken operator record blank the whole deals section (see the
+// commit-6 recon) -- fall back to Mo's own fixed address instead. Logs the
+// agentId and the reason only, never an email address, on every fallback.
+function resolveOperatorEmailForDeals(agentConfig) {
+  if (!agentConfig.operatorId) {
+    console.warn(`[${agentConfig.agentId}] deals: no operatorId (reason: no_operator), falling back to the operator contact address`);
+    return OPERATOR_CONTACT_EMAIL;
+  }
+
+  let operatorConfig;
+  try {
+    operatorConfig = loadOperator(agentConfig.operatorId);
+  } catch (err) {
+    console.warn(`[${agentConfig.agentId}] deals: loadOperator failed (reason: operator_load_failed), falling back to the operator contact address`);
+    return OPERATOR_CONTACT_EMAIL;
+  }
+
+  if (!operatorConfig.operatorEmail) {
+    console.warn(`[${agentConfig.agentId}] deals: operator has no operatorEmail (reason: no_operator_email), falling back to the operator contact address`);
+    return OPERATOR_CONTACT_EMAIL;
+  }
+
+  return operatorConfig.operatorEmail;
+}
+
 async function runDailyDigestForAgent(agentConfig, options = {}) {
   const dryRun = options.dryRun === true;
 
@@ -463,16 +515,51 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
   const gathered = await gatherWindowData(agentConfig, startIso, endIso, { digestCadence: 'daily' });
   const { rows, stateCounters, reliability, leads } = gathered;
 
-  // The TC section (a later commit) will extend this check: a no-Sheet
-  // agent should get a brief only on a day something there needs them.
-  // Until then, no Sheet means no content, so there is nothing to send.
-  // No stamp is written here, so the scheduler simply re-checks next cycle.
-  if (leads.status === 'not_configured') {
-    console.log(`[${agentConfig.agentId}] daily digest: nothing to send (no lead sheet configured)`);
-    return { skipped: 'nothing_to_send', leads };
+  const now = getNowDate();
+
+  // Deals: read, aggregate, and render are fault-isolated from the lead
+  // brief. Runs AFTER gatherWindowData, not before: a genuine Sheet
+  // hard-failure above still rejects this whole function before any deals
+  // code runs, exactly as it did before this section existed.
+  let dealsCollected = { alerts: [], activeCount: 0, unreadable: [] };
+  let dealsResult = { status: 'ok' };
+  try {
+    const settled = readAllTransactionsSettled(agentConfig.agentId, { baseDir: options.baseDir });
+    const today = todayInTimeZone(now, agentConfig.timezone || 'America/Toronto');
+    dealsCollected = collectDealAlerts(settled, { today, now });
+    dealsResult = dealsCollected.unreadable.length > 0
+      ? { status: 'unreadable', unreadable: dealsCollected.unreadable }
+      : { status: 'ok' };
+  } catch (err) {
+    dealsResult = { status: 'error', error: err.message };
+    console.error(`[${agentConfig.agentId}] daily digest: deals section failed: ${err.message}`);
+    _appendDigestErrorLog(
+      path.join(getStorageRoot(), `${agentConfig.agentId}.digest-errors.log`),
+      'daily-deals',
+      err
+    );
   }
 
-  const now        = getNowDate();
+  const dealsAlertsPresent = dealsCollected.alerts.length > 0;
+
+  // A not_configured agent gets no Sheet content at all, but a deal alert,
+  // an unreadable deal file, or a broken deals read are each still reasons
+  // to send: skip only when there is truly nothing to say, exactly as
+  // today (byte-identical skip return, no deals field -- commit-6 amendment 2).
+  if (leads.status === 'not_configured') {
+    const dealsHasAnything = dealsAlertsPresent || dealsCollected.unreadable.length > 0 || dealsResult.status === 'error';
+    if (!dealsHasAnything) {
+      console.log(`[${agentConfig.agentId}] daily digest: nothing to send (no lead sheet configured)`);
+      return { skipped: 'nothing_to_send', leads };
+    }
+  }
+
+  // An agent cannot act on an unreadable file or a broken deals read, so a
+  // not_configured agent with neither an alert to name nor a lead to report
+  // gets the email only, never a text: silence there would hide that their
+  // deal coverage is missing.
+  const suppressSmsForNotConfigured = leads.status === 'not_configured' && !dealsAlertsPresent;
+
   const categories = categorizeRowsForDigest(rows, now);
 
   const systemHandled = stateCounters.systemHandled;
@@ -492,9 +579,27 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     leads,
   };
 
-  const smsBody         = renderSMS(smsStats, topUrgent);
-  const { subject, body: emailBody } = renderEmail(sections, agentConfig, now);
-  const { html: emailHtml } = renderEmailHtml(sections, agentConfig, now);
+  // Resolved once per agent, only when a condition_passed row will actually
+  // need it (the only kind that builds a fell-through link), so an agent
+  // with no deals at all never triggers an operator-file read or a log line.
+  const needsOperatorEmail = dealsCollected.alerts.some((a) => a.kind === 'condition_passed');
+  const dealsCtx = {
+    gmailAddress: agentConfig.gmailAddress,
+    operatorEmail: needsOperatorEmail ? resolveOperatorEmailForDeals(agentConfig) : null,
+    T: STYLE_TOKENS,
+  };
+
+  const dealsPlain = dealsResult.status === 'error' ? dealsErrorPlain() : renderDealsPlain(dealsCollected, dealsCtx);
+  const dealsHtmlSection = dealsResult.status === 'error' ? dealsErrorHtml() : renderDealsHtml(dealsCollected, dealsCtx);
+  const smsDealsLine = suppressSmsForNotConfigured ? '' : dealsSmsLine(dealsCollected);
+  const dealsSubjectValue = dealsSubject(dealsCollected);
+
+  const smsBody         = renderSMS(smsStats, topUrgent, smsDealsLine);
+  const { subject: leadSubject, body: leadBody } = renderEmail(sections, agentConfig, now);
+  const { html: emailHtml } = renderEmailHtml(sections, agentConfig, now, dealsHtmlSection);
+
+  const subject  = dealsSubjectValue !== null ? dealsSubjectValue : leadSubject;
+  const emailBody = dealsPlain ? `${dealsPlain}\n\n${leadBody}` : leadBody;
 
   const errors = [];
   let smsResult;
@@ -508,6 +613,8 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
 
   // SMS send
   if (!smsEnabled) {
+    smsResult = 'skipped';
+  } else if (suppressSmsForNotConfigured) {
     smsResult = 'skipped';
   } else if (dryRun && !agentConfig.operatorPhone) {
     console.log(`[${agentConfig.agentId}] daily digest dry-run: no operatorPhone, skipping SMS`);
@@ -563,7 +670,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     }
   }
 
-  return { smsResult, emailResult, errors, leads };
+  return { smsResult, emailResult, errors, leads, deals: dealsResult };
 }
 
 // Tells the operator when an agent's Sheet comes back unavailable (403/404),
@@ -1211,7 +1318,7 @@ function categorizeRowsForDigest(rows, now) {
  * @param {object|null} urgent  the top urgent item, or null if none
  * @returns {string}
  */
-function renderSMS(stats, urgent) {
+function renderSMS(stats, urgent, dealsLine = '') {
   const line1base = buildOpenerLine(
     { intaken: stats.intaken, followUpsFired: stats.followUpsFired, noiseFiltered: stats.noiseFiltered },
     urgent !== null,
@@ -1219,9 +1326,10 @@ function renderSMS(stats, urgent) {
     stats.leads,
   );
   const opener = line1base === null ? '' : `${line1base}\n`;
+  const dealsSuffix = dealsLine ? `${dealsLine}\n` : '';
 
   if (urgent === null) {
-    return `${opener}Full brief in your inbox.`;
+    return `${opener}${dealsSuffix}Full brief in your inbox.`;
   }
 
   const ctx = urgentShortContext(urgent);
@@ -1235,12 +1343,15 @@ function renderSMS(stats, urgent) {
     ? `\nReply CALLED ${urgent.leadId} to clear it. Add a note after with anything from the call.`
     : '';
 
-  return `${opener}${line2}${calledLine}\nFull brief in your inbox.`;
+  return `${opener}${line2}${calledLine}\n${dealsSuffix}Full brief in your inbox.`;
 }
 
 /**
  * Pure function. Produces the plaintext email body per spec section 4.1.
- * Empty sections are omitted except "What the system handled" (always renders).
+ * Empty sections are omitted except "What the system handled", which always
+ * renders unless leads.status is not_configured: an agent with no Sheet can
+ * never produce a non-zero line in it (see gatherWindowData), so the whole
+ * section, header included, is omitted instead.
  * Section ordering is fixed.
  *
  * @param {object} sections  the shape returned by categorizeRowsForDigest
@@ -1250,6 +1361,7 @@ function renderSMS(stats, urgent) {
  */
 function renderEmail(sections, agentConfig, now) {
   const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability, leads } = sections;
+  const leadsStatus = leads ? leads.status : 'ok';
   const timezone = agentConfig.timezone || 'America/Toronto';
   const gid = agentConfig.googleSheetId;
 
@@ -1324,7 +1436,8 @@ function renderEmail(sections, agentConfig, now) {
     parts.push(`${header}\n\n${rows.join('\n')}`);
   }
 
-  {
+  // Omitted for not_configured: see the function docstring above.
+  if (leadsStatus !== 'not_configured') {
     const sh = systemHandled;
     const lines = Object.entries(SYSTEM_HANDLED_LABELS)
       .filter(([key]) => key in sh)
@@ -1368,8 +1481,9 @@ function renderEmail(sections, agentConfig, now) {
  * @param {Date} now
  * @returns {{ subject: string, html: string }}
  */
-function renderEmailHtml(sections, agentConfig, now) {
+function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
   const { urgent, hotLeads, newToReview, followUpsDue, followUpsFiredOvernight, systemHandled, reliability, leads } = sections;
+  const leadsStatus = leads ? leads.status : 'ok';
   const timezone = agentConfig.timezone || 'America/Toronto';
 
   const subject = urgent.length > 0
@@ -1487,8 +1601,8 @@ function renderEmailHtml(sections, agentConfig, now) {
     }
   }
 
-  // What the system handled (always renders, muted text, no buttons)
-  {
+  // What the system handled (muted text, no buttons; omitted for not_configured, see renderEmail)
+  if (leadsStatus !== 'not_configured') {
     const sh = systemHandled;
     const lines = Object.entries(SYSTEM_HANDLED_LABELS)
       .filter(([key]) => key in sh)
@@ -1526,6 +1640,7 @@ function renderEmailHtml(sections, agentConfig, now) {
     `<body style="margin:0;padding:0;background-color:${T.bodyBackground};">\n` +
     `<div style="max-width:${T.containerMaxWidth};margin:0 auto;padding:${T.containerPadding};` +
     `font-family:${T.fontStack};font-size:${T.fontSize};line-height:${T.lineHeight};color:${T.bodyTextColor};">\n` +
+    (dealsHtml ? dealsHtml + '\n' : '') +
     parts.join('\n') + '\n' +
     `</div>\n` +
     `</body>\n` +

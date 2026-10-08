@@ -241,6 +241,32 @@ test('leads unavailable (permission): warning opener, no Handled line, only nois
   expect(result.body).not.toContain('Follow-ups fired:');
 });
 
+test('leads not_configured: What the system handled is omitted entirely, header included', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled = { preflightSkips: 0, noiseFiltered: 0 };
+  sections.leads = { status: 'not_configured', errorKind: null };
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).not.toContain('What the system handled');
+  expect(result.body).not.toContain('Pre-flight skips this week:');
+  expect(result.body).not.toContain('Noise filtered:');
+});
+
+test('leads not_configured with urgent rows: opener is still suppressed, rest of body unaffected', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled = { preflightSkips: 0, noiseFiltered: 0 };
+  sections.leads = { status: 'not_configured', errorKind: null };
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K',
+    category: 'HOT', propertyReference: '45 Maple',
+    hoursAwaiting: null, rowIndex: 3,
+  }];
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).toContain('Sarah K');
+  expect(result.body).not.toContain('What the system handled');
+});
+
 test('noiseArchived > 0 renders the archived-noise link line', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 3;

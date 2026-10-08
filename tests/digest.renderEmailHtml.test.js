@@ -279,6 +279,17 @@ test('leads unavailable (permission): warning opener, no Handled text, only nois
   expect(html).not.toContain('Follow-ups fired:');
 });
 
+test('leads not_configured: What the system handled is omitted entirely, header included', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled = { preflightSkips: 0, noiseFiltered: 0 };
+  sections.leads = { status: 'not_configured', errorKind: null };
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+
+  expect(html).not.toContain('What the system handled');
+  expect(html).not.toContain('Pre-flight skips this week:');
+  expect(html).not.toContain('Noise filtered:');
+});
+
 test('noiseArchived > 0 renders the archived-noise anchor with muted styling', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 3;

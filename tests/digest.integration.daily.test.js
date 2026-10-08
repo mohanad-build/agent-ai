@@ -4,11 +4,29 @@ jest.mock('../src/twilio');
 jest.mock('../src/email');
 jest.mock('../src/agentState');
 
+const fs   = require('node:fs');
+const os   = require('node:os');
+const path = require('node:path');
+
 const twilioMod    = require('../src/twilio');
 const emailMod     = require('../src/email');
 const agentStateMod = require('../src/agentState');
 const gmail        = require('../src/gmail');
 const { runDailyDigestForAgent } = require('../src/digest');
+
+// An explicit, empty, per-test temp directory for the deals gather
+// (commit 6) to read against, rather than relying on this agentId having
+// no <cwd>/test-agent.transactions/ directory by accident. Every call
+// below passes { baseDir } so "no deals" is a declared fact of the test,
+// not a property of whoever's machine happens to run it.
+function makeTmpDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'digest-integration-daily-test-'));
+}
+
+let baseDir;
+
+beforeEach(() => { baseDir = makeTmpDir(); });
+afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
 // MOCK_NOW: Wednesday 2026-05-13T11:30:00.000Z = 07:30 EDT
 // Window: 2026-05-12T11:30:00.000Z  to  2026-05-13T11:30:00.000Z (trailing 24h)
@@ -256,7 +274,7 @@ describe('runDailyDigestForAgent integration', () => {
     twilioMod.sendSMS.mockImplementation(async (_cfg, body) => {
       capturedSmsArgs = body;
     });
-    await runDailyDigestForAgent(AGENT);
+    await runDailyDigestForAgent(AGENT, { baseDir });
   });
 
   test('sends SMS and email exactly once each', () => {
@@ -329,7 +347,7 @@ describe('runDailyDigestForAgent integration', () => {
       weeklyNoiseFiltered: 99,
     });
 
-    await runDailyDigestForAgent(AGENT);
+    await runDailyDigestForAgent(AGENT, { baseDir });
 
     expect(capturedEmailArgs.body).toContain('Noise filtered: 37');
     expect(capturedEmailArgs.body).not.toContain('99');
@@ -338,7 +356,7 @@ describe('runDailyDigestForAgent integration', () => {
   test('Sheet access denied (403): still sends, with the warning opener in both channels', async () => {
     emailMod.readSheetRows.mockRejectedValue(new gmail.SheetAccessError(403, AGENT.agentId));
 
-    const result = await runDailyDigestForAgent(AGENT);
+    const result = await runDailyDigestForAgent(AGENT, { baseDir });
 
     expect(result.smsResult).toBe('sent');
     expect(result.emailResult).toBe('sent');
@@ -353,7 +371,7 @@ describe('runDailyDigestForAgent integration', () => {
     twilioMod.sendSMS.mockClear();
     emailMod.sendNewEmail.mockClear();
 
-    const result = await runDailyDigestForAgent({ ...AGENT, googleSheetId: '' });
+    const result = await runDailyDigestForAgent({ ...AGENT, googleSheetId: '' }, { baseDir });
 
     expect(result).toEqual({ skipped: 'nothing_to_send', leads: { status: 'not_configured', errorKind: null } });
     expect(emailMod.readSheetRows).not.toHaveBeenCalled();
@@ -367,7 +385,7 @@ describe('runDailyDigestForAgent integration', () => {
     const plainError = new Error('socket hang up');
     emailMod.readSheetRows.mockRejectedValue(plainError);
 
-    await expect(runDailyDigestForAgent(AGENT)).rejects.toBe(plainError);
+    await expect(runDailyDigestForAgent(AGENT, { baseDir })).rejects.toBe(plainError);
 
     expect(twilioMod.sendSMS).not.toHaveBeenCalled();
     expect(emailMod.sendNewEmail).not.toHaveBeenCalled();
