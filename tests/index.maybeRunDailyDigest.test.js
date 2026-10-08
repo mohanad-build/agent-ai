@@ -21,6 +21,7 @@ jest.mock('../src/digest', () => ({
   shouldRunDailyDigest:        jest.fn().mockReturnValue(true),
   runDailyDigestForAgent:      jest.fn(),
   alertOperatorSheetUnavailable: jest.fn(),
+  alertOperatorDealsUnavailable: jest.fn(),
   shouldRunWeeklyDigest:       jest.fn().mockReturnValue(false),
   runWeeklyDigestForOperator:  jest.fn(),
 }));
@@ -77,7 +78,7 @@ jest.mock('../src/content/actionHandler', () => ({
 
 const { maybeRunDailyDigest } = require('../src/index');
 const agentStateMod = require('../src/agentState');
-const { runDailyDigestForAgent, alertOperatorSheetUnavailable } = require('../src/digest');
+const { runDailyDigestForAgent, alertOperatorSheetUnavailable, alertOperatorDealsUnavailable } = require('../src/digest');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -190,5 +191,89 @@ describe('maybeRunDailyDigest', () => {
     expect(agentStateMod.resetDailyNoiseFiltered).not.toHaveBeenCalled();
     expect(agentStateMod.resetDailyNoiseArchived).not.toHaveBeenCalled();
     expect(alertOperatorSheetUnavailable).not.toHaveBeenCalled();
+  });
+
+  test('15. deals unreadable, both channels failed: deals alert still called', async () => {
+    const agent = makeAgent();
+    const deals = { status: 'unreadable', unreadable: [{ transactionId: 'txn-1', error: 'boom', stage: 'read' }] };
+    runDailyDigestForAgent.mockResolvedValue({
+      smsResult: 'failed',
+      emailResult: 'failed',
+      errors: [{ channel: 'sms', message: 'boom' }, { channel: 'email', message: 'boom' }],
+      leads: { status: 'ok', errorKind: null },
+      deals,
+    });
+
+    await maybeRunDailyDigest(agent);
+
+    expect(alertOperatorDealsUnavailable).toHaveBeenCalledTimes(1);
+    expect(alertOperatorDealsUnavailable).toHaveBeenCalledWith(agent, deals);
+  });
+
+  test('16. deals error status, brief sent normally: deals alert called', async () => {
+    const agent = makeAgent();
+    const deals = { status: 'error', error: 'ENOTDIR' };
+    runDailyDigestForAgent.mockResolvedValue({
+      smsResult: 'sent',
+      emailResult: 'sent',
+      errors: [],
+      leads: { status: 'ok', errorKind: null },
+      deals,
+    });
+
+    await maybeRunDailyDigest(agent);
+
+    expect(alertOperatorDealsUnavailable).toHaveBeenCalledTimes(1);
+    expect(alertOperatorDealsUnavailable).toHaveBeenCalledWith(agent, deals);
+  });
+
+  test('17. deals ok: deals alert not called', async () => {
+    const agent = makeAgent();
+    runDailyDigestForAgent.mockResolvedValue({
+      smsResult: 'sent',
+      emailResult: 'sent',
+      errors: [],
+      leads: { status: 'ok', errorKind: null },
+      deals: { status: 'ok' },
+    });
+
+    await maybeRunDailyDigest(agent);
+
+    expect(alertOperatorDealsUnavailable).not.toHaveBeenCalled();
+  });
+
+  test('18. deals absent (nothing_to_send skip): deals alert not called', async () => {
+    const agent = makeAgent();
+    runDailyDigestForAgent.mockResolvedValue({ skipped: 'nothing_to_send', leads: { status: 'not_configured', errorKind: null } });
+
+    await maybeRunDailyDigest(agent);
+
+    expect(alertOperatorDealsUnavailable).not.toHaveBeenCalled();
+  });
+
+  test('19. deals alert rejects: maybeRunDailyDigest still resolves and still logs the sms/email line', async () => {
+    const agent = makeAgent();
+    const deals = { status: 'error', error: 'ENOTDIR' };
+    runDailyDigestForAgent.mockResolvedValue({
+      smsResult: 'sent',
+      emailResult: 'sent',
+      errors: [],
+      leads: { status: 'ok', errorKind: null },
+      deals,
+    });
+    alertOperatorDealsUnavailable.mockRejectedValue(new Error('deals alert boom'));
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      await expect(maybeRunDailyDigest(agent)).resolves.toBeUndefined();
+
+      expect(errorSpy.mock.calls.some(args => String(args[0]).includes('daily digest failed'))).toBe(false);
+      expect(logSpy.mock.calls.some(args => String(args[0]).includes('daily digest: sms=sent email=sent'))).toBe(true);
+      expect(errorSpy.mock.calls.some(args => String(args[0]).includes('deals alert failed'))).toBe(true);
+    } finally {
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+    }
   });
 });

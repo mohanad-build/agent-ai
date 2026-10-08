@@ -755,6 +755,131 @@ async function alertOperatorSheetUnavailable(agentConfig, leads, deps = {}) {
   }
 }
 
+// Per-entry wording for the 'unreadable' deals alert body, keyed by the
+// stage collectDealAlerts attaches (commit 1): 'read' is a file that could
+// not even be parsed, 'alerts' is a file that parsed but whose alerts threw.
+const DEALS_UNREADABLE_WORDING = {
+  read: "the file couldn't be read (damaged or not valid JSON)",
+  alerts: "the file was read, but its alerts couldn't be worked out",
+};
+
+const DEALS_ERROR_TRUNCATE_LENGTH = 200;
+
+// Error messages are operator-facing but still external input (a file
+// system error, a JSON.parse error, a thrown rule). Truncated so one
+// unusually long message cannot blow out the whole alert email.
+function truncateDealsErrorMessage(message) {
+  if (message.length <= DEALS_ERROR_TRUNCATE_LENGTH) return message;
+  return `${message.slice(0, DEALS_ERROR_TRUNCATE_LENGTH)}...`;
+}
+
+function buildDealsUnreadableBody(agentId, unreadable) {
+  const blocks = unreadable.map((entry) => [
+    `${entry.transactionId}: ${DEALS_UNREADABLE_WORDING[entry.stage]}`,
+    `File: ${agentId}.transactions/${entry.transactionId}.json`,
+    `Error: ${truncateDealsErrorMessage(entry.error)}`,
+  ].join('\n'));
+
+  return [
+    `${agentId}'s deal files couldn't be read this morning.`,
+    '',
+    `Agent: ${agentId}`,
+    '',
+    'Unreadable:',
+    '',
+    blocks.join('\n\n'),
+    '',
+    'This repeats each morning until fixed.',
+  ].join('\n');
+}
+
+function buildDealsErrorBody(agentId, errorMessage) {
+  return [
+    `${agentId}'s deals failed to load this morning.`,
+    '',
+    `Agent: ${agentId}`,
+    '',
+    'The whole deals section failed for this agent.',
+    `Error: ${truncateDealsErrorMessage(errorMessage)}`,
+    '',
+    'This repeats each morning until fixed.',
+  ].join('\n');
+}
+
+// Tells the operator when an agent's deal files could not be read or their
+// alerts could not be computed, since the agent's own brief already says
+// "Mo has been told" for both outcomes (dealsErrorPlain/dealsErrorHtml and
+// digestDeals.js's own unreadable wording) but nothing else makes that true.
+// Sent via the OPERATOR'S OWN Gmail credentials, matching
+// alertOperatorSheetUnavailable. Called regardless of whether the agent's
+// own SMS or email sent this morning: a broken deal file is not contingent
+// on Twilio or Gmail having worked, so gating this on that outcome (as the
+// Sheet alert does) would hide it exactly when the agent's own channels
+// also failed. There is no fallback recipient: the send itself must go
+// through the operator's own account, so if that account cannot be loaded
+// there is nobody else to redirect to. There is no dedupe state: it repeats
+// every morning the condition persists, matching the Sheet alert's
+// documented choice.
+async function alertOperatorDealsUnavailable(agentConfig, deals, deps = {}) {
+  const doLoadOperator = deps.loadOperator || loadOperator;
+  const agentId = agentConfig.agentId;
+
+  function warnNotSent(reason) {
+    console.warn(`[${agentId}] deals alert NOT sent: reason=${reason}`);
+  }
+
+  try {
+    if (!deals || deals.status === 'ok') {
+      return { sent: false, reason: 'not_applicable' };
+    }
+
+    if (!agentConfig.operatorId) {
+      warnNotSent('no_operator');
+      return { sent: false, reason: 'no_operator' };
+    }
+
+    let operatorConfig;
+    try {
+      operatorConfig = doLoadOperator(agentConfig.operatorId);
+    } catch (err) {
+      warnNotSent('operator_load_failed');
+      return { sent: false, reason: 'operator_load_failed' };
+    }
+
+    if (!operatorConfig.operatorEmail) {
+      warnNotSent('no_operator_email');
+      return { sent: false, reason: 'no_operator_email' };
+    }
+
+    const subject = deals.status === 'unreadable'
+      ? `[GetKlosed] ${agentId}'s deal files couldn't be read`
+      : `[GetKlosed] ${agentId}'s deals failed to load`;
+    const body = deals.status === 'unreadable'
+      ? buildDealsUnreadableBody(agentId, deals.unreadable)
+      : buildDealsErrorBody(agentId, deals.error);
+
+    const sendRetry = await _sendWithRetry(
+      () => email.sendNewEmail(operatorConfig, { to: operatorConfig.operatorEmail, subject, body }),
+      'deals-alert'
+    );
+
+    if (sendRetry.ok) {
+      return { sent: true };
+    }
+
+    warnNotSent('send_failed');
+    _appendDigestErrorLog(
+      path.join(getStorageRoot(), `${agentId}.digest-errors.log`),
+      'deals-alert',
+      sendRetry.lastError
+    );
+    return { sent: false, reason: 'send_failed' };
+  } catch (err) {
+    warnNotSent('error');
+    return { sent: false, reason: 'error' };
+  }
+}
+
 /**
  * Entry point: operator weekly digest.
  * Computes the trailing-7d coverage window from getNow(). Aggregates across all
@@ -2211,6 +2336,7 @@ module.exports = {
   runDailyDigestForAgent,
   runWeeklyDigestForOperator,
   alertOperatorSheetUnavailable,
+  alertOperatorDealsUnavailable,
   // internal helpers exposed for unit testing
   gatherWindowData,
   categorizeRowsForDigest,

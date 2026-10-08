@@ -21,7 +21,7 @@ const { getNow, getNowIso, getNowDate } = require('./time');
 const followUp = require('./followUp');
 const outboundTracking = require('./outboundTracking');
 const agentState = require('./agentState');
-const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator, alertOperatorSheetUnavailable } = require('./digest');
+const { shouldRunDailyDigest, runDailyDigestForAgent, shouldRunWeeklyDigest, runWeeklyDigestForOperator, alertOperatorSheetUnavailable, alertOperatorDealsUnavailable } = require('./digest');
 const { runContentEngineForAgent, shouldRunContentEngine } = require('./content/engine');
 const { readContentProfile, isContentEngineEnabled } = require('./content/profile');
 const { generateWeeklyAngles, shouldRunAngleGeneration } = require('./content/angles');
@@ -537,6 +537,15 @@ async function maybeRunDailyDigest(agent, opts = {}) {
         } catch (err) {
           console.error(`[${agent.agentId}] sheet alert failed: ${err.message}`);
         }
+      }
+    }
+    // Not gated on smsResult/emailResult having sent: a broken deal file is
+    // not contingent on the agent's own channels having worked.
+    if (result.deals && (result.deals.status === 'unreadable' || result.deals.status === 'error')) {
+      try {
+        await alertOperatorDealsUnavailable(agent, result.deals);
+      } catch (err) {
+        console.error(`[${agent.agentId}] deals alert failed: ${err.message}`);
       }
     }
     const smsLabel   = result.smsResult   || 'n/a';
