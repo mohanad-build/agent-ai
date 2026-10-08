@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 83 (2026-10-06).
+Last updated: session 84 (2026-10-08).
 
 ## What GetKlosed is
 
@@ -40,6 +40,41 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `CONTENT_ENGINE_SPEC.md`: a session 18 design draft. The engine was built afterwards and differs. Background only.
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
+
+## Session 84: Deals needing you (the TC alert pipeline reaches the daily brief)
+
+Tests 3404/163 to 4048/170. Merged to `main`, not yet deployed.
+
+| Commit | What |
+|---|---|
+| `f7b9e4c` | The deal alert aggregator (`src/transactions/dealAlerts.js`), danger-ranked and per-deal fault-isolated |
+| `235d5dd` | One shared module for DONE/RECEIPT/UNDO subjects and links (`src/transactions/tapLinks.js`, `src/assistantAddress.js`) |
+| `d5ce367` | Pure Drive, Gmail search and fell-through link builders for a deal |
+| `ca1c14d` | Plaintext and HTML renderers for the deals needing you section, grouped by deal |
+| `9df3f2e` | The SMS deals line and the deals subject line |
+| `e41684a` | Wired the deals section into the daily brief: deals above the opener, the no-Sheet skip rules, `src/operatorAddress.js`'s fallback |
+| `a8b6c67` | Email Mo when an agent's deals could not be loaded |
+| `6ef09f1` | Every state change now records a `state_transitioned` event; `scripts/transition-transaction.js`, the operator command to move a deal's state |
+
+Live-verified 2026-10-08: the tap module move itself changed nothing observable -- DONE, RECEIPT
+and the Undo link all tapped from a real reply, on an iPhone, subject intact. NOT yet live-verified:
+the brief's deals section on a real phone. A deposit alert deal is seeded on `mo-test` for the next
+morning's brief (`txn-20261008-fa6b84f9`); it must be removed after the check. Also open for that
+same check:
+- Whether `gmailSearchUrl`'s `authuser` parameter opens the right Gmail account on an iPhone with
+  more than one signed in.
+- Whether Gmail search treats the hyphen as a separator (a search for "21 main" finding a thread
+  about "19-21 Main").
+
+## How Mo collapses or closes a deal
+
+1. Copy the transaction id from the agent's fell-through email body (the line reading `Deal: txn-...`).
+2. Run `scripts/transition-transaction.js` with `--reason` as a dry run (no `--yes`).
+3. Confirm the address in the preview is the right deal.
+4. Run it again with `--yes` to write.
+
+`--reason` is required when moving to `collapsed` or `terminated`; optional for `closed` and every
+non-terminal move.
 
 ## Session 83: the DONE verb (DONE, RECEIPT, UNDO on `assistant@`)
 
@@ -129,9 +164,8 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. The daily "Deals needing you" section: render the alerts with the tap, an email link and a Drive
-   link; use the settled reader; an unreadable deal file gets an honest line. Readers decide done
-   from `completed` alone, never from a date being present.
+1. Deals needing you: built, pending the live check of the brief itself (see Session 84, above).
+   Readers decide done from `completed` alone, never from a date being present.
 2. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
 3. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
    (APS); Mo opens the deal. Watch what lands in their inbox at acceptance (this designs Phase B).
@@ -183,6 +217,22 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
   both in one reply.
 - An undone row keeps its `completedAt` and `note` with `completed: false` (by design, so the
   history is kept); any reader must key on `completed`, never on a date or note being present.
+- A dated "latest activity" line per deal in the Monday picture, and a STATUS verb on `assistant@`
+  returning one deal's one-pager on demand. Both after a founding agent is on.
+- The two existing `mail.google.com` links in `digest.js` use `/u/0/` and open the first signed-in
+  account, which may be the wrong one for agents with several accounts.
+- `parseAddress` loses the street type when the address string contains "#<unit>" ("12 Main Street
+  #4" parses as street "main street 4"). This also affects address matching for filing. Convention
+  until fixed: units always go in `--unit` at deal-open, never inside `--address`.
+- After a deal collapses, the matcher stops attaching documents to it, but a collapsed deal still
+  produces paperwork the brokerage needs on file (mutual release, deposit return direction). Needs
+  a design.
+- Open proposal sets and queued filings are not gated on deal state: a set on a collapsed deal
+  stays confirmable, and a queued document still files to its Drive folder.
+- The deals-unavailable email is per agent with no rollup: one systemic fault touching many agents
+  sends Mo one email per agent per morning.
+- If an agent's operator config cannot be loaded, the deals-unavailable email cannot be sent, and
+  the agent's "Mo has been told" is untrue that morning. Logged as "deals alert NOT sent: reason=...".
 
 Carried from earlier sessions (details in `docs/history/PROJECT_STATE_to_session_80.md`, section 7
 and the session 80 board): 7.58.1 to 7.58.14, 7.57.5 to 7.57.12, 7.56.x, 7.54.x, the `listingId`
