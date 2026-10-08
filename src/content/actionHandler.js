@@ -24,11 +24,11 @@ const { markWrongDeal }           = require('../transactions/wrongDeal');
 const { formatRoles }             = require('../transactions/participants');
 const { loadOperator }            = require('../operatorConfig');
 const { plainTextToHtml, escapeHtml } = require('../plainTextHtml');
-const rules                       = require('../transactions/rules');
 const { completeOne, completeChain, uncompleteRows } = require('../transactions/taps');
+const { ASSISTANT_EMAIL } = require('../assistantAddress');
+const { TC_CLAIM_RE, parseTcCommand, catalogItemLabel, buildUndoSubject, buildUndoMailtoHref } = require('../transactions/tapLinks');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
-const ASSISTANT_EMAIL      = 'assistant@getklosed.ca';
 function getTokenPath() { return path.join(getStorageRoot(), 'assistant.json'); }
 function getAgentsDir()  { return getStorageRoot(); }
 const REGEN_CAP            = 5;
@@ -399,12 +399,6 @@ async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSub
 
 // ── Track TC (CONFIRM / REJECT / WRONGDEAL / DONE / RECEIPT / UNDO) ───────────
 
-// Loose claim: decides whether this branch is entered at all. No Re:/Fwd:
-// stripping -- a forwarded/replied subject is not claimed, same as CALLED.
-// txn- directly after the verb is what keeps an ordinary "Done with the
-// showing" email out of this branch and on Track 2 (docs/designs/done-verb.md).
-const TC_CLAIM_RE = /^\s*(CONFIRM|REJECT|WRONGDEAL|DONE|RECEIPT|UNDO)\s+txn-/i;
-
 const TC_GENERIC_ERROR_BODY = 'Nothing was changed. Something went wrong on our end. Mo has been told and will follow up.';
 
 // Used only when a write outcome (confirmed / wrong_deal_recorded /
@@ -420,54 +414,6 @@ const TC_WRITE_OUTCOME_FALLBACK = {
   RECEIPT:   'Done. The deposit was marked complete.',
   UNDO:      'Done. Those items are back on the checklist.',
 };
-
-// Strict parse of a claimed subject. Verb word case-insensitive; ids
-// validated as-is (never case-normalized, never checked against a deal's
-// catalog here -- that is taps.js's job, surfaced as unknown_item).
-// Anything that doesn't match this shape exactly is a parse failure, never
-// a composition call.
-function parseTcCommand(subject) {
-  const tokens = subject.trim().split(/\s+/);
-  const verb = (tokens[0] || '').toUpperCase();
-
-  if (verb === 'REJECT') {
-    if (tokens.length !== 4) return null;
-    const [, transactionId, setId, memberId] = tokens;
-    if (!store.isTransactionId(transactionId)) return null;
-    if (!proposals.isProposalSetId(setId)) return null;
-    if (!proposals.isProposalMemberId(memberId)) return null;
-    return { verb, transactionId, setId, memberId };
-  }
-
-  if (verb === 'DONE') {
-    if (tokens.length !== 3) return null;
-    const [, transactionId, itemId] = tokens;
-    if (!store.isTransactionId(transactionId)) return null;
-    return { verb, transactionId, itemId };
-  }
-
-  if (verb === 'RECEIPT') {
-    if (tokens.length !== 3) return null;
-    const [, transactionId, receiptItemId] = tokens;
-    if (!store.isTransactionId(transactionId)) return null;
-    return { verb, transactionId, receiptItemId };
-  }
-
-  if (verb === 'UNDO') {
-    // txn- plus one to three item ids: at most 3, the longest deposit chain.
-    if (tokens.length < 3 || tokens.length > 5) return null;
-    const [, transactionId, ...itemIds] = tokens;
-    if (!store.isTransactionId(transactionId)) return null;
-    return { verb, transactionId, itemIds };
-  }
-
-  if (verb !== 'CONFIRM' && verb !== 'WRONGDEAL') return null;
-  if (tokens.length !== 3) return null;
-  const [, transactionId, setId] = tokens;
-  if (!store.isTransactionId(transactionId)) return null;
-  if (!proposals.isProposalSetId(setId)) return null;
-  return { verb, transactionId, setId, memberId: null };
-}
 
 // transaction.participants[id].emails are plain STRINGS (participants.js
 // buildParticipant); transaction.participantProposals[..].members[id].emails
@@ -545,15 +491,6 @@ function buildRejectReply(outcome, transaction, setId, memberId) {
   }
 }
 
-// label lives on the static catalog item (rules.CATALOG[type]) and is never
-// stripped by the resolver (resolver.js annotateItem spreads the item), but
-// a reply only ever needs the static lookup: by the time DONE/RECEIPT/UNDO
-// reach a reply, the id is already known to taps.js's own checks.
-function catalogItemLabel(type, itemId) {
-  const item = rules.CATALOG[type].find((candidate) => candidate.id === itemId);
-  return item ? item.label : itemId;
-}
-
 // No exported helper turns an ISO instant into a human date in a timezone
 // (calendarDate.js works in calendar dates, not instants); this mirrors
 // digest.js's formatDailyDate/formatWeeklyDate pattern locally.
@@ -562,26 +499,18 @@ function formatCompletedDate(isoString, timezone) {
   return new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: tz }).format(new Date(isoString));
 }
 
-function undoSubjectText(transactionId, itemIds) {
-  return `UNDO ${transactionId} ${itemIds.join(' ')}`;
-}
-
-function undoMailtoHref(transactionId, itemIds) {
-  return `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(undoSubjectText(transactionId, itemIds))}`;
-}
-
 // Plain-text fallback line every completed DONE/RECEIPT reply ends with.
 // The html part (buildUndoLinkHtml) replaces this line with a real link;
 // this text is what a plain-text-only reader sees instead.
 function undoPlainTextLine(transactionId, itemIds) {
-  return `Tapped by mistake? Email ${ASSISTANT_EMAIL} with the subject: ${undoSubjectText(transactionId, itemIds)}`;
+  return `Tapped by mistake? Email ${ASSISTANT_EMAIL} with the subject: ${buildUndoSubject(transactionId, itemIds)}`;
 }
 
 // Styled like digest.js's calledAffordanceHtml: a muted-grey inline link,
 // not a button. The href is escaped the same way digest.js escapes its own
 // mailtoHref; the visible label is a literal, not interpolated.
 function undoLinkHtml(transactionId, itemIds) {
-  const href = escapeHtml(undoMailtoHref(transactionId, itemIds));
+  const href = escapeHtml(buildUndoMailtoHref(transactionId, itemIds));
   return `<a href="${href}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 }
 
