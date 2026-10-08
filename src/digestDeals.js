@@ -281,6 +281,70 @@ function renderDealsHtml(collected, ctx) {
   return sectionHeader(SECTION_TITLE) + bodyHtml + unreadableHtml;
 }
 
-module.exports = { renderDealsPlain, renderDealsHtml };
+// -- SMS and subject -----------------------------------------------------------
+
+// Address only, no unit: the SMS line stays short. Shares
+// conditionDisplayName, weekdayForCalendarDate and daysPhrase with the
+// renderers above rather than a second copy -- one home for the wording.
+function dealsSmsPhrase(alert) {
+  switch (alert.kind) {
+    case 'condition_passed': {
+      const condition = conditionDisplayName(alert.condition);
+      return `${alert.address}: ${condition} condition passed, not marked done`;
+    }
+
+    case 'condition_heads_up': {
+      const condition = conditionDisplayName(alert.condition);
+      const weekday = weekdayForCalendarDate(alert.date);
+      return `${alert.address}: ${condition} condition due ${weekday}`;
+    }
+
+    case 'deposit_overdue':
+      return `${alert.address}: deposit not confirmed, ${daysPhrase(alert.daysPast)} after acceptance`;
+
+    case 'additional_deposit_overdue':
+      return `${alert.address}: additional deposit ${daysPhrase(alert.daysPast)} overdue`;
+
+    case 'filing_failed':
+      return `${alert.address}: a document couldn't be filed to Drive`;
+
+    default:
+      throw new Error(`digestDeals: unknown alert kind '${alert.kind}'`);
+  }
+}
+
+// '' on a quiet or unreadable-only morning: nothing in collected.alerts
+// means nothing to name, matching renderDealsPlain/Html's own silence in
+// those cases. Otherwise names the single most dangerous alert (the
+// first; collected.alerts is already danger-sorted) and counts every
+// other alert into the "+ N more" suffix, matching renderSMS's own
+// hot-lead line and suffix (digest.js:1227-1232) exactly: a space, "+",
+// the count, " more.", or a bare "." when there is nothing else to count.
+function dealsSmsLine(collected) {
+  const { alerts } = collected;
+  if (alerts.length === 0) {
+    return '';
+  }
+
+  const phrase = dealsSmsPhrase(alerts[0]);
+  const more = alerts.length - 1;
+  const suffix = more > 0 ? ` + ${more} more.` : '.';
+
+  return `📋 ${phrase}${suffix}`;
+}
+
+// null on a quiet or unreadable-only morning, the same silence as
+// dealsSmsLine. Commit 6 decides when this subject wins over the existing
+// lead subject; this function only builds it.
+function dealsSubject(collected) {
+  const { alerts } = collected;
+  if (alerts.length === 0) {
+    return null;
+  }
+
+  return `Your morning brief: ${alerts[0].address} needs you today`;
+}
+
+module.exports = { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject };
 
 module.exports._internal = { CONDITION_DISPLAY_OVERRIDES, rowContent };

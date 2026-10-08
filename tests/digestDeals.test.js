@@ -14,7 +14,7 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 
-const { renderDealsPlain, renderDealsHtml, _internal } = require('../src/digestDeals');
+const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject, _internal } = require('../src/digestDeals');
 const { CONDITION_NAMES } = require('../src/transactions/rules/conditions');
 
 const T = {
@@ -499,5 +499,158 @@ describe('sample fixture: every kind, three deals (two of them two-alert blocks)
     expect(html).not.toContain('SyntaxError');
     const blockCount = (html.match(/margin-bottom:16px;/g) || []).length;
     expect(blockCount).toBe(3);
+  });
+});
+
+describe('dealsSmsLine', () => {
+  it('condition_passed', () => {
+    const alert = {
+      kind: 'condition_passed', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'financing', itemId: 'financing_condition', date: '2026-10-05', daysPast: 1,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe("📋 12 Main St: financing condition passed, not marked done.");
+  });
+
+  it('condition_heads_up', () => {
+    const alert = {
+      kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 2,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: inspection condition due Sunday.');
+  });
+
+  it('deposit_overdue, daysPast 1 (day agreement)', () => {
+    const alert = {
+      kind: 'deposit_overdue', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-10-09', daysPast: 1,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: deposit not confirmed, 1 day after acceptance.');
+  });
+
+  it('deposit_overdue, daysPast 7 (day agreement)', () => {
+    const alert = {
+      kind: 'deposit_overdue', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-10-03', daysPast: 7,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: deposit not confirmed, 7 days after acceptance.');
+  });
+
+  it('additional_deposit_overdue', () => {
+    const alert = {
+      kind: 'additional_deposit_overdue', transactionId: TXN, address: '12 Main St', type: 'seller_sale',
+      driveFolderId: null, itemId: 'additional_deposit_receipt_issued', date: '2026-10-09', daysPast: 2,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: additional deposit 2 days overdue.');
+  });
+
+  it('filing_failed: no filename in the SMS line, unlike the email', () => {
+    const alert = {
+      kind: 'filing_failed', transactionId: TXN, address: '34 Oak Ave', type: 'buyer_purchase',
+      driveFolderId: null, filingKey: 'key-1', filename: 'APS.pdf', threadId: 'thread-1',
+      abandonedAt: '2026-10-10T05:00:00Z', lastError: 'too large',
+    };
+    const line = dealsSmsLine(collected([alert]));
+    expect(line).toBe("📋 34 Oak Ave: a document couldn't be filed to Drive.");
+    expect(line).not.toContain('APS.pdf');
+  });
+
+  it('well_septic reads "well and septic", the same override the email uses', () => {
+    const alert = {
+      kind: 'condition_passed', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'well_septic', itemId: 'dummy_item', date: '2026-10-05', daysPast: 1,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe("📋 12 Main St: well and septic condition passed, not marked done.");
+  });
+
+  it('"+ 1 more." with exactly one other alert', () => {
+    const first = {
+      kind: 'condition_passed', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'financing', itemId: 'financing_condition', date: '2026-10-05', daysPast: 1,
+    };
+    const second = {
+      kind: 'filing_failed', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, filingKey: 'k', filename: 'x.pdf', threadId: 't', abandonedAt: 'x', lastError: 'y',
+    };
+    expect(dealsSmsLine(collected([first, second]))).toBe(
+      "📋 12 Main St: financing condition passed, not marked done + 1 more."
+    );
+  });
+
+  it('"+ 3 more." with three other alerts', () => {
+    const first = {
+      kind: 'condition_passed', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'financing', itemId: 'financing_condition', date: '2026-10-05', daysPast: 1,
+    };
+    const others = ['txn-2', 'txn-3', 'txn-4'].map((transactionId) => ({
+      kind: 'filing_failed', transactionId, address: '1 Other St', type: 'buyer_purchase',
+      driveFolderId: null, filingKey: 'k', filename: 'x.pdf', threadId: 't', abandonedAt: 'x', lastError: 'y',
+    }));
+    expect(dealsSmsLine(collected([first, ...others]))).toBe(
+      "📋 12 Main St: financing condition passed, not marked done + 3 more."
+    );
+  });
+
+  it('"." with no other alerts', () => {
+    const alert = {
+      kind: 'additional_deposit_overdue', transactionId: TXN, address: '12 Main St', type: 'seller_sale',
+      driveFolderId: null, itemId: 'additional_deposit_receipt_issued', date: '2026-10-09', daysPast: 1,
+    };
+    const line = dealsSmsLine(collected([alert]));
+    expect(line.endsWith('.')).toBe(true);
+    expect(line).not.toContain('more');
+  });
+
+  it('names the first alert even when a later alert is on a different deal', () => {
+    const first = {
+      kind: 'condition_passed', transactionId: 'txn-x', address: '1 X St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'financing', itemId: 'financing_condition', date: '2026-10-05', daysPast: 1,
+    };
+    const otherDeal = {
+      kind: 'filing_failed', transactionId: 'txn-y', address: '2 Y St', type: 'buyer_purchase',
+      driveFolderId: null, filingKey: 'k', filename: 'x.pdf', threadId: 't', abandonedAt: 'x', lastError: 'y',
+    };
+    const line = dealsSmsLine(collected([first, otherDeal]));
+    expect(line).toBe("📋 1 X St: financing condition passed, not marked done + 1 more.");
+    expect(line).not.toContain('2 Y St');
+  });
+
+  it('empty alerts returns the empty string', () => {
+    expect(dealsSmsLine(collected([], { activeCount: 3 }))).toBe('');
+  });
+
+  it('unreadable-only morning returns the empty string', () => {
+    expect(dealsSmsLine(collected([], { activeCount: 0, unreadable: [{ transactionId: 'x', error: 'e' }] }))).toBe('');
+  });
+});
+
+describe('dealsSubject', () => {
+  it('null when alerts is empty', () => {
+    expect(dealsSubject(collected([], { activeCount: 3 }))).toBeNull();
+  });
+
+  it('null on an unreadable-only morning', () => {
+    expect(dealsSubject(collected([], { activeCount: 0, unreadable: [{ transactionId: 'x', error: 'e' }] }))).toBeNull();
+  });
+
+  it('exact string naming the first alert\'s address, with a colon, never an em dash', () => {
+    const alert = {
+      kind: 'additional_deposit_overdue', transactionId: TXN, address: '12 Main St', type: 'seller_sale',
+      driveFolderId: null, itemId: 'additional_deposit_receipt_issued', date: '2026-10-09', daysPast: 1,
+    };
+    expect(dealsSubject(collected([alert]))).toBe('Your morning brief: 12 Main St needs you today');
+  });
+
+  it('names the first alert even when a later alert is on a different deal', () => {
+    const first = {
+      kind: 'condition_passed', transactionId: 'txn-x', address: '1 X St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'financing', itemId: 'financing_condition', date: '2026-10-05', daysPast: 1,
+    };
+    const otherDeal = {
+      kind: 'filing_failed', transactionId: 'txn-y', address: '2 Y St', type: 'buyer_purchase',
+      driveFolderId: null, filingKey: 'k', filename: 'x.pdf', threadId: 't', abandonedAt: 'x', lastError: 'y',
+    };
+    expect(dealsSubject(collected([first, otherDeal]))).toBe('Your morning brief: 1 X St needs you today');
   });
 });
