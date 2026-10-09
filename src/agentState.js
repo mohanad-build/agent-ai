@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getStorageRoot } = require('./storagePaths');
+const { isCalendarDate } = require('./calendarDate');
 
 const DEFAULT_STATE = { lastTokenIssued: 0, weeklyPreflightSkips: 0, lastDailyDigestRun: null, deactivatedAt: null, dailyNoiseFiltered: 0, weeklyNoiseFiltered: 0, dailyNoiseArchived: 0, weeklyNoiseArchived: 0 };
 
@@ -119,6 +120,66 @@ function recordAlertSent(agentId, kind, today) {
   });
 }
 
+// Which TC deal alerts have already reached the brief, so overdue alerts can
+// fire on the first brief on or after their threshold, once, instead of only
+// on the exact day (which silently lost alerts when that day's brief was missed).
+// Shape: { [transactionId]: { [alertKey]: 'YYYY-MM-DD' } }. alertKey is an
+// opaque non-empty string (a kind plus whatever distinguishes one firing
+// from the next, e.g. a day count) -- this module never parses it, only
+// stores and prunes by it.
+function getDeliveredDealAlerts(agentId) {
+  const state = getState(agentId);
+  return state.dealAlertsDelivered || {};
+}
+
+// deliveries: array of { transactionId, alertKey }, may be empty. Pruning
+// (dropping every transaction group not in activeTransactionIds) runs
+// unconditionally, even on an empty deliveries array, so a deal that closed
+// or collapsed since the last brief has its delivered-alert history cleared
+// instead of silently accumulating keys for a transaction that can never
+// produce another alert.
+function recordDeliveredDealAlerts(agentId, deliveries, today, activeTransactionIds) {
+  if (!Array.isArray(deliveries)) {
+    throw new Error('recordDeliveredDealAlerts: deliveries must be an array');
+  }
+  if (!isCalendarDate(today)) {
+    throw new Error('recordDeliveredDealAlerts: today must be a calendar date (YYYY-MM-DD)');
+  }
+  if (!Array.isArray(activeTransactionIds)) {
+    throw new Error('recordDeliveredDealAlerts: activeTransactionIds must be an array');
+  }
+
+  deliveries.forEach((delivery) => {
+    if (delivery === null || typeof delivery !== 'object' || Array.isArray(delivery)) {
+      throw new Error('recordDeliveredDealAlerts: each delivery must be a plain object');
+    }
+    if (typeof delivery.transactionId !== 'string' || delivery.transactionId === '') {
+      throw new Error('recordDeliveredDealAlerts: each delivery must have a non-empty string transactionId');
+    }
+    if (typeof delivery.alertKey !== 'string' || delivery.alertKey === '') {
+      throw new Error('recordDeliveredDealAlerts: each delivery must have a non-empty string alertKey');
+    }
+    if (!activeTransactionIds.includes(delivery.transactionId)) {
+      throw new Error(`recordDeliveredDealAlerts: delivery for transactionId '${delivery.transactionId}' is not in activeTransactionIds`);
+    }
+  });
+
+  const state = getState(agentId);
+  const merged = { ...(state.dealAlertsDelivered || {}) };
+
+  deliveries.forEach(({ transactionId, alertKey }) => {
+    merged[transactionId] = { ...(merged[transactionId] || {}), [alertKey]: today };
+  });
+
+  Object.keys(merged).forEach((transactionId) => {
+    if (!activeTransactionIds.includes(transactionId)) {
+      delete merged[transactionId];
+    }
+  });
+
+  setState(agentId, { ...state, dealAlertsDelivered: merged });
+}
+
 module.exports = {
   getState,
   setState,
@@ -134,4 +195,6 @@ module.exports = {
   recordDailyDigestRun,
   hasAlertedToday,
   recordAlertSent,
+  getDeliveredDealAlerts,
+  recordDeliveredDealAlerts,
 };

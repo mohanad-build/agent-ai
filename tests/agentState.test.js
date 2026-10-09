@@ -19,6 +19,8 @@ const {
   recordDailyDigestRun,
   hasAlertedToday,
   recordAlertSent,
+  getDeliveredDealAlerts,
+  recordDeliveredDealAlerts,
 } = require('../src/agentState');
 
 const AGENT_ID = 'test-agent-state';
@@ -314,5 +316,157 @@ describe('hasAlertedToday / recordAlertSent', () => {
     recordAlertSent(AGENT_ID, 'daily_brief', '2026-06-15');
     expect(hasAlertedToday(AGENT_ID, 'needs_review', '2026-06-15')).toBe(true);
     expect(hasAlertedToday(AGENT_ID, 'daily_brief', '2026-06-15')).toBe(true);
+  });
+});
+
+// ── getDeliveredDealAlerts / recordDeliveredDealAlerts ───────────────────────
+
+describe('getDeliveredDealAlerts', () => {
+  test('a. returns {} when nothing was ever recorded', () => {
+    expect(getDeliveredDealAlerts(AGENT_ID)).toEqual({});
+  });
+});
+
+describe('recordDeliveredDealAlerts', () => {
+  test('b. two keys on one deal: get returns exactly that shape with today\'s date', () => {
+    recordDeliveredDealAlerts(
+      AGENT_ID,
+      [
+        { transactionId: 'txn-1', alertKey: 'condition_heads_up:financing' },
+        { transactionId: 'txn-1', alertKey: 'deposit_overdue:2' },
+      ],
+      '2026-06-15',
+      ['txn-1']
+    );
+
+    expect(getDeliveredDealAlerts(AGENT_ID)).toEqual({
+      'txn-1': {
+        'condition_heads_up:financing': '2026-06-15',
+        'deposit_overdue:2': '2026-06-15',
+      },
+    });
+  });
+
+  test('c. a second record on another day adds a key without changing the first key\'s date', () => {
+    recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: 'condition_heads_up:financing' }], '2026-06-15', ['txn-1']);
+    recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: 'deposit_overdue:2' }], '2026-06-16', ['txn-1']);
+
+    expect(getDeliveredDealAlerts(AGENT_ID)).toEqual({
+      'txn-1': {
+        'condition_heads_up:financing': '2026-06-15',
+        'deposit_overdue:2': '2026-06-16',
+      },
+    });
+  });
+
+  test('d. lastDailyDigestRun and smsAlertDates survive a record unchanged', () => {
+    setState(AGENT_ID, {
+      lastTokenIssued: 0,
+      weeklyPreflightSkips: 0,
+      lastDailyDigestRun: '2026-06-01T08:00:00.000Z',
+      deactivatedAt: null,
+      smsAlertDates: { needs_review: '2026-06-14' },
+    });
+
+    recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: 'k' }], '2026-06-15', ['txn-1']);
+
+    const state = getState(AGENT_ID);
+    expect(state.lastDailyDigestRun).toBe('2026-06-01T08:00:00.000Z');
+    expect(state.smsAlertDates).toEqual({ needs_review: '2026-06-14' });
+  });
+
+  test('e. pruning removes a deal missing from activeTransactionIds, alongside a live delivery', () => {
+    recordDeliveredDealAlerts(
+      AGENT_ID,
+      [{ transactionId: 'txn-1', alertKey: 'k' }, { transactionId: 'txn-2', alertKey: 'k' }],
+      '2026-06-15',
+      ['txn-1', 'txn-2']
+    );
+    recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: 'k2' }], '2026-06-16', ['txn-1']);
+
+    expect(getDeliveredDealAlerts(AGENT_ID)).toEqual({
+      'txn-1': { k: '2026-06-15', k2: '2026-06-16' },
+    });
+  });
+
+  test('e. pruning removes a deal missing from activeTransactionIds even when deliveries is []', () => {
+    recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: 'k' }], '2026-06-15', ['txn-1']);
+    recordDeliveredDealAlerts(AGENT_ID, [], '2026-06-16', []);
+
+    expect(getDeliveredDealAlerts(AGENT_ID)).toEqual({});
+  });
+
+  test('f. a delivery for a transaction not in activeTransactionIds throws, and writes nothing', () => {
+    expect(() => recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-9', alertKey: 'k' }], '2026-06-15', ['txn-1']))
+      .toThrow("recordDeliveredDealAlerts: delivery for transactionId 'txn-9' is not in activeTransactionIds");
+    expect(getDeliveredDealAlerts(AGENT_ID)).toEqual({});
+  });
+
+  describe('g. invalid arguments throw and leave the state file unchanged', () => {
+    function seedState() {
+      setState(AGENT_ID, {
+        lastTokenIssued: 3,
+        weeklyPreflightSkips: 0,
+        lastDailyDigestRun: null,
+        deactivatedAt: null,
+        dealAlertsDelivered: { 'txn-1': { k: '2026-06-01' } },
+      });
+    }
+
+    test('non-array deliveries', () => {
+      seedState();
+      const before = getState(AGENT_ID);
+      expect(() => recordDeliveredDealAlerts(AGENT_ID, 'nope', '2026-06-15', ['txn-1']))
+        .toThrow('recordDeliveredDealAlerts: deliveries must be an array');
+      expect(getState(AGENT_ID)).toEqual(before);
+    });
+
+    test('a delivery missing transactionId', () => {
+      seedState();
+      const before = getState(AGENT_ID);
+      expect(() => recordDeliveredDealAlerts(AGENT_ID, [{ alertKey: 'k' }], '2026-06-15', ['txn-1']))
+        .toThrow('recordDeliveredDealAlerts: each delivery must have a non-empty string transactionId');
+      expect(getState(AGENT_ID)).toEqual(before);
+    });
+
+    test('a delivery with an empty string transactionId', () => {
+      seedState();
+      const before = getState(AGENT_ID);
+      expect(() => recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: '', alertKey: 'k' }], '2026-06-15', ['txn-1']))
+        .toThrow('recordDeliveredDealAlerts: each delivery must have a non-empty string transactionId');
+      expect(getState(AGENT_ID)).toEqual(before);
+    });
+
+    test('a delivery missing alertKey', () => {
+      seedState();
+      const before = getState(AGENT_ID);
+      expect(() => recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1' }], '2026-06-15', ['txn-1']))
+        .toThrow('recordDeliveredDealAlerts: each delivery must have a non-empty string alertKey');
+      expect(getState(AGENT_ID)).toEqual(before);
+    });
+
+    test('a delivery with an empty string alertKey', () => {
+      seedState();
+      const before = getState(AGENT_ID);
+      expect(() => recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: '' }], '2026-06-15', ['txn-1']))
+        .toThrow('recordDeliveredDealAlerts: each delivery must have a non-empty string alertKey');
+      expect(getState(AGENT_ID)).toEqual(before);
+    });
+
+    test('a bad today', () => {
+      seedState();
+      const before = getState(AGENT_ID);
+      expect(() => recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: 'k' }], '2026-02-30', ['txn-1']))
+        .toThrow('recordDeliveredDealAlerts: today must be a calendar date (YYYY-MM-DD)');
+      expect(getState(AGENT_ID)).toEqual(before);
+    });
+
+    test('non-array activeTransactionIds', () => {
+      seedState();
+      const before = getState(AGENT_ID);
+      expect(() => recordDeliveredDealAlerts(AGENT_ID, [{ transactionId: 'txn-1', alertKey: 'k' }], '2026-06-15', 'nope'))
+        .toThrow('recordDeliveredDealAlerts: activeTransactionIds must be an array');
+      expect(getState(AGENT_ID)).toEqual(before);
+    });
   });
 });
