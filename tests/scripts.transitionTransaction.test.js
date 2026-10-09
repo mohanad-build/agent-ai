@@ -209,7 +209,7 @@ describe('CLI argument handling (spawned subprocess)', () => {
     run([AGENT_ID, created.transactionId, 'collapsed', '--reason', 'buyer backed out', '--yes', '--base-dir', baseDir]);
 
     const settled = readAllTransactionsSettled(AGENT_ID, { baseDir });
-    const collected = collectDealAlerts(settled, { today: '2026-07-16', now: new Date('2026-07-16T10:00:00.000Z') });
+    const collected = collectDealAlerts(settled, { today: '2026-07-16', now: new Date('2026-07-16T10:00:00.000Z'), delivered: {} });
 
     expect(collected.alerts).toHaveLength(0);
     expect(collected.activeCount).toBe(0);

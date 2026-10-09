@@ -3,10 +3,20 @@
 // Pure rules for the daily brief's TC alert section: one deal plus today and
 // now in, a list of alert objects out. No disk, no rendering, no sending.
 //
-// Stateless by design: an alert fires whenever its day count matches, so it
-// fires once per threshold with no "already alerted" record to maintain or
-// let drift out of sync with the deal. The Monday picture (a later commit)
-// is the backstop for a brief that was missed.
+// The deposit and condition-passed rules fire on the first brief on or
+// after each threshold, once: a threshold has passed once today's day count
+// is at or past it (>=, not ===), and it only produces an alert if its own
+// delivery key is still missing from delivered, the per-transaction map the
+// caller passes in (recordDeliveredDealAlerts, commit 2). A deal opened
+// late, or a brief that was missed on the exact day, still gets the alert
+// on the next brief that runs, because the key is still undelivered. When
+// several thresholds have passed and neither has been delivered, they
+// collapse into one alert carrying the real day count and every undelivered
+// key, never one row per threshold. Heads-ups and filing_failed stay
+// exact-window (a day-before/day-of count, a 24h instant window) and never
+// consult delivered; their deliveryKeys is always empty, so nothing about
+// them is ever recorded. The Monday picture remains the backstop for a
+// brief that was missed entirely.
 //
 // The dated rules (conditions, deposits) compare calendar dates with
 // calendarDate.daysBetween, because a condition date or an accepted date is
@@ -64,7 +74,20 @@ function alertBase(transaction, kind) {
   return alert;
 }
 
-function conditionAlerts(transaction, facts, resolvedItems, today) {
+// Every threshold at or before daysPast has "passed" (>=, not ===), so a
+// deal that sails past several thresholds between briefs is not missed.
+// delivered is keyed by the full delivery key (kind:governingDate:threshold),
+// not the threshold alone, so an amended governing date starts the keys
+// fresh: the old date's keys are simply never looked up again.
+function passedThresholds(thresholds, daysPast) {
+  return thresholds.filter((t) => daysPast >= t);
+}
+
+function undeliveredKeys(keys, delivered) {
+  return keys.filter((key) => delivered[key] === undefined);
+}
+
+function conditionAlerts(transaction, facts, resolvedItems, today, delivered) {
   const conditionNames = facts.conditions || [];
   const conditionDates = facts.conditionDates || {};
   const alerts = [];
@@ -82,20 +105,28 @@ function conditionAlerts(transaction, facts, resolvedItems, today) {
 
     const daysUntil = daysBetween(today, date);
     if (CONDITION_HEADS_UP_DAYS_BEFORE.includes(daysUntil)) {
-      alerts.push({ ...alertBase(transaction, 'condition_heads_up'), condition, itemId, date, daysUntil });
+      alerts.push({ ...alertBase(transaction, 'condition_heads_up'), condition, itemId, date, daysUntil, deliveryKeys: [] });
       return;
     }
 
     const daysPast = daysBetween(date, today);
-    if (CONDITION_PASSED_DAYS_AFTER.includes(daysPast)) {
-      alerts.push({ ...alertBase(transaction, 'condition_passed'), condition, itemId, date, daysPast });
+    const passed = passedThresholds(CONDITION_PASSED_DAYS_AFTER, daysPast);
+    if (passed.length === 0) {
+      return;
     }
+
+    const deliveryKeys = undeliveredKeys(passed.map((t) => `condition_passed:${condition}:${date}:${t}`), delivered);
+    if (deliveryKeys.length === 0) {
+      return;
+    }
+
+    alerts.push({ ...alertBase(transaction, 'condition_passed'), condition, itemId, date, daysPast, deliveryKeys });
   });
 
   return alerts;
 }
 
-function depositOverdueAlert(transaction, facts, resolvedItems, today, chain) {
+function depositOverdueAlert(transaction, facts, resolvedItems, today, chain, delivered) {
   const receiptId = chain[chain.length - 1];
   if (!isRowOpen(resolvedItems, receiptId)) {
     return null;
@@ -107,16 +138,22 @@ function depositOverdueAlert(transaction, facts, resolvedItems, today, chain) {
   }
 
   const daysPast = daysBetween(date, today);
-  if (!DEPOSIT_OVERDUE_DAYS_AFTER.includes(daysPast)) {
+  const passed = passedThresholds(DEPOSIT_OVERDUE_DAYS_AFTER, daysPast);
+  if (passed.length === 0) {
+    return null;
+  }
+
+  const deliveryKeys = undeliveredKeys(passed.map((t) => `deposit_overdue:${date}:${t}`), delivered);
+  if (deliveryKeys.length === 0) {
     return null;
   }
 
   const stuckAt = chain.find((itemId) => !isRowCompleted(resolvedItems, itemId));
 
-  return { ...alertBase(transaction, 'deposit_overdue'), itemId: receiptId, stuckAt, date, daysPast };
+  return { ...alertBase(transaction, 'deposit_overdue'), itemId: receiptId, stuckAt, date, daysPast, deliveryKeys };
 }
 
-function additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, itemId) {
+function additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, itemId, delivered) {
   if (!isRowOpen(resolvedItems, itemId)) {
     return null;
   }
@@ -128,11 +165,17 @@ function additionalDepositOverdueAlert(transaction, facts, resolvedItems, today,
 
   const date = dueDates[0];
   const daysPast = daysBetween(date, today);
-  if (!DEPOSIT_OVERDUE_DAYS_AFTER.includes(daysPast)) {
+  const passed = passedThresholds(DEPOSIT_OVERDUE_DAYS_AFTER, daysPast);
+  if (passed.length === 0) {
     return null;
   }
 
-  return { ...alertBase(transaction, 'additional_deposit_overdue'), itemId, date, daysPast };
+  const deliveryKeys = undeliveredKeys(passed.map((t) => `additional_deposit_overdue:${date}:${t}`), delivered);
+  if (deliveryKeys.length === 0) {
+    return null;
+  }
+
+  return { ...alertBase(transaction, 'additional_deposit_overdue'), itemId, date, daysPast, deliveryKeys };
 }
 
 function filingAlerts(transaction, now) {
@@ -161,18 +204,22 @@ function filingAlerts(transaction, now) {
       threadId: record ? record.threadId : null,
       abandonedAt: event.at,
       lastError: record ? record.lastError : event.payload.lastError,
+      deliveryKeys: [],
     });
   });
 
   return alerts;
 }
 
-function alertsForTransaction(transaction, { today, now }) {
+function alertsForTransaction(transaction, { today, now, delivered }) {
   if (!isCalendarDate(today)) {
     throw new Error('alertsForTransaction: today must be a calendar date (YYYY-MM-DD)');
   }
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     throw new Error('alertsForTransaction: now must be a valid Date');
+  }
+  if (delivered === null || typeof delivered !== 'object' || Array.isArray(delivered)) {
+    throw new Error('alertsForTransaction: delivered must be a plain object');
   }
 
   if (states.isTerminal(transaction.type, transaction.state)) {
@@ -184,16 +231,16 @@ function alertsForTransaction(transaction, { today, now }) {
 
   const alerts = [];
 
-  alerts.push(...conditionAlerts(transaction, facts, resolvedItems, today));
+  alerts.push(...conditionAlerts(transaction, facts, resolvedItems, today, delivered));
 
-  const holdingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, HOLDING_DEPOSIT_CHAIN);
+  const holdingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, HOLDING_DEPOSIT_CHAIN, delivered);
   if (holdingDeposit) alerts.push(holdingDeposit);
-  const payingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, PAYING_DEPOSIT_CHAIN);
+  const payingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, PAYING_DEPOSIT_CHAIN, delivered);
   if (payingDeposit) alerts.push(payingDeposit);
 
-  const holdingAdditional = additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, HOLDING_ADDITIONAL_DEPOSIT_ID);
+  const holdingAdditional = additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, HOLDING_ADDITIONAL_DEPOSIT_ID, delivered);
   if (holdingAdditional) alerts.push(holdingAdditional);
-  const payingAdditional = additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, PAYING_ADDITIONAL_DEPOSIT_ID);
+  const payingAdditional = additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, PAYING_ADDITIONAL_DEPOSIT_ID, delivered);
   if (payingAdditional) alerts.push(payingAdditional);
 
   alerts.push(...filingAlerts(transaction, now));

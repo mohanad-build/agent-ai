@@ -76,37 +76,62 @@ function compareRanked(a, b) {
   return 0;
 }
 
-function collectDealAlerts(settled, { today, now }) {
+function collectDealAlerts(settled, { today, now, delivered }) {
   if (!settled || !Array.isArray(settled.transactions) || !Array.isArray(settled.unreadable)) {
     throw new Error('collectDealAlerts: settled must have array transactions and array unreadable');
   }
+  if (delivered === null || typeof delivered !== 'object' || Array.isArray(delivered)) {
+    throw new Error('collectDealAlerts: delivered must be a plain object');
+  }
 
   const alerts = [];
+  const deliveries = [];
   const unreadable = settled.unreadable.map((entry) => ({ ...entry, stage: 'read' }));
+  // A Set, not an array push per branch: a transaction whose alertsForTransaction
+  // call throws (stage 'alerts', below) is non-terminal and already added via
+  // the isTerminal branch before the try runs, so also adding it again via the
+  // unreadable sweep at the end would duplicate it. The Set absorbs that for
+  // free instead of hand-tracking which branch already added which id.
+  const keepTransactionIds = new Set();
   let activeCount = 0;
 
   settled.transactions.forEach((transaction) => {
-    const isActive = DEAL_TYPES.includes(transaction.type)
-      && !states.isTerminal(transaction.type, transaction.state);
+    const isTerminal = states.isTerminal(transaction.type, transaction.state);
+    const isActive = DEAL_TYPES.includes(transaction.type) && !isTerminal;
     if (isActive) {
       activeCount += 1;
+    }
+    if (!isTerminal) {
+      keepTransactionIds.add(transaction.transactionId);
     }
 
     // One deal's alerts throwing (a malformed fact, an impossible date)
     // must never blank the others, the same reasoning as
     // readAllTransactionsSettled keeping one bad file from hiding the rest.
     try {
-      const transactionAlerts = alertsForTransaction(transaction, { today, now });
+      const transactionDelivered = delivered[transaction.transactionId] || {};
+      const transactionAlerts = alertsForTransaction(transaction, { today, now, delivered: transactionDelivered });
       transactionAlerts.forEach((alert) => {
         alerts.push({
           ...alert,
           type: transaction.type,
           driveFolderId: transaction.driveFolderId !== undefined ? transaction.driveFolderId : null,
         });
+        alert.deliveryKeys.forEach((alertKey) => {
+          deliveries.push({ transactionId: transaction.transactionId, alertKey });
+        });
       });
     } catch (err) {
       unreadable.push({ transactionId: transaction.transactionId, error: err.message, stage: 'alerts' });
     }
+  });
+
+  // Every unreadable id, both stages, keeps its delivered-alert history: a
+  // deal file that is damaged this morning, or whose alerts threw on a
+  // malformed fact, is not the same thing as a deal that closed. Only a
+  // transaction collectDealAlerts can see is terminal gets pruned.
+  unreadable.forEach((entry) => {
+    keepTransactionIds.add(entry.transactionId);
   });
 
   // rankForAlert is computed for every alert up front, not inside the sort
@@ -115,7 +140,13 @@ function collectDealAlerts(settled, { today, now }) {
   const ranked = alerts.map((alert) => ({ alert, rank: rankForAlert(alert) }));
   ranked.sort(compareRanked);
 
-  return { alerts: ranked.map((entry) => entry.alert), activeCount, unreadable };
+  return {
+    alerts: ranked.map((entry) => entry.alert),
+    activeCount,
+    unreadable,
+    deliveries,
+    keepTransactionIds: [...keepTransactionIds],
+  };
 }
 
 module.exports = { collectDealAlerts };

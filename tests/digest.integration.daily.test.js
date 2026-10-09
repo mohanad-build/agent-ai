@@ -130,6 +130,7 @@ beforeEach(() => {
     weeklyPreflightSkips: 0,
     lastTokenIssued:      0,
   });
+  agentStateMod.getDeliveredDealAlerts.mockReturnValue({});
   emailMod.readSheetRows.mockResolvedValue([]);
   emailMod.appendToConversationHistory.mockResolvedValue();
   emailMod.sendNewEmail.mockResolvedValue();

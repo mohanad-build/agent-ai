@@ -156,7 +156,7 @@ describe('collectDealAlerts', () => {
 
     const result = collectDealAlerts(
       settledWith([withFolder, withoutFolder]),
-      { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') }
+      { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: {} }
     );
 
     const folderAlert = result.alerts.find((a) => a.transactionId === 'txn-folder');
@@ -181,7 +181,7 @@ describe('collectDealAlerts', () => {
     // Shuffled: not in rank order, not in transactionId/address order either.
     const settled = settledWith([additionalOverdue2, filingFailed, passed, headsUp, depositOverdue7]);
 
-    const result = collectDealAlerts(settled, { today, now });
+    const result = collectDealAlerts(settled, { today, now, delivered: {} });
 
     expect(result.alerts.map((a) => a.transactionId)).toEqual([
       'txn-cp',  // rank 0: condition_passed
@@ -208,7 +208,7 @@ describe('collectDealAlerts', () => {
     const daysPast1 = conditionPassedTxn({ transactionId: 'txn-p1', address: 'P1 St', conditionDate: '2026-10-09' });
     const daysPast4 = conditionPassedTxn({ transactionId: 'txn-p4', address: 'P4 St', conditionDate: '2026-10-06' });
 
-    const result = collectDealAlerts(settledWith([daysPast1, daysPast4]), { today, now });
+    const result = collectDealAlerts(settledWith([daysPast1, daysPast4]), { today, now, delivered: {} });
 
     expect(result.alerts.map((a) => ({ transactionId: a.transactionId, daysPast: a.daysPast }))).toEqual([
       { transactionId: 'txn-p4', daysPast: 4 },
@@ -228,7 +228,7 @@ describe('collectDealAlerts', () => {
     const deposit = depositOverdueTxn({ transactionId: 'txn-deposit-2', address: 'Deposit St', acceptedDate: '2026-10-08' });
     const additional = additionalDepositOverdueTxn({ transactionId: 'txn-additional-7', address: 'Additional St', dueDate: '2026-10-03' });
 
-    const result = collectDealAlerts(settledWith([deposit, additional]), { today, now });
+    const result = collectDealAlerts(settledWith([deposit, additional]), { today, now, delivered: {} });
 
     expect(result.alerts.map((a) => ({ kind: a.kind, transactionId: a.transactionId, daysPast: a.daysPast }))).toEqual([
       { kind: 'additional_deposit_overdue', transactionId: 'txn-additional-7', daysPast: 7 },
@@ -243,7 +243,7 @@ describe('collectDealAlerts', () => {
     const earlier = filingFailedTxn({ transactionId: 'txn-f-early', address: 'F Early St', abandonedAt: '2026-10-10T02:00:00Z' });
     const later = filingFailedTxn({ transactionId: 'txn-f-late', address: 'F Late St', abandonedAt: '2026-10-10T09:00:00Z' });
 
-    const result = collectDealAlerts(settledWith([earlier, later]), { today, now });
+    const result = collectDealAlerts(settledWith([earlier, later]), { today, now, delivered: {} });
 
     expect(result.alerts.map((a) => a.transactionId)).toEqual(['txn-f-late', 'txn-f-early']);
   });
@@ -256,14 +256,14 @@ describe('collectDealAlerts', () => {
     const zebra = conditionPassedTxn({ transactionId: 'txn-1', address: 'Zebra St', conditionDate: '2026-10-06' });
     const alpha = conditionPassedTxn({ transactionId: 'txn-2', address: 'Alpha St', conditionDate: '2026-10-06' });
 
-    const byAddress = collectDealAlerts(settledWith([zebra, alpha]), { today, now });
+    const byAddress = collectDealAlerts(settledWith([zebra, alpha]), { today, now, delivered: {} });
     expect(byAddress.alerts.map((a) => a.address)).toEqual(['Alpha St', 'Zebra St']);
 
     // Same daysPast (4), same address, different transactionId: transactionId order wins.
     const sameAddrB = conditionPassedTxn({ transactionId: 'txn-b', address: 'Shared St', conditionDate: '2026-10-06' });
     const sameAddrA = conditionPassedTxn({ transactionId: 'txn-a', address: 'Shared St', conditionDate: '2026-10-06' });
 
-    const byTransactionId = collectDealAlerts(settledWith([sameAddrB, sameAddrA]), { today, now });
+    const byTransactionId = collectDealAlerts(settledWith([sameAddrB, sameAddrA]), { today, now, delivered: {} });
     expect(byTransactionId.alerts.map((a) => a.transactionId)).toEqual(['txn-a', 'txn-b']);
   });
 
@@ -287,19 +287,25 @@ describe('collectDealAlerts', () => {
       { transactionId: 'l3', type: 'seller_listing', state: 'terminated', address: '10 A St', facts: {}, items: {}, filings: {}, events: [] },
     ];
 
-    const result = collectDealAlerts(settledWith(transactions), { today, now });
+    const result = collectDealAlerts(settledWith(transactions), { today, now, delivered: {} });
 
     expect(result.activeCount).toBe(4);
     expect(result.unreadable).toEqual([]);
   });
 
-  it('unreadable: read failures pass through with stage "read"', () => {
+  it('unreadable: read failures pass through with stage "read", and the id is kept', () => {
     const result = collectDealAlerts(
       settledWith([], [{ transactionId: 'txn-missing', error: 'ENOENT' }]),
-      { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') }
+      { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: {} }
     );
 
-    expect(result).toEqual({ alerts: [], activeCount: 0, unreadable: [{ transactionId: 'txn-missing', error: 'ENOENT', stage: 'read' }] });
+    expect(result).toEqual({
+      alerts: [],
+      activeCount: 0,
+      unreadable: [{ transactionId: 'txn-missing', error: 'ENOENT', stage: 'read' }],
+      deliveries: [],
+      keepTransactionIds: ['txn-missing'],
+    });
   });
 
   it('unreadable: a throwing deal gets stage "alerts", still counts toward activeCount, and does not block the other deal\'s alerts', () => {
@@ -309,7 +315,7 @@ describe('collectDealAlerts', () => {
     const broken = badConditionsTxn({ transactionId: 'txn-broken', address: 'Broken St' });
     const fine = conditionPassedTxn({ transactionId: 'txn-fine', address: 'Fine St', conditionDate: '2026-10-06' });
 
-    const result = collectDealAlerts(settledWith([broken, fine]), { today, now });
+    const result = collectDealAlerts(settledWith([broken, fine]), { today, now, delivered: {} });
 
     expect(result.unreadable).toEqual([
       { transactionId: 'txn-broken', error: 'hasCondition: facts.conditions must be an array, got string', stage: 'alerts' },
@@ -318,6 +324,27 @@ describe('collectDealAlerts', () => {
     // broken is a non-terminal buyer_purchase, so it still counts even though
     // its own alerts threw.
     expect(result.activeCount).toBe(2);
+  });
+
+  it('keepTransactionIds: every non-terminal readable id plus every unreadable id (both stages); a terminal deal is excluded', () => {
+    const today = '2026-10-10';
+    const now = new Date('2026-10-10T11:00:00Z');
+
+    const active = depositOverdueTxn({ transactionId: 'txn-active', address: 'Active St', acceptedDate: '2026-10-08' });
+    const terminal = { ...depositOverdueTxn({ transactionId: 'txn-terminal', address: 'Terminal St', acceptedDate: '2026-10-08' }), state: 'closed' };
+    // stage 'alerts': read fine, but its own alertsForTransaction call throws.
+    // It must still be kept -- a deal collectDealAlerts can see is non-terminal
+    // is not the same thing as a deal that closed.
+    const broken = badConditionsTxn({ transactionId: 'txn-broken', address: 'Broken St' });
+
+    const settled = settledWith(
+      [active, terminal, broken],
+      [{ transactionId: 'txn-missing', error: 'ENOENT' }] // stage 'read'
+    );
+
+    const result = collectDealAlerts(settled, { today, now, delivered: {} });
+
+    expect(result.keepTransactionIds.slice().sort()).toEqual(['txn-active', 'txn-broken', 'txn-missing'].sort());
   });
 
   it('bad settled input throws with the collectDealAlerts prefix', () => {
@@ -329,22 +356,55 @@ describe('collectDealAlerts', () => {
     expect(() => collectDealAlerts({ transactions: [], unreadable: 'nope' }, opts)).toThrow('collectDealAlerts:');
   });
 
-  it('empty settled result returns empty alerts, zero activeCount, empty unreadable', () => {
-    const result = collectDealAlerts(settledWith([]), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') });
+  it('bad delivered input throws with the collectDealAlerts prefix, checked after settled is valid', () => {
+    const settled = settledWith([]);
 
-    expect(result).toEqual({ alerts: [], activeCount: 0, unreadable: [] });
+    expect(() => collectDealAlerts(settled, { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') }))
+      .toThrow('collectDealAlerts: delivered must be a plain object');
+    expect(() => collectDealAlerts(settled, { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: [] }))
+      .toThrow('collectDealAlerts: delivered must be a plain object');
+  });
+
+  it('empty settled result returns empty alerts, zero activeCount, empty unreadable, empty deliveries and keepTransactionIds', () => {
+    const result = collectDealAlerts(settledWith([]), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: {} });
+
+    expect(result).toEqual({ alerts: [], activeCount: 0, unreadable: [], deliveries: [], keepTransactionIds: [] });
+  });
+
+  it('deliveries flattens every undelivered key across every deal, each tagged with its own transactionId', () => {
+    const today = '2026-10-10';
+    const now = new Date('2026-10-10T11:00:00Z');
+
+    // daysPast 4: both the day-1 and day-4 thresholds have passed, so this
+    // single alert carries two keys.
+    const condTxn = conditionPassedTxn({ transactionId: 'txn-cond', address: 'A St', conditionDate: '2026-10-06' });
+    // daysPast 2: one threshold, one key.
+    const depTxn = depositOverdueTxn({ transactionId: 'txn-dep', address: 'B St', acceptedDate: '2026-10-08' });
+    // Heads-up never contributes a key.
+    const headsUpTxn = conditionHeadsUpTxn({ transactionId: 'txn-hu', address: 'C St', conditionDate: '2026-10-11' });
+
+    const result = collectDealAlerts(settledWith([condTxn, depTxn, headsUpTxn]), { today, now, delivered: {} });
+
+    expect(result.deliveries).toEqual([
+      { transactionId: 'txn-cond', alertKey: 'condition_passed:financing:2026-10-06:1' },
+      { transactionId: 'txn-cond', alertKey: 'condition_passed:financing:2026-10-06:4' },
+      { transactionId: 'txn-dep', alertKey: 'deposit_overdue:2026-10-08:2' },
+    ]);
   });
 
   // -- Cases real alerts.js constants cannot produce --------------------------------
   //
-  // HEADS_UP_DAYS_BEFORE is a single fixed value (2), so every real
-  // condition_heads_up alert has the same daysUntil, and
-  // DEPOSIT_OVERDUE_DAYS_AFTER is exactly [2, 7], so real deposit alerts
-  // never land at daysPast 6 or 8. These two tie-breaks and the unknown-kind
-  // guard need an injected alertsForTransaction. jest.resetModules plus a
-  // scoped jest.doMock keeps the stub out of every other test in this file
-  // (same pattern as tests/googleRetry.test.js's auth-failure describe
-  // block).
+  // CONDITION_HEADS_UP_DAYS_BEFORE is a fixed two-value set ([1, 0]), so a
+  // real condition_heads_up alert only ever carries daysUntil 1 or 0, never
+  // 3. And since commit 3, DEPOSIT_OVERDUE_DAYS_AFTER's thresholds (2 and 7)
+  // are compared with >=, not ===, so a real deposit alert CAN land at
+  // daysPast 6 or 8 now (any day past a threshold does) -- what real data
+  // still cannot produce is three deposit alerts at 6, 7 and 8 all missing
+  // a deliveryKeys array, which is the shape these tie-break fixtures need.
+  // These two tie-breaks and the unknown-kind guard need an injected
+  // alertsForTransaction. jest.resetModules plus a scoped jest.doMock keeps
+  // the stub out of every other test in this file (same pattern as
+  // tests/googleRetry.test.js's auth-failure describe block).
   describe('stubbed alertsForTransaction (cases real alert data cannot produce)', () => {
     beforeEach(() => {
       jest.resetModules();
@@ -363,6 +423,7 @@ describe('collectDealAlerts', () => {
       // TypeError under strict mode before the assertions ran.
       const original = Object.freeze({
         kind: 'condition_passed', transactionId: 'txn-frozen', address: '1 Frozen St', condition: 'financing', itemId: 'financing_condition', date: '2026-10-06', daysPast: 4,
+        deliveryKeys: ['condition_passed:financing:2026-10-06:1', 'condition_passed:financing:2026-10-06:4'],
       });
 
       const { collectDealAlerts: collectStubbed } = loadWithStubbedAlerts({ 'txn-frozen': [original] });
@@ -371,7 +432,7 @@ describe('collectDealAlerts', () => {
         { transactionId: 'txn-frozen', type: 'buyer_purchase', state: 'conditional', address: '1 Frozen St', facts: {}, items: {}, filings: {}, events: [] },
       ];
 
-      const result = collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') });
+      const result = collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: {} });
 
       expect(result.alerts).toHaveLength(1);
       expect(result.alerts[0]).not.toBe(original);
@@ -381,8 +442,8 @@ describe('collectDealAlerts', () => {
     });
 
     it('condition_heads_up tie-break: smaller daysUntil first', () => {
-      const far = { kind: 'condition_heads_up', transactionId: 'txn-far', address: 'Far St', condition: 'financing', itemId: 'financing_condition', date: '2026-10-13', daysUntil: 3 };
-      const near = { kind: 'condition_heads_up', transactionId: 'txn-near', address: 'Near St', condition: 'financing', itemId: 'financing_condition', date: '2026-10-11', daysUntil: 1 };
+      const far = { kind: 'condition_heads_up', transactionId: 'txn-far', address: 'Far St', condition: 'financing', itemId: 'financing_condition', date: '2026-10-13', daysUntil: 3, deliveryKeys: [] };
+      const near = { kind: 'condition_heads_up', transactionId: 'txn-near', address: 'Near St', condition: 'financing', itemId: 'financing_condition', date: '2026-10-11', daysUntil: 1, deliveryKeys: [] };
 
       const { collectDealAlerts: collectStubbed } = loadWithStubbedAlerts({
         'txn-far': [far],
@@ -394,14 +455,14 @@ describe('collectDealAlerts', () => {
         { transactionId: 'txn-near', type: 'buyer_purchase', state: 'conditional', address: 'Near St', facts: {}, items: {}, filings: {}, events: [] },
       ];
 
-      const result = collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') });
+      const result = collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: {} });
 
       expect(result.alerts.map((a) => a.transactionId)).toEqual(['txn-near', 'txn-far']);
     });
 
     it('deposits (daysPast 6, 7, 8) order by daysPast descending, one rank, no 7-day boundary', () => {
       const makeDeposit = (transactionId, address, daysPast) => ({
-        kind: 'deposit_overdue', transactionId, address, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client', date: '2026-10-01', daysPast,
+        kind: 'deposit_overdue', transactionId, address, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client', date: '2026-10-01', daysPast, deliveryKeys: [],
       });
 
       const { collectDealAlerts: collectStubbed } = loadWithStubbedAlerts({
@@ -414,7 +475,7 @@ describe('collectDealAlerts', () => {
         transactionId, type: 'buyer_purchase', state: 'conditional', address: `${i}`, facts: {}, items: {}, filings: {}, events: [],
       }));
 
-      const result = collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') });
+      const result = collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: {} });
 
       // All three share rank 1; 6, 7 and 8 are just three daysPast values on
       // one continuous "larger first" ordering, with no boundary at 7.
@@ -427,14 +488,14 @@ describe('collectDealAlerts', () => {
 
     it('an unknown alert kind throws, prefixed with collectDealAlerts', () => {
       const { collectDealAlerts: collectStubbed } = loadWithStubbedAlerts({
-        'txn-bogus': [{ kind: 'bogus_kind', transactionId: 'txn-bogus', address: '1 Bogus St' }],
+        'txn-bogus': [{ kind: 'bogus_kind', transactionId: 'txn-bogus', address: '1 Bogus St', deliveryKeys: [] }],
       });
 
       const transactions = [
         { transactionId: 'txn-bogus', type: 'buyer_purchase', state: 'conditional', address: '1 Bogus St', facts: {}, items: {}, filings: {}, events: [] },
       ];
 
-      expect(() => collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') }))
+      expect(() => collectStubbed(settledWith(transactions), { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z'), delivered: {} }))
         .toThrow("collectDealAlerts: unknown alert kind 'bogus_kind'");
     });
   });

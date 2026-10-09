@@ -521,12 +521,23 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
   // brief. Runs AFTER gatherWindowData, not before: a genuine Sheet
   // hard-failure above still rejects this whole function before any deals
   // code runs, exactly as it did before this section existed.
-  let dealsCollected = { alerts: [], activeCount: 0, unreadable: [] };
+  //
+  // today is computed INSIDE this try, not above it: a bad agentConfig.timezone
+  // (todayInTimeZone throws on an unknown IANA zone) must fail the deals
+  // section only, the same as a bad deal file or a broken transactions
+  // directory, never the lead brief that follows. Once computed here it is
+  // reused as-is for both collectDealAlerts and the recordDeliveredDealAlerts
+  // call after the sends, never recomputed there: a digest that runs long
+  // enough to cross a local midnight must not record a delivery under a
+  // later date than the one its own alerts were actually computed for.
+  let today = null;
+  let dealsCollected = { alerts: [], activeCount: 0, unreadable: [], deliveries: [], keepTransactionIds: [] };
   let dealsResult = { status: 'ok' };
   try {
+    today = todayInTimeZone(now, agentConfig.timezone || 'America/Toronto');
     const settled = readAllTransactionsSettled(agentConfig.agentId, { baseDir: options.baseDir });
-    const today = todayInTimeZone(now, agentConfig.timezone || 'America/Toronto');
-    dealsCollected = collectDealAlerts(settled, { today, now });
+    const delivered = agentState.getDeliveredDealAlerts(agentConfig.agentId);
+    dealsCollected = collectDealAlerts(settled, { today, now, delivered });
     dealsResult = dealsCollected.unreadable.length > 0
       ? { status: 'unreadable', unreadable: dealsCollected.unreadable }
       : { status: 'ok' };
@@ -667,6 +678,29 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
         'daily-email',
         emailRetry.lastError
       );
+    }
+  }
+
+  // Only on the email, and only when the deals section produced real data
+  // (never on 'error': that status means dealsCollected is the empty
+  // sentinel above, whose empty keepTransactionIds would prune every deal's
+  // delivered history on a transient read failure instead of leaving it
+  // alone). 'unreadable' still records: the readable deals' data is real,
+  // and the unreadable ids are already preserved in keepTransactionIds.
+  // Not the SMS: dealsSmsLine (digestDeals.js) names only the single most
+  // dangerous alert and summarizes the rest as "+ N more", so a sent SMS is
+  // not proof every alert reached the agent -- only the email lists every
+  // one. Gating on email alone means an SMS-only success records nothing,
+  // and the alert simply fires again tomorrow: a silent drop (recording
+  // something the agent never actually saw) would be worse than a repeat.
+  // A throw here (a disk error writing agent state) is caught and logged,
+  // never surfaced to the caller: the brief already sent, and that result
+  // must not change now.
+  if (emailResult === 'sent' && dealsResult.status !== 'error') {
+    try {
+      agentState.recordDeliveredDealAlerts(agentConfig.agentId, dealsCollected.deliveries, today, dealsCollected.keepTransactionIds);
+    } catch (err) {
+      console.error(`[${agentConfig.agentId}] daily digest: deal alerts delivery record NOT written: ${err.message}`);
     }
   }
 

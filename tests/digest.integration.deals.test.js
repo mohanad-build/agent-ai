@@ -144,6 +144,7 @@ beforeEach(() => {
   process.env.STORAGE_ROOT = baseDir;
 
   agentStateMod.getState.mockReturnValue({ lastDailyDigestRun: null, weeklyPreflightSkips: 0, lastTokenIssued: 0 });
+  agentStateMod.getDeliveredDealAlerts.mockReturnValue({});
   emailMod.readSheetRows.mockResolvedValue([]);
   emailMod.sendNewEmail.mockResolvedValue();
   twilioMod.sendSMS.mockResolvedValue();
@@ -412,5 +413,163 @@ describe('condition_heads_up and deposit_overdue through the real pipeline', () 
 
     expect(result.deals).toEqual({ status: 'ok' });
     expect(captured.email.body).toContain('Deposit not confirmed, 7 days after acceptance.');
+  });
+});
+
+describe('recordDeliveredDealAlerts: commit 3 wiring', () => {
+  test('today is computed once: the recorded date matches the date the alerts were computed for', async () => {
+    capture();
+    openConditionHeadsUpDeal(baseDir, '12 Main St');
+
+    await runDailyDigestForAgent(AGENT, { baseDir });
+
+    expect(agentStateMod.recordDeliveredDealAlerts).toHaveBeenCalledTimes(1);
+    const [, , recordedToday] = agentStateMod.recordDeliveredDealAlerts.mock.calls[0];
+    expect(recordedToday).toBe('2026-10-08');
+  });
+
+  test('a successful send records the delivery; the next day is silent for that same threshold', async () => {
+    openTransaction(AGENT.agentId, { type: 'buyer_purchase', state: 'conditional', address: '1 Delivered Ave' }, {
+      baseDir, now: new Date(MOCK_NOW_ISO),
+      factPlan: [
+        ['conditions', []],
+        ['acceptedDate', '2026-10-06'], // daysPast 2 on 2026-10-08
+        ['additionalDepositDueDates', []],
+      ],
+    });
+
+    const firstCaptured = capture();
+    const firstResult = await runDailyDigestForAgent(AGENT, { baseDir });
+
+    expect(firstResult.smsResult).toBe('sent');
+    expect(firstCaptured.sms).toContain('📋');
+    expect(agentStateMod.recordDeliveredDealAlerts).toHaveBeenCalledTimes(1);
+
+    // Simulate the real agentState round trip: fold what was actually
+    // recorded into the map the next morning's getDeliveredDealAlerts read
+    // returns, the same shape recordDeliveredDealAlerts itself builds.
+    const [, deliveries, recordedToday] = agentStateMod.recordDeliveredDealAlerts.mock.calls[0];
+    const delivered = {};
+    deliveries.forEach(({ transactionId, alertKey }) => {
+      delivered[transactionId] = { ...(delivered[transactionId] || {}), [alertKey]: recordedToday };
+    });
+    agentStateMod.getDeliveredDealAlerts.mockReturnValue(delivered);
+
+    process.env.MOCK_NOW = '2026-10-09T11:00:00.000Z'; // next morning, daysPast 3: still only the day-2 threshold
+    const secondCaptured = capture();
+    const secondResult = await runDailyDigestForAgent(AGENT, { baseDir });
+
+    expect(secondResult.deals).toEqual({ status: 'ok' });
+    expect(secondCaptured.sms).not.toContain('📋');
+    expect(secondCaptured.email.body).toContain('nothing needs you today');
+  });
+
+  test('both sends failing records nothing; the alert still fires the next day once a send succeeds', async () => {
+    openDepositOverdueDeal(baseDir, '34 Oak Ave'); // acceptedDate 2026-10-01, daysPast 7 on 2026-10-08
+
+    twilioMod.sendSMS.mockRejectedValue(new Error('twilio down'));
+    emailMod.sendNewEmail.mockRejectedValue(new Error('smtp down'));
+
+    // _sendWithRetry backs off 10s then 60s between its three attempts;
+    // fake timers skip the wait instead of this test actually taking 70s+.
+    jest.useFakeTimers();
+    const firstResultPromise = runDailyDigestForAgent(AGENT, { baseDir });
+    await jest.runAllTimersAsync();
+    const firstResult = await firstResultPromise;
+    jest.useRealTimers();
+
+    expect(firstResult.smsResult).toBe('failed');
+    expect(firstResult.emailResult).toBe('failed');
+    expect(agentStateMod.recordDeliveredDealAlerts).not.toHaveBeenCalled();
+
+    process.env.MOCK_NOW = '2026-10-09T11:00:00.000Z'; // next morning, daysPast 8: nothing was ever recorded
+    const secondCaptured = capture();
+    const secondResult = await runDailyDigestForAgent(AGENT, { baseDir });
+
+    expect(secondResult.smsResult).toBe('sent');
+    expect(secondCaptured.sms).toContain('📋');
+  });
+
+  test('deals unavailable (status error) leaves recordDeliveredDealAlerts uncalled', async () => {
+    capture();
+    breakTransactionsDirectory(baseDir, AGENT.agentId);
+
+    const result = await runDailyDigestForAgent(AGENT, { baseDir });
+
+    expect(result.deals.status).toBe('error');
+    expect(result.smsResult).toBe('sent');
+    expect(agentStateMod.recordDeliveredDealAlerts).not.toHaveBeenCalled();
+  });
+
+  test('a throw from recordDeliveredDealAlerts is caught, logged, and leaves the brief result unchanged', async () => {
+    capture();
+    openConditionHeadsUpDeal(baseDir, '12 Main St');
+    agentStateMod.recordDeliveredDealAlerts.mockImplementation(() => { throw new Error('disk full'); });
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await runDailyDigestForAgent(AGENT, { baseDir });
+
+    expect(result.smsResult).toBe('sent');
+    expect(result.emailResult).toBe('sent');
+    expect(result.deals).toEqual({ status: 'ok' });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('deal alerts delivery record NOT written: disk full'));
+    errorSpy.mockRestore();
+  });
+});
+
+describe('commit 3, fix 1: today computed inside the deals try', () => {
+  const HOT_ROW = {
+    leadId: 'hot@example.com', name: 'Alice Hot', phone: '+15555550100', source: '', dateAdded: '',
+    originalMessage: '', status: 'HOT', followUpCount: '0', nextFollowUpDay: '', lastFollowUpDate: '',
+    reserved: '', conversationHistory: '[2026-10-07T09:00:00.000Z] Heuristic intake (confidence 0.90): lead inquired',
+    pendingQuestion: '', gmailThreadId: '', aiEnabled: '', lastActionTimestamp: '2026-10-08T09:00:00.000Z',
+    reminderSent: '', validationStatus: '', operatorEscalated: '', leadCategory: '', rowIndex: 2,
+  };
+
+  test('an invalid agent timezone fails only the deals section; the brief still sends', async () => {
+    const captured = capture();
+    // A HOT row forces categories.urgent.length > 0, so renderEmail/renderEmailHtml's
+    // subject skips formatDailyDate (same agentConfig.timezone) entirely --
+    // otherwise the lead brief itself would also throw on the bad timezone,
+    // and this test would not isolate fix 1's claim at all.
+    emailMod.readSheetRows.mockResolvedValue([HOT_ROW]);
+    openConditionHeadsUpDeal(baseDir, '12 Main St');
+
+    const result = await runDailyDigestForAgent({ ...AGENT, timezone: 'Not/ARealZone' }, { baseDir });
+
+    expect(result.smsResult).toBe('sent');
+    expect(result.emailResult).toBe('sent');
+    expect(result.deals.status).toBe('error');
+    expect(typeof result.deals.error).toBe('string');
+    expect(captured.sms).toBeTruthy();
+    expect(agentStateMod.recordDeliveredDealAlerts).not.toHaveBeenCalled();
+  });
+});
+
+describe('commit 3, fix 2: record only when the email was sent', () => {
+  test('SMS sent, email failed: nothing recorded, and the next day still carries the alert', async () => {
+    openDepositOverdueDeal(baseDir, '34 Oak Ave'); // acceptedDate 2026-10-01, daysPast 7 on 2026-10-08
+
+    twilioMod.sendSMS.mockResolvedValue();
+    emailMod.sendNewEmail.mockRejectedValue(new Error('smtp down'));
+
+    // _sendWithRetry backs off 10s then 60s on the email; fake timers skip
+    // the wait instead of this test actually taking 70s+.
+    jest.useFakeTimers();
+    const firstResultPromise = runDailyDigestForAgent(AGENT, { baseDir });
+    await jest.runAllTimersAsync();
+    const firstResult = await firstResultPromise;
+    jest.useRealTimers();
+
+    expect(firstResult.smsResult).toBe('sent');
+    expect(firstResult.emailResult).toBe('failed');
+    expect(agentStateMod.recordDeliveredDealAlerts).not.toHaveBeenCalled();
+
+    process.env.MOCK_NOW = '2026-10-09T11:00:00.000Z'; // next morning: nothing was ever recorded
+    const secondCaptured = capture();
+    const secondResult = await runDailyDigestForAgent(AGENT, { baseDir });
+
+    expect(secondResult.smsResult).toBe('sent');
+    expect(secondCaptured.sms).toContain('📋');
   });
 });
