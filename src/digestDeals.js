@@ -46,15 +46,10 @@ function daysAgoPhrase(daysPast) {
   return daysPast === 1 ? 'yesterday' : `${daysPhrase(daysPast)} ago`;
 }
 
-const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-// Timezone-free: a calendar date (YYYY-MM-DD) names a day, not an instant,
-// so the weekday is read back from the same UTC fields it was built from
-// (calendarDate.js's own Date.UTC convention), never from the server's
-// local clock.
-function weekdayForCalendarDate(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return WEEKDAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+// condition_heads_up's only two possible daysUntil values (alerts.js's
+// CONDITION_HEADS_UP_DAYS_BEFORE is [1, 0]): never a digit-days phrase.
+function headsUpDueWord(daysUntil) {
+  return daysUntil === 1 ? 'tomorrow' : 'today';
 }
 
 function displayAddress(alert) {
@@ -114,9 +109,8 @@ function rowContent(alert, ctx) {
 
     case 'condition_heads_up': {
       const condition = conditionDisplayName(alert.condition);
-      const weekday = weekdayForCalendarDate(alert.date);
       return {
-        textLines: [capitalizeFirst(`${condition} condition is due ${weekday} (in ${daysPhrase(alert.daysUntil)}).`)],
+        textLines: [capitalizeFirst(`${condition} condition is due ${headsUpDueWord(alert.daysUntil)}.`)],
         primary: { label: 'Waived or fulfilled', url: buildDoneMailtoHref(alert.transactionId, alert.itemId) },
         secondary: null,
       };
@@ -284,8 +278,8 @@ function renderDealsHtml(collected, ctx) {
 // -- SMS and subject -----------------------------------------------------------
 
 // Address only, no unit: the SMS line stays short. Shares
-// conditionDisplayName, weekdayForCalendarDate and daysPhrase with the
-// renderers above rather than a second copy -- one home for the wording.
+// conditionDisplayName, headsUpDueWord and daysPhrase with the renderers
+// above rather than a second copy -- one home for the wording.
 function dealsSmsPhrase(alert) {
   switch (alert.kind) {
     case 'condition_passed': {
@@ -295,8 +289,7 @@ function dealsSmsPhrase(alert) {
 
     case 'condition_heads_up': {
       const condition = conditionDisplayName(alert.condition);
-      const weekday = weekdayForCalendarDate(alert.date);
-      return `${alert.address}: ${condition} condition due ${weekday}`;
+      return `${alert.address}: ${condition} condition due ${headsUpDueWord(alert.daysUntil)}`;
     }
 
     case 'deposit_overdue':

@@ -172,7 +172,7 @@ describe('collectDealAlerts', () => {
     const today = '2026-10-10';
     const now = new Date('2026-10-10T11:00:00Z');
 
-    const headsUp = conditionHeadsUpTxn({ transactionId: 'txn-hu', address: 'A Headsup Ln', conditionDate: '2026-10-12' });
+    const headsUp = conditionHeadsUpTxn({ transactionId: 'txn-hu', address: 'A Headsup Ln', conditionDate: '2026-10-11' }); // daysUntil 1
     const passed = conditionPassedTxn({ transactionId: 'txn-cp', address: 'B Passed Ave', conditionDate: '2026-10-06' });
     const depositOverdue7 = depositOverdueTxn({ transactionId: 'txn-d7', address: 'D Deposit7 St', acceptedDate: '2026-10-03' });
     const additionalOverdue2 = additionalDepositOverdueTxn({ transactionId: 'txn-ad2', address: 'E Addl2 Rd', dueDate: '2026-10-08' });

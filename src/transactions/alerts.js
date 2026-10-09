@@ -26,8 +26,8 @@ const { CONDITION_CLEARING_ITEMS } = require('./rules/conditions');
 const deposit = require('./rules/deposit');
 const { daysBetween, isCalendarDate } = require('../calendarDate');
 
-// How many days before a condition date condition_heads_up fires.
-const HEADS_UP_DAYS_BEFORE = 2;
+// Days before a condition date condition_heads_up fires: the day before and the day of.
+const CONDITION_HEADS_UP_DAYS_BEFORE = Object.freeze([1, 0]);
 // How many days after a condition date condition_passed fires.
 const CONDITION_PASSED_DAYS_AFTER = Object.freeze([1, 4]);
 // How many days after the governing date deposit_overdue and additional_deposit_overdue fire.
@@ -81,7 +81,7 @@ function conditionAlerts(transaction, facts, resolvedItems, today) {
     }
 
     const daysUntil = daysBetween(today, date);
-    if (daysUntil === HEADS_UP_DAYS_BEFORE) {
+    if (CONDITION_HEADS_UP_DAYS_BEFORE.includes(daysUntil)) {
       alerts.push({ ...alertBase(transaction, 'condition_heads_up'), condition, itemId, date, daysUntil });
       return;
     }

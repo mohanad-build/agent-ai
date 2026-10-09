@@ -18,7 +18,7 @@ const { OPERATOR_CONTACT_EMAIL } = require('../src/operatorAddress');
 // MOCK_NOW pins "now"; today in America/Toronto (the AGENT fixture's
 // timezone below) is 2026-10-08, so every condition/deposit date below is
 // chosen against that day using the real day-count constants
-// (alerts.js: CONDITION_PASSED_DAYS_AFTER [1,4], HEADS_UP_DAYS_BEFORE 2,
+// (alerts.js: CONDITION_PASSED_DAYS_AFTER [1,4], CONDITION_HEADS_UP_DAYS_BEFORE [1,0],
 // DEPOSIT_OVERDUE_DAYS_AFTER [2,7]), never hand-picked to "look about right".
 const MOCK_NOW_ISO = '2026-10-08T11:00:00.000Z';
 
@@ -67,7 +67,7 @@ function openConditionHeadsUpDeal(baseDir, address) {
     baseDir, now: new Date(MOCK_NOW_ISO),
     factPlan: [
       ['conditions', ['financing']],
-      ['conditionDates', { financing: '2026-10-10' }], // daysUntil 2
+      ['conditionDates', { financing: '2026-10-09' }], // daysUntil 1
       ['additionalDepositDueDates', []],
     ],
   });
@@ -401,7 +401,7 @@ describe('condition_heads_up and deposit_overdue through the real pipeline', () 
     const result = await runDailyDigestForAgent({ ...AGENT, googleSheetId: '' }, { baseDir });
 
     expect(result.deals).toEqual({ status: 'ok' });
-    expect(captured.email.body).toContain('condition is due Saturday (in 2 days).');
+    expect(captured.email.body).toContain('condition is due tomorrow.');
   });
 
   test('deposit_overdue produces the expected row and no error', async () => {

@@ -1,19 +1,5 @@
 'use strict';
 
-// Tried and abandoned: process.env.TZ = 'America/Toronto' at the top of
-// this file, before any other code. It has no effect under Jest. V8
-// resolves and caches the host timezone the first time any Date/Intl
-// operation runs in the process, and Jest's own startup machinery touches
-// Date before a test file's top-level code ever executes -- confirmed with
-// --runInBand too, so it is not a worker-fork artifact. There is no way
-// from inside a Jest test file's own code to change the effective timezone
-// for the REST OF THIS PROCESS. See "weekday is computed from the calendar
-// date..." below for the pin that actually works: a child process gets its
-// own V8 instance, so TZ set in its spawn-time env is honoured from the
-// start, before that child ever touches a Date.
-const { execFileSync } = require('child_process');
-const path = require('path');
-
 const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject, _internal } = require('../src/digestDeals');
 const { CONDITION_NAMES } = require('../src/transactions/rules/conditions');
 
@@ -80,15 +66,30 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
     expect(result).not.toContain('yesterday');
   });
 
-  it('condition_heads_up, daysUntil 2 (real-data value), weekday across a month boundary', () => {
+  it('condition_heads_up, daysUntil 1: "due tomorrow"', () => {
     const alert = {
       kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
-      driveFolderId: 'folder-1', condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 2,
+      driveFolderId: 'folder-1', condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 1,
     };
     expect(renderDealsPlain(collected([alert]), CTX)).toBe(
       '-- Deals needing you --\n\n'
       + '12 Main St\n'
-      + 'Inspection condition is due Sunday (in 2 days).\n'
+      + 'Inspection condition is due tomorrow.\n'
+      + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition\n'
+      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
+      + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
+    );
+  });
+
+  it('condition_heads_up, daysUntil 0: "due today"', () => {
+    const alert = {
+      kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: 'folder-1', condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 0,
+    };
+    expect(renderDealsPlain(collected([alert]), CTX)).toBe(
+      '-- Deals needing you --\n\n'
+      + '12 Main St\n'
+      + 'Inspection condition is due today.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition\n'
       + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
@@ -150,7 +151,7 @@ describe('renderDealsPlain: grouping by deal', () => {
     };
     const conditionHeadsUp = {
       kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'seller_sale',
-      driveFolderId: 'folder-1', condition: 'financing', itemId: 'financing_condition', date: '2026-11-01', daysUntil: 2,
+      driveFolderId: 'folder-1', condition: 'financing', itemId: 'financing_condition', date: '2026-11-01', daysUntil: 1,
     };
     const result = renderDealsPlain(collected([headsUp, conditionHeadsUp]), CTX);
     expect(result).toBe(
@@ -158,7 +159,7 @@ describe('renderDealsPlain: grouping by deal', () => {
       + '12 Main St\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued\n'
-      + 'Financing condition is due Sunday (in 2 days).\n'
+      + 'Financing condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20financing_condition\n'
       + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
@@ -181,7 +182,7 @@ describe('renderDealsPlain: grouping by deal', () => {
     };
     const y1 = {
       kind: 'condition_heads_up', transactionId: 'txn-y', address: '2 Y St', type: 'buyer_purchase',
-      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 2,
+      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 1,
     };
     const x2 = {
       kind: 'additional_deposit_overdue', transactionId: 'txn-x', address: '9 X St', type: 'seller_sale',
@@ -201,42 +202,10 @@ describe('renderDealsPlain: grouping by deal', () => {
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-x%20additional_deposit_receipt_issued\n'
       + '→ Emails about 9 X St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%229%20x%22\n\n'
       + '2 Y St\n'
-      + 'Inspection condition is due Sunday (in 2 days).\n'
+      + 'Inspection condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-y%20inspection_condition\n'
       + '→ Emails about 2 Y St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%222%20y%22'
     );
-  });
-});
-
-// A fresh child process gets its own V8 instance, so TZ set in its
-// spawn-time env is honoured before that process ever touches a Date --
-// unlike reassigning process.env.TZ in this (the parent) process, which
-// does nothing (see the note at the top of this file). Pinning TZ to a
-// non-UTC zone this way makes the assertion below deterministic regardless
-// of whatever timezone the machine running `npx jest` happens to have.
-function renderHeadsUpInChildProcess(tz) {
-  const digestDealsPath = JSON.stringify(path.join(__dirname, '..', 'src', 'digestDeals.js'));
-  const script = `
-    const { renderDealsPlain } = require(${digestDealsPath});
-    const alert = {
-      kind: 'condition_heads_up', transactionId: 'txn-20261001-aaaaaaaa', address: '12 Main St', type: 'buyer_purchase',
-      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 2,
-    };
-    const ctx = { gmailAddress: 'agent@gmail.com', operatorEmail: 'mohanad@getklosed.ca', T: ${JSON.stringify(T)} };
-    process.stdout.write(renderDealsPlain({ alerts: [alert], activeCount: 1, unreadable: [] }, ctx));
-  `;
-  return execFileSync(process.execPath, ['-e', script], { env: { ...process.env, TZ: tz }, encoding: 'utf8' });
-}
-
-describe('weekday is computed from the calendar date, not the machine\'s local time', () => {
-  // America/Toronto specifically, not just any non-UTC zone: a date-only
-  // ISO string parses as UTC midnight, and a local time BEHIND UTC is what
-  // rolls that instant back onto the previous calendar day (a local time
-  // ahead of UTC only pushes forward within the same day, with no
-  // rollover, so it could never expose this particular regression).
-  it('reads as Sunday even when the process is pinned to America/Toronto (UTC-4/5)', () => {
-    const output = renderHeadsUpInChildProcess('America/Toronto');
-    expect(output).toContain('Inspection condition is due Sunday (in 2 days).');
   });
 });
 
@@ -412,6 +381,23 @@ describe('renderDealsHtml', () => {
     );
   });
 
+  it('condition_heads_up: "due tomorrow" / "due today", never a digit-days phrase', () => {
+    const tomorrow = {
+      kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 1,
+    };
+    const today = {
+      kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 0,
+    };
+    const tomorrowHtml = renderDealsHtml(collected([tomorrow]), CTX);
+    const todayHtml = renderDealsHtml(collected([today]), CTX);
+    expect(tomorrowHtml).toContain('Inspection condition is due tomorrow.');
+    expect(todayHtml).toContain('Inspection condition is due today.');
+    expect(tomorrowHtml).not.toMatch(/in \d+ days?/);
+    expect(todayHtml).not.toMatch(/in \d+ days?/);
+  });
+
   it('the empty case returns the empty string', () => {
     expect(renderDealsHtml(collected([], { activeCount: 0, unreadable: [] }), CTX)).toBe('');
   });
@@ -440,7 +426,7 @@ function sampleCollected() {
   const headsUpA = {
     kind: 'condition_heads_up', transactionId: 'txn-20261001-aaaaaaaa', address: '19 Wax Myrtle Way', unit: '35',
     type: 'buyer_purchase', driveFolderId: 'folder-A', condition: 'inspection', itemId: 'inspection_condition',
-    date: '2026-11-01', daysUntil: 2,
+    date: '2026-11-01', daysUntil: 0,
   };
   const conditionPassedB = {
     kind: 'condition_passed', transactionId: 'txn-20261001-bbbbbbbb', address: '12 Main St', type: 'seller_sale',
@@ -480,7 +466,7 @@ describe('sample fixture: every kind, three deals (two of them two-alert blocks)
       + 'Deposit not confirmed, 7 days after acceptance. Waiting on: Deposit Obtained from Client.\n'
       + '→ Receipt in hand: mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received\n'
       + '→ Deposit Obtained from Client: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20deposit_obtained_from_client\n'
-      + 'Inspection condition is due Sunday (in 2 days).\n'
+      + 'Inspection condition is due today.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition\n'
       + '→ Emails about 19 Wax Myrtle Way: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2219%20wax%20myrtle%22\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-A\n\n'
@@ -511,12 +497,20 @@ describe('dealsSmsLine', () => {
     expect(dealsSmsLine(collected([alert]))).toBe("📋 12 Main St: financing condition passed, not marked done.");
   });
 
-  it('condition_heads_up', () => {
+  it('condition_heads_up, daysUntil 1: "due tomorrow"', () => {
     const alert = {
       kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
-      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 2,
+      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 1,
     };
-    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: inspection condition due Sunday.');
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: inspection condition due tomorrow.');
+  });
+
+  it('condition_heads_up, daysUntil 0: "due today"', () => {
+    const alert = {
+      kind: 'condition_heads_up', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, condition: 'inspection', itemId: 'inspection_condition', date: '2026-11-01', daysUntil: 0,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: inspection condition due today.');
   });
 
   it('deposit_overdue, daysPast 1 (day agreement)', () => {

@@ -30,21 +30,12 @@ function baseTransaction(overrides = {}) {
 }
 
 describe('alertsForTransaction', () => {
-  it('1. today 2026-10-06: heads-up, passed, deposit overdue, in order', () => {
+  it('1. today 2026-10-06: financing is daysUntil 2 (no heads-up), passed, deposit overdue, in order', () => {
     const transaction = baseTransaction({ facts: { ...BASE_FACTS } });
 
     const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW });
 
     expect(result).toEqual([
-      {
-        kind: 'condition_heads_up',
-        transactionId: 'txn-1',
-        address: '12 Main St',
-        condition: 'financing',
-        itemId: 'financing_condition',
-        date: '2026-10-08',
-        daysUntil: 2,
-      },
       {
         kind: 'condition_passed',
         transactionId: 'txn-1',
@@ -66,12 +57,22 @@ describe('alertsForTransaction', () => {
     ]);
   });
 
-  it('2. today 2026-10-07: no alerts', () => {
+  it('2. today 2026-10-07: financing condition_heads_up at daysUntil 1 (day before), nothing else', () => {
     const transaction = baseTransaction();
 
     const result = alertsForTransaction(transaction, { today: '2026-10-07', now: NOW });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual([
+      {
+        kind: 'condition_heads_up',
+        transactionId: 'txn-1',
+        address: '12 Main St',
+        condition: 'financing',
+        itemId: 'financing_condition',
+        date: '2026-10-08',
+        daysUntil: 1,
+      },
+    ]);
   });
 
   it('3. today 2026-10-09: both conditions passed, nothing else', () => {
@@ -144,15 +145,6 @@ describe('alertsForTransaction', () => {
 
     expect(result).toEqual([
       {
-        kind: 'condition_heads_up',
-        transactionId: 'txn-1',
-        address: '12 Main St',
-        condition: 'financing',
-        itemId: 'financing_condition',
-        date: '2026-10-08',
-        daysUntil: 2,
-      },
-      {
         kind: 'condition_passed',
         transactionId: 'txn-1',
         address: '12 Main St',
@@ -184,15 +176,6 @@ describe('alertsForTransaction', () => {
 
     expect(result).toEqual([
       {
-        kind: 'condition_heads_up',
-        transactionId: 'txn-1',
-        address: '12 Main St',
-        condition: 'financing',
-        itemId: 'financing_condition',
-        date: '2026-10-08',
-        daysUntil: 2,
-      },
-      {
         kind: 'condition_passed',
         transactionId: 'txn-1',
         address: '12 Main St',
@@ -217,7 +200,7 @@ describe('alertsForTransaction', () => {
     const transaction = baseTransaction({
       facts: {
         conditions: ['financing'],
-        conditionDates: { financing: '2026-10-08', inspection: '2026-10-08' },
+        conditionDates: { financing: '2026-10-07', inspection: '2026-10-07' },
         additionalDepositDueDates: [],
       },
     });
@@ -231,10 +214,97 @@ describe('alertsForTransaction', () => {
         address: '12 Main St',
         condition: 'financing',
         itemId: 'financing_condition',
-        date: '2026-10-08',
-        daysUntil: 2,
+        date: '2026-10-07',
+        daysUntil: 1,
       },
     ]);
+  });
+
+  describe('condition_heads_up: day-before and day-of window (commit 1)', () => {
+    function headsUpWindowTransaction(conditionDate, overrides = {}) {
+      return baseTransaction({
+        facts: {
+          conditions: ['financing'],
+          conditionDates: { financing: conditionDate },
+          additionalDepositDueDates: [],
+        },
+        ...overrides,
+      });
+    }
+
+    it('a. condition date 2 days away: no heads-up', () => {
+      const transaction = headsUpWindowTransaction('2026-10-08');
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW });
+
+      expect(result).toEqual([]);
+    });
+
+    it('b. condition date 1 day away: one condition_heads_up with daysUntil 1', () => {
+      const transaction = headsUpWindowTransaction('2026-10-07');
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW });
+
+      expect(result).toEqual([
+        {
+          kind: 'condition_heads_up',
+          transactionId: 'txn-1',
+          address: '12 Main St',
+          condition: 'financing',
+          itemId: 'financing_condition',
+          date: '2026-10-07',
+          daysUntil: 1,
+        },
+      ]);
+    });
+
+    it('c. condition date is today: one condition_heads_up with daysUntil 0', () => {
+      const transaction = headsUpWindowTransaction('2026-10-06');
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW });
+
+      expect(result).toEqual([
+        {
+          kind: 'condition_heads_up',
+          transactionId: 'txn-1',
+          address: '12 Main St',
+          condition: 'financing',
+          itemId: 'financing_condition',
+          date: '2026-10-06',
+          daysUntil: 0,
+        },
+      ]);
+    });
+
+    it('d. condition date 1 day after today: condition_passed, no heads-up', () => {
+      const transaction = headsUpWindowTransaction('2026-10-05');
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW });
+
+      expect(result).toEqual([
+        {
+          kind: 'condition_passed',
+          transactionId: 'txn-1',
+          address: '12 Main St',
+          condition: 'financing',
+          itemId: 'financing_condition',
+          date: '2026-10-05',
+          daysPast: 1,
+        },
+      ]);
+    });
+
+    it('e. condition date is today, but the row is already completed: no alert', () => {
+      const transaction = headsUpWindowTransaction('2026-10-06', {
+        items: {
+          financing_condition: { completed: true, completedAt: '2026-10-01T00:00:00.000Z' },
+        },
+      });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW });
+
+      expect(result).toEqual([]);
+    });
   });
 
   it('9. a terminal state produces no alerts at all', () => {
