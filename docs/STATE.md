@@ -74,6 +74,30 @@ Notes for the record:
 - A jest auto-mock returns undefined for any new function on the mocked module; grep every
   jest.mock of a module before adding a required read from it.
 
+opened_in_error: recon done, design locked (not built).
+
+Recon: absent from src/ and tests/. isTerminal is table-driven (states.js), so the matcher, deal
+alerts, alertsForTransaction and transition-transaction.js's target validation handle a new
+terminal state automatically. Three hand changes needed: dealClosedReplyBody (actionHandler.js)
+throws on an unknown terminal state; transition-transaction.js requires --reason only for collapsed
+and terminated; the mutual_release terminalOnly gate (resolver.js:108) checks state === 'collapsed'
+by string.
+
+Decisions (Mo, 2026-10-09):
+a. opened_in_error is a new terminal state on all six types, reachable from every non-terminal
+   state, no outgoing edges. Operator-initiated on the agent's request, never system.
+b. --reason is required, so the history explains itself ("duplicate of txn-...", "wrong address").
+c. DONE tap reply: "Nothing was changed. The file for <address> was opened by mistake and is no
+   longer tracked."
+d. Documents already filed to its Drive folder stay where they are; Mo moves them by hand. The
+   system never moves or deletes filed documents.
+e. A test pins mutual_release as absent on closed, terminated and opened_in_error (today that is
+   luck, not design).
+
+Build plan: commit 5 = the state in all six tables + the reply case and its test.each row + the
+mutual_release pin test (one commit, so the branch never has a state whose tap crashes); commit 6 =
+--reason required; commit 7 = STATE.md and TC_SPEC 7.47.1 marked built.
+
 ## Session 84: Deals needing you (the TC alert pipeline reaches the daily brief)
 
 Tests 3404/163 to 4048/170. Merged to `main`, not yet deployed.
@@ -199,7 +223,8 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 1. Live check (Session 85, above), then merge session-85 to `main`.
 2. `opened_in_error` exit state, promoted from tier-3 debt because Mo opens deals by hand in Phase A
-   and the only exits today (`collapsed`, `closed`) would write something false.
+   and the only exits today (`collapsed`, `closed`) would write something false. Design locked,
+   recon done; next session starts at commit 5.
 3. Brief polish batch: SMS only when something needs the agent; copy fixes ("1 leads", the doubled
    "0 need you today", "Pre-flight skips" moved out of the agent view, filtered vs archived lines,
    "Leads intaken" to "New leads"); filtered items listed inline when few; brief sent from
@@ -266,7 +291,10 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
   produces paperwork the brokerage needs on file (mutual release, deposit return direction). Needs
   a design.
 - Open proposal sets and queued filings are not gated on deal state: a set on a collapsed deal
-  stays confirmable, and a queued document still files to its Drive folder.
+  stays confirmable, and a queued document still files to its Drive folder. For opened_in_error this
+  means a document matched minutes before the deal is marked can still upload to the wrong folder;
+  small window (drain runs every 5 minutes), and gating needs its own design because a collapsed
+  deal SHOULD still file its mutual release.
 - The deals-unavailable email is per agent with no rollup: one systemic fault touching many agents
   sends Mo one email per agent per morning.
 - If an agent's operator config cannot be loaded, the deals-unavailable email cannot be sent, and
