@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 84 (2026-10-08).
+Last updated: session 85 (2026-10-09).
 
 ## What GetKlosed is
 
@@ -40,6 +40,39 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `CONTENT_ENGINE_SPEC.md`: a session 18 design draft. The engine was built afterwards and differs. Background only.
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
+
+## Session 85: overdue alerts fire once, on or after their threshold; the heads-up window widens to the day before and the day of
+
+Tests 4048/170 to 4087/170.
+
+| Commit | What |
+|---|---|
+| `a014592` | Condition heads-up fires the day before and the day of (daysUntil 1 or 0), not only 2 days before |
+| `eb126cc` | `agentState.js`: a record of which TC deal alerts have already been delivered, per deal, pruned to active deals |
+| `1b83421` | Overdue rules (deposit, additional deposit, condition passed) fire on the first brief on or after each threshold, once, using the delivered record; wired into the brief |
+
+Decisions:
+- Condition heads-up: the day before and the day of, "due tomorrow" / "due today"; the 2-day heads-up removed. Mo's field call.
+- Overdue rules (deposit, additional deposit, condition passed) fire on the first brief on or after each threshold, once; missed thresholds collapse into one alert with the real day count. Reverses session 81's "stateless by design": exact-day matching silently lost alerts for deals opened late or briefs that failed to send.
+- Delivered record lives in the agent state file, grouped by deal, not in the deal file: the brief never writes compliance records, so it cannot race taps or filings.
+- Keys include the governing date, so an amended condition or deposit date starts fresh.
+- Recorded only after the EMAIL sends (the SMS lists only the top alert); never when deals could not be loaded ('error'); 'unreadable' still records and unreadable deals keep their history.
+- today is computed inside the deals try: a bad timezone fails deals only, never the lead brief.
+
+Live check status:
+- Done 2026-10-09: the deals section renders on a real phone, counts the active deal, no false alert.
+- Pending: an alert actually landing. LIVE TEST 2 (`txn-20261009-5e534d51`, accepted 2026-10-08) should alert on the 2026-10-10 brief, which still runs main's code.
+- MERGE RULE: session-85 merges to `main` only AFTER that check passes, so the check tests the code it was meant to test.
+- After the merge, the first brief fires catch-up alerts for every `mo-test` deal with an unconfirmed deposit, including LIVE TEST 1 (`txn-20261008-fa6b84f9`). Expected; it is the live check for this session's work.
+- Both test deals are removed after the checks.
+
+Notes for the record:
+- Moving a computation out of a try block also moves its failure out of that block's fault
+  isolation; check what can throw before hoisting.
+- A sent SMS is not proof of delivery when the SMS summarizes; record delivery against the surface
+  that carries everything.
+- A jest auto-mock returns undefined for any new function on the mocked module; grep every
+  jest.mock of a module before adding a required read from it.
 
 ## Session 84: Deals needing you (the TC alert pipeline reaches the daily brief)
 
@@ -164,12 +197,17 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. Deals needing you: built, pending the live check of the brief itself (see Session 84, above).
-   Readers decide done from `completed` alone, never from a date being present.
-2. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
-3. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
+1. Live check (Session 85, above), then merge session-85 to `main`.
+2. `opened_in_error` exit state, promoted from tier-3 debt because Mo opens deals by hand in Phase A
+   and the only exits today (`collapsed`, `closed`) would write something false.
+3. Brief polish batch: SMS only when something needs the agent; copy fixes ("1 leads", the doubled
+   "0 need you today", "Pre-flight skips" moved out of the agent view, filtered vs archived lines,
+   "Leads intaken" to "New leads"); filtered items listed inline when few; brief sent from
+   `assistant@getklosed.ca`.
+4. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
+5. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
    (APS); Mo opens the deal. Watch what lands in their inbox at acceptance (this designs Phase B).
-4. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
+6. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
 
 Not on the shortest path: new product scope, the small-business side idea, Phase B deal detection.
 
@@ -233,6 +271,9 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
   sends Mo one email per agent per morning.
 - If an agent's operator config cannot be loaded, the deals-unavailable email cannot be sent, and
   the agent's "Mo has been told" is untrue that morning. Logged as "deals alert NOT sent: reason=...".
+- `headsUpDueWord` returns 'today' for any daysUntil other than 1; adding a heads-up threshold back
+  requires changing its wording (test f in transactions-alerts covers it).
+- Folding session 81's alert design into `TC_SPEC.md` v24 now also includes session 85's changes.
 
 Carried from earlier sessions (details in `docs/history/PROJECT_STATE_to_session_80.md`, section 7
 and the session 80 board): 7.58.1 to 7.58.14, 7.57.5 to 7.57.12, 7.56.x, 7.54.x, the `listingId`
