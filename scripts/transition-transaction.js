@@ -56,12 +56,14 @@ function runTransitionTransaction(agentId, transactionId, toState, opts = {}) {
   const targetTerminal = states.isTerminal(transaction.type, toState);
   const hasReason = typeof reason === 'string' && reason.trim() !== '';
 
-  // Only 'collapsed' and 'terminated' require a reason, not every terminal
-  // state: 'closed' is the deal completing normally, not a deal dying, so
-  // it is not held to the same bar as the two states that record something
-  // having gone wrong. Enforced here, not only at the --yes call site, so a
-  // missing reason is caught on the dry run, before --yes is ever typed.
-  if ((toState === 'collapsed' || toState === 'terminated') && !hasReason) {
+  // 'closed' is the deal completing normally, not a deal dying, so it is the
+  // only terminal state not held to the reason bar. Every other terminal
+  // state -- 'collapsed', 'terminated', and any new one added later --
+  // records something having gone wrong or never having been real, so a
+  // reason is required by default rather than named one state at a time.
+  // Enforced here, not only at the --yes call site, so a missing reason is
+  // caught on the dry run, before --yes is ever typed.
+  if (targetTerminal && toState !== 'closed' && !hasReason) {
     throw new Error(`transition-transaction: --reason is required when moving to '${toState}'`);
   }
 

@@ -186,6 +186,52 @@ describe('CLI argument handling (spawned subprocess)', () => {
     expect(stdout).not.toContain('Reason:');
   });
 
+  it('a. missing --reason for opened_in_error: refused on the dry run, no write', () => {
+    const created = createInState('firm');
+    const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'opened_in_error', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr.trim()).toBe("transition-transaction: --reason is required when moving to 'opened_in_error'");
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk).toEqual(before);
+  });
+
+  it('b. opened_in_error with --reason: dry run previews without writing; --yes writes the state and the reason', () => {
+    const created = createInState('firm');
+    const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    const reason = 'duplicate of txn-20260715-00000000';
+
+    const dryRunStdout = run([AGENT_ID, created.transactionId, 'opened_in_error', '--reason', reason, '--base-dir', baseDir]);
+    expect(dryRunStdout).toContain('Target state: opened_in_error');
+    expect(dryRunStdout).toContain(`Reason: ${reason}`);
+    expect(dryRunStdout).toContain('Dry run: nothing was changed.');
+    const afterDryRun = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(afterDryRun).toEqual(before);
+
+    const yesStdout = run([AGENT_ID, created.transactionId, 'opened_in_error', '--reason', reason, '--yes', '--base-dir', baseDir]);
+    expect(yesStdout).toContain('Done.');
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk.state).toBe('opened_in_error');
+    expect(onDisk.events).toHaveLength(1);
+    expect(onDisk.events[0].kind).toBe('state_transitioned');
+    expect(onDisk.events[0].actor).toBe('operator');
+    expect(onDisk.events[0].payload).toEqual({ fromState: 'firm', toState: 'opened_in_error', reason });
+  });
+
+  it('d. missing --reason for terminated (a listing type): refused on the dry run, no write', () => {
+    const created = createInState('live', 'seller_listing');
+    const before = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+
+    const { stderr, status } = runExpectingFailure([AGENT_ID, created.transactionId, 'terminated', '--base-dir', baseDir]);
+
+    expect(status).toBe(1);
+    expect(stderr.trim()).toBe("transition-transaction: --reason is required when moving to 'terminated'");
+    const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+    expect(onDisk).toEqual(before);
+  });
+
   it('--reason is optional for a non-terminal move', () => {
     const created = createInState('conditional');
 
