@@ -1153,6 +1153,7 @@ describe('runActionHandler', () => {
     test.each([
       ['closed',     `Nothing was changed. ${ADDRESS} is closed.`],
       ['collapsed',  `Nothing was changed. ${ADDRESS} fell through.`],
+      ['opened_in_error', `Nothing was changed. The file for ${ADDRESS} was opened by mistake and is no longer tracked.`],
     ])('DONE deal_closed, state %s: exact reply, no note', async (state, expectedBody) => {
       completeOne.mockReturnValue({ outcome: 'deal_closed', state });
       store.readTransaction.mockReturnValue(makeDoneTransaction({ state }));

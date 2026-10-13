@@ -48,7 +48,7 @@ describe('TRANSACTION_TYPES', () => {
 describe('getStates', () => {
   it('returns the frozen states array for a known type', () => {
     const states = getStates('tenant_lease');
-    expect(states).toEqual(['accepted', 'signed', 'possession', 'closed', 'collapsed']);
+    expect(states).toEqual(['accepted', 'signed', 'possession', 'closed', 'collapsed', 'opened_in_error']);
     expect(Object.isFrozen(states)).toBe(true);
   });
 
@@ -207,7 +207,7 @@ describe('canTransition', () => {
 describe('listTransitions', () => {
   it('returns the frozen list of reachable states', () => {
     const reachable = listTransitions('buyer_purchase', 'conditional');
-    expect(reachable).toEqual(['firm', 'collapsed']);
+    expect(reachable).toEqual(['firm', 'collapsed', 'opened_in_error']);
     expect(Object.isFrozen(reachable)).toBe(true);
   });
 
@@ -303,6 +303,60 @@ describe('structural invariants (iterate the table, do not hardcode)', () => {
 
     try { TABLE.new_type = { states: [], initial: [], terminal: [], edges: [] }; } catch (e) { /* expected in strict engines */ }
     expect(Object.prototype.hasOwnProperty.call(TABLE, 'new_type')).toBe(false);
+  });
+});
+
+describe('opened_in_error (commit 5): a new terminal state on all six types', () => {
+  const NON_TERMINAL_STATES = {
+    buyer_purchase: ['conditional', 'firm'],
+    seller_sale: ['conditional', 'firm'],
+    tenant_lease: ['accepted', 'signed', 'possession'],
+    landlord_lease: ['accepted', 'signed', 'possession'],
+    seller_listing: ['preparing', 'live', 'suspended'],
+    landlord_listing: ['preparing', 'live', 'suspended'],
+  };
+
+  it('a. every non-terminal state, for every type, can transition to opened_in_error', () => {
+    Object.entries(NON_TERMINAL_STATES).forEach(([type, states]) => {
+      states.forEach((fromState) => {
+        expect(canTransition(type, fromState, 'opened_in_error')).toEqual({ valid: true });
+      });
+    });
+  });
+
+  it('b. opened_in_error is terminal, is never initial, and has no outgoing edges, for every type', () => {
+    TRANSACTION_TYPES.forEach((type) => {
+      expect(isTerminal(type, 'opened_in_error')).toBe(true);
+      expect(isValidInitialState(type, 'opened_in_error')).toBe(false);
+      expect(listTransitions(type, 'opened_in_error')).toEqual([]);
+    });
+  });
+
+  it('c. closed cannot transition to opened_in_error, for every type', () => {
+    TRANSACTION_TYPES.forEach((type) => {
+      expect(canTransition(type, 'closed', 'opened_in_error')).toEqual({
+        valid: false,
+        reason: 'closed is a final state and cannot transition to another state',
+      });
+    });
+  });
+
+  it('c. collapsed cannot transition to opened_in_error, for every deal and lease type', () => {
+    ['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease'].forEach((type) => {
+      expect(canTransition(type, 'collapsed', 'opened_in_error')).toEqual({
+        valid: false,
+        reason: 'collapsed is a final state and cannot transition to another state',
+      });
+    });
+  });
+
+  it('c. terminated cannot transition to opened_in_error, for every listing type', () => {
+    ['seller_listing', 'landlord_listing'].forEach((type) => {
+      expect(canTransition(type, 'terminated', 'opened_in_error')).toEqual({
+        valid: false,
+        reason: 'terminated is a final state and cannot transition to another state',
+      });
+    });
   });
 });
 

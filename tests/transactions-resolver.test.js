@@ -637,6 +637,24 @@ describe('terminal items (mutual_release)', () => {
     });
   });
 
+  // Deliberate, not an accident of which states happen to exist: the gate
+  // (resolver.js) checks state === 'collapsed' by string, so closed,
+  // terminated and opened_in_error are excluded by that same hard-coded
+  // comparison, same as collapsed is included by it (TC_SPEC 7.47.1).
+  it('e. is absent on closed, on terminated (a listing type) and on opened_in_error; present only on collapsed -- deliberately, by the same string gate', () => {
+    const closedResult = resolveChecklist('buyer_purchase', 'closed', {});
+    expect(closedResult.some((entry) => entry.id === 'mutual_release')).toBe(false);
+
+    const terminatedResult = resolveChecklist('seller_listing', 'terminated', {});
+    expect(terminatedResult.some((entry) => entry.id === 'mutual_release')).toBe(false);
+
+    const openedInErrorResult = resolveChecklist('buyer_purchase', 'opened_in_error', {});
+    expect(openedInErrorResult.some((entry) => entry.id === 'mutual_release')).toBe(false);
+
+    const collapsedResult = resolveChecklist('buyer_purchase', 'collapsed', {});
+    expect(collapsedResult.some((entry) => entry.id === 'mutual_release')).toBe(true);
+  });
+
   it('resolves the exact tenant_lease id set at state collapsed, with mutual_release appended', () => {
     const result = resolveChecklist('tenant_lease', 'collapsed', {});
     const ids = result.map((entry) => entry.id);

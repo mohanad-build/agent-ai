@@ -347,6 +347,22 @@ describe('collectDealAlerts', () => {
     expect(result.keepTransactionIds.slice().sort()).toEqual(['txn-active', 'txn-broken', 'txn-missing'].sort());
   });
 
+  it('f. a deal in opened_in_error produces no alerts, is not counted in activeCount, and is not in keepTransactionIds', () => {
+    const today = '2026-10-10';
+    const now = new Date('2026-10-10T11:00:00Z');
+
+    const openedInError = {
+      ...depositOverdueTxn({ transactionId: 'txn-oie', address: 'Mistake St', acceptedDate: '2026-10-01' }),
+      state: 'opened_in_error',
+    };
+
+    const result = collectDealAlerts(settledWith([openedInError]), { today, now, delivered: {} });
+
+    expect(result.alerts).toEqual([]);
+    expect(result.activeCount).toBe(0);
+    expect(result.keepTransactionIds).toEqual([]);
+  });
+
   it('bad settled input throws with the collectDealAlerts prefix', () => {
     const opts = { today: '2026-10-10', now: new Date('2026-10-10T11:00:00Z') };
 

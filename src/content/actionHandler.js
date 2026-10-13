@@ -517,7 +517,7 @@ function undoLinkHtml(transactionId, itemIds) {
 // Shared by DONE, RECEIPT and UNDO: the wording only depends on address and
 // state, never on which verb refused. Any state outside this switch is a
 // programmer error -- states.isTerminal (already true by construction here)
-// only ever reports one of these three across every deal and listing type
+// only ever reports one of these four across every deal and listing type
 // (src/transactions/states.js).
 function dealClosedReplyBody(transaction) {
   const address = transaction.address;
@@ -528,6 +528,8 @@ function dealClosedReplyBody(transaction) {
       return `Nothing was changed. ${address} fell through.`;
     case 'terminated':
       return `Nothing was changed. The listing for ${address} has ended.`;
+    case 'opened_in_error':
+      return `Nothing was changed. The file for ${address} was opened by mistake and is no longer tracked.`;
     default:
       throw new Error(`dealClosedReplyBody: unexpected terminal state '${transaction.state}'`);
   }

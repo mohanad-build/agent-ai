@@ -408,6 +408,16 @@ describe('matchTransaction', () => {
       expect(result).toEqual({ matched: false, reason: 'no_candidates', candidateIds: [] });
     });
 
+    it('g. a deal in opened_in_error is excluded, the same as any other terminal state', () => {
+      const candidates = [
+        baseTransaction({ transactionId: 'txn-1', state: 'opened_in_error' }),
+      ];
+
+      const result = matchTransaction(candidates, baseMessage());
+
+      expect(result).toEqual({ matched: false, reason: 'no_candidates', candidateIds: [] });
+    });
+
     it('one non-terminal candidate, bar not met, gives no_bar_met', () => {
       const candidates = [baseTransaction({ transactionId: 'txn-1' })];
 
