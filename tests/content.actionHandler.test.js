@@ -1774,6 +1774,46 @@ describe('runActionHandler', () => {
     );
   });
 
+  test('Track 2 subject and body both empty: skips Haiku, sends did-not-understand reply', async () => {
+    const msg = makeMsg({ subject: '', body: '', snippet: '' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).not.toHaveBeenCalled();
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ body: expect.stringContaining("didn't understand that request"), autoSubmitted: true })
+    );
+  });
+
+  test('Track 2 subject and body both whitespace only: skips Haiku, sends did-not-understand reply', async () => {
+    const msg = makeMsg({ subject: '   ', body: '   \n  ', snippet: '' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).not.toHaveBeenCalled();
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ body: expect.stringContaining("didn't understand that request"), autoSubmitted: true })
+    );
+  });
+
+  test('Track 2 body empty but snippet non-empty: unchanged, Haiku is still called', async () => {
+    callRaw.mockResolvedValue(JSON.stringify({ intent: 'unknown', leadName: null, confidence: 0.9 }));
+    const msg = makeMsg({ subject: '', body: '', snippet: 'pause followups for Sarah' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledTimes(1);
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ body: expect.stringContaining("didn't understand that request"), autoSubmitted: true })
+    );
+  });
+
   test('error in processing sends error reply and runActionHandler does not throw', async () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     readContentState.mockImplementation(() => { throw new Error('state read failed'); });

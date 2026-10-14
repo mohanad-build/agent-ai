@@ -283,6 +283,22 @@ const UNKNOWN_REPLY = `Sorry, I didn't understand that request. You can ask me t
 async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSubject) {
   const agentId = agentConfig.agentId;
 
+  // A subject-only command (agent typed the command in the subject, left
+  // the body blank) has nothing for Haiku to read: callRaw would hand the
+  // Anthropic API an empty user turn, which rejects with "text content
+  // blocks must contain non-whitespace text". Caught the same way a real
+  // classification failure is, so the agent sees the same UNKNOWN_REPLY
+  // either way, but skipped here so that never happens -- no wasted call,
+  // no retry delay, and a log line that says why, distinct from a genuine
+  // Haiku failure.
+  if (!String(origSubject || '').trim() && !String(body || '').trim()) {
+    console.log(`[actionHandler] Track 2 message empty (no subject, no body) for ${agentId}`);
+    await sendConfirmation(assistantConfig, {
+      to: replyTo, subject: `Re: ${origSubject}`, body: UNKNOWN_REPLY,
+    });
+    return;
+  }
+
   let parsed;
   try {
     const raw = await callRaw({
