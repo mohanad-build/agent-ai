@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 85 (2026-10-09).
+Last updated: session 86 (2026-10-14).
 
 ## What GetKlosed is
 
@@ -40,6 +40,25 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `CONTENT_ENGINE_SPEC.md`: a session 18 design draft. The engine was built afterwards and differs. Background only.
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
+
+## Session 86: lead intake skips mail from our own system senders (getklosed.ca)
+
+Tests 4099/170 to 4103/170.
+
+| Commit | What |
+|---|---|
+| `baa1e44` | Rule 0b in `applyPreFilter` (`src/leadIntake.js`): any sender whose address domain is exactly `getklosed.ca` is pre-filter-blocked before classification, address only, never the display name |
+
+Bug: assistant@'s DONE/RECEIPT/UNDO/CONFIRM/REJECT/WRONGDEAL/Track 1/Track 2 confirmations and the
+onboarding welcome email (sent from `mohanad@getklosed.ca`) carry no In-Reply-To header and passed
+every existing pre-filter rule, so lead intake could classify one as a new lead (a phantom Sheet
+row) or archive it as noise before the agent ever saw it.
+
+Latent on `mo-test`: every confirmation so far was read before the next intake cycle ran. Would
+have hit any agent who left one unread.
+
+Live-verified 2026-10-14: log line "pre-filter blocked ...: system sender", candidates=0, the reply
+stayed in the inbox unread, no Sheet row written.
 
 ## Session 85: overdue alerts fire once, on or after their threshold; the heads-up window widens to the day before and the day of
 
@@ -242,15 +261,18 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 1. Brief polish batch: SMS only when something needs the agent; copy fixes ("1 leads", the doubled
    "0 need you today", "Pre-flight skips" moved out of the agent view, filtered vs archived lines,
-   "Leads intaken" to "New leads"); filtered items listed inline when few; brief sent from
-   `assistant@getklosed.ca`; the deals block and the SMS deal line move BEFORE the leads line, and
-   the leads line reads "0 leads need you" (today's SMS read "0 need you today" followed by a deal
-   that needed the agent); replace every Gmail web link in the brief (per-deal email search, Review
-   archived noise, the lead thread link) with plain text (see the finding above); the SMS "+ 1
-   more." reads like a typo -- say what it means (e.g. "+1 more deal in your inbox"); the tap reply
-   subject shows raw machine text ("Re: RECEIPT txn-... brokerage_deposit_receipt_received"), so
-   consider a human-readable tap subject with the code kept at the end, checking first that the
-   subject parser still finds it.
+   "Leads intaken" to "New leads"); filtered items listed inline when few; the deals block and the
+   SMS deal line move BEFORE the leads line, and the leads line reads "0 leads need you" (today's
+   SMS read "0 need you today" followed by a deal that needed the agent); replace every Gmail web
+   link in the brief (per-deal email search, Review archived noise, the lead thread link) with
+   plain text (see the finding above); the SMS "+ 1 more." reads like a typo -- say what it means
+   (e.g. "+1 more deal in your inbox"); the confirmation reply's subject shows raw machine text
+   ("Re: RECEIPT txn-... brokerage_deposit_receipt_received"), so consider a human-readable reply
+   subject -- safe to change on its own, since nothing parses assistant@'s own outgoing subjects
+   (`TC_CLAIM_RE` and `parseTcCommand` only read the incoming tap, never the confirmation reply).
+   Sender move to `assistant@getklosed.ca` pulled out of this batch: needs (a) lead intake skipping
+   our own getklosed.ca senders, now done (Session 86), and (b) a decision on what a reply to the
+   brief itself should do -- today it would fall into Track 2, not anything brief-aware.
 2. Live check: Done (Session 85/86, see above).
 3. `opened_in_error` exit state: Done -- built and live-verified (Session 85/86, see above).
 4. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
@@ -324,6 +346,12 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 - `headsUpDueWord` returns 'today' for any daysUntil other than 1; adding a heads-up threshold back
   requires changing its wording (test f in transactions-alerts covers it).
 - Folding session 81's alert design into `TC_SPEC.md` v24 now also includes session 85's changes.
+- Track 2 sends only the email body to Haiku. A subject-only command (empty body) gets a 400 "text
+  content blocks must contain non-whitespace text" and the agent is told "didn't understand".
+  Agents often type the command in the subject. Fix before a founding agent uses assistant@:
+  classify subject plus body; skip the call when both are empty. Seen live 2026-10-14.
+- Reply Detection logs "unmatched sender" every cycle for an unread assistant@ confirmation.
+  Harmless (left unread, correct), only log noise.
 
 Carried from earlier sessions (details in `docs/history/PROJECT_STATE_to_session_80.md`, section 7
 and the session 80 board): 7.58.1 to 7.58.14, 7.57.5 to 7.57.12, 7.56.x, 7.54.x, the `listingId`
