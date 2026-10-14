@@ -65,8 +65,7 @@ Live check status:
 - Done 2026-10-09: the deals section renders on a real phone, counts the active deal, no false alert.
 - PASSED 2026-10-10: LIVE TEST 2 alerted, in the SMS, the subject and the deals block; LIVE TEST 1 was correctly absent on day 4.
 - Commits 1 to 4 merged to `main` at `136083c` on 2026-10-10.
-- Post-merge schedule: Sunday 2026-10-11, both test deals alert (LIVE TEST 1 day 5 catch-up; LIVE TEST 2 repeats once more at day 3, because 2026-10-10's brief ran pre-merge code that recorded nothing). Monday 2026-10-12, neither appears. Tuesday 2026-10-13, LIVE TEST 1 alerts on day 7. If Monday shows either deal, check `agents/mo-test.state.json`'s `dealAlertsDelivered` before anything else.
-- After Tuesday's check, both LIVE TEST deals are removed with `opened_in_error` (`--reason "live test deal"`), which doubles as that state's own live check.
+- PASSED: Sunday 2026-10-11, both deals alerted (LIVE TEST 1 catch-up at day 5, LIVE TEST 2 repeat as predicted). Monday 2026-10-12, neither appeared. Tuesday 2026-10-13, LIVE TEST 1 alerted at day 7 and LIVE TEST 2 was silent. Catch-up, the delivery record and the next threshold are all verified live.
 
 Finding (2026-10-10): the "Emails about <address>" link in the brief does nothing when tapped in
 the Gmail iOS app; long-press shows a mail.google.com link that lands on a Google marketing page
@@ -108,6 +107,12 @@ e. A test pins mutual_release as absent on closed, terminated and opened_in_erro
 The --reason rule became "every terminal state except closed" (rule-based via isTerminal, so a
 future terminal state requires a reason by default, not named by hand). The previously untested
 terminated-without-reason case is now tested.
+
+Live-verified 2026-10-13 on Railway: no --reason refused; dry run previewed and changed nothing;
+--yes wrote state opened_in_error with the reason in the state_transitioned event; a RECEIPT tap
+from an old brief got the opened-by-mistake reply from assistant@. Both LIVE TEST deals
+(`txn-20261008-fa6b84f9`, `txn-20261009-5e534d51`) are now `opened_in_error` with reason "live test
+deal".
 
 Build plan: commit 5 = the state in all six tables + the reply case and its test.each row + the
 mutual_release pin test (one commit, so the branch never has a state whose tap crashes); commit 6 =
@@ -235,17 +240,19 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. Live check: done, except the Sunday/Monday/Tuesday checks above (Session 85).
-2. `opened_in_error` exit state, promoted from tier-3 debt because Mo opens deals by hand in Phase A
-   and the only exits today (`collapsed`, `closed`) would write something false. Built (Session 85);
-   merges to `main` with this commit.
-3. Brief polish batch: SMS only when something needs the agent; copy fixes ("1 leads", the doubled
+1. Brief polish batch: SMS only when something needs the agent; copy fixes ("1 leads", the doubled
    "0 need you today", "Pre-flight skips" moved out of the agent view, filtered vs archived lines,
    "Leads intaken" to "New leads"); filtered items listed inline when few; brief sent from
    `assistant@getklosed.ca`; the deals block and the SMS deal line move BEFORE the leads line, and
    the leads line reads "0 leads need you" (today's SMS read "0 need you today" followed by a deal
    that needed the agent); replace every Gmail web link in the brief (per-deal email search, Review
-   archived noise, the lead thread link) with plain text (see the finding above).
+   archived noise, the lead thread link) with plain text (see the finding above); the SMS "+ 1
+   more." reads like a typo -- say what it means (e.g. "+1 more deal in your inbox"); the tap reply
+   subject shows raw machine text ("Re: RECEIPT txn-... brokerage_deposit_receipt_received"), so
+   consider a human-readable tap subject with the code kept at the end, checking first that the
+   subject parser still finds it.
+2. Live check: Done (Session 85/86, see above).
+3. `opened_in_error` exit state: Done -- built and live-verified (Session 85/86, see above).
 4. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
 5. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
    (APS); Mo opens the deal. Watch what lands in their inbox at acceptance (this designs Phase B).
