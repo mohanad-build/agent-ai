@@ -43,13 +43,15 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 
 ## Session 85: overdue alerts fire once, on or after their threshold; the heads-up window widens to the day before and the day of
 
-Tests 4048/170 to 4087/170.
+Tests 4048/170 to 4099/170.
 
 | Commit | What |
 |---|---|
 | `a014592` | Condition heads-up fires the day before and the day of (daysUntil 1 or 0), not only 2 days before |
 | `eb126cc` | `agentState.js`: a record of which TC deal alerts have already been delivered, per deal, pruned to active deals |
 | `1b83421` | Overdue rules (deposit, additional deposit, condition passed) fire on the first brief on or after each threshold, once, using the delivered record; wired into the brief |
+| `5c4598a` | `opened_in_error` terminal state on all six tables; `dealClosedReplyBody`'s reply case; the `mutual_release` pin test |
+| `c6a9af0` | `transition-transaction.js`: `--reason` required for every terminal state except `closed`, rule-based via `isTerminal` |
 
 Decisions:
 - Condition heads-up: the day before and the day of, "due tomorrow" / "due today"; the 2-day heads-up removed. Mo's field call.
@@ -61,10 +63,19 @@ Decisions:
 
 Live check status:
 - Done 2026-10-09: the deals section renders on a real phone, counts the active deal, no false alert.
-- Pending: an alert actually landing. LIVE TEST 2 (`txn-20261009-5e534d51`, accepted 2026-10-08) should alert on the 2026-10-10 brief, which still runs main's code.
-- MERGE RULE: session-85 merges to `main` only AFTER that check passes, so the check tests the code it was meant to test.
-- After the merge, the first brief fires catch-up alerts for every `mo-test` deal with an unconfirmed deposit, including LIVE TEST 1 (`txn-20261008-fa6b84f9`). Expected; it is the live check for this session's work.
-- Both test deals are removed after the checks.
+- PASSED 2026-10-10: LIVE TEST 2 alerted, in the SMS, the subject and the deals block; LIVE TEST 1 was correctly absent on day 4.
+- Commits 1 to 4 merged to `main` at `136083c` on 2026-10-10.
+- Post-merge schedule: Sunday 2026-10-11, both test deals alert (LIVE TEST 1 day 5 catch-up; LIVE TEST 2 repeats once more at day 3, because 2026-10-10's brief ran pre-merge code that recorded nothing). Monday 2026-10-12, neither appears. Tuesday 2026-10-13, LIVE TEST 1 alerts on day 7. If Monday shows either deal, check `agents/mo-test.state.json`'s `dealAlertsDelivered` before anything else.
+- After Tuesday's check, both LIVE TEST deals are removed with `opened_in_error` (`--reason "live test deal"`), which doubles as that state's own live check.
+
+Finding (2026-10-10): the "Emails about <address>" link in the brief does nothing when tapped in
+the Gmail iOS app; long-press shows a mail.google.com link that lands on a Google marketing page
+when not signed in. Not a wrong-account risk only: tapping any link back into Gmail does nothing
+inside the Gmail iOS app, so this covers every mail.google.com link in the brief, including the
+lead thread link (`digest.js:143`). Decision (Mo, 2026-10-10): replace every Gmail web link in the
+brief (the per-deal email search, "Review archived noise", the lead thread link) with plain text
+the agent can act on in any mail app, e.g. "Search your inbox for: <address>" and the noise label's
+name.
 
 Notes for the record:
 - Moving a computation out of a try block also moves its failure out of that block's fault
@@ -74,7 +85,7 @@ Notes for the record:
 - A jest auto-mock returns undefined for any new function on the mocked module; grep every
   jest.mock of a module before adding a required read from it.
 
-opened_in_error: recon done, design locked (not built).
+opened_in_error: recon done, design locked, BUILT session 85 (`5c4598a`, `c6a9af0`).
 
 Recon: absent from src/ and tests/. isTerminal is table-driven (states.js), so the matcher, deal
 alerts, alertsForTransaction and transition-transaction.js's target validation handle a new
@@ -93,6 +104,10 @@ d. Documents already filed to its Drive folder stay where they are; Mo moves the
    system never moves or deletes filed documents.
 e. A test pins mutual_release as absent on closed, terminated and opened_in_error (today that is
    luck, not design).
+
+The --reason rule became "every terminal state except closed" (rule-based via isTerminal, so a
+future terminal state requires a reason by default, not named by hand). The previously untested
+terminated-without-reason case is now tested.
 
 Build plan: commit 5 = the state in all six tables + the reply case and its test.each row + the
 mutual_release pin test (one commit, so the branch never has a state whose tap crashes); commit 6 =
@@ -118,10 +133,9 @@ and the Undo link all tapped from a real reply, on an iPhone, subject intact. NO
 the brief's deals section on a real phone. A deposit alert deal is seeded on `mo-test` for the next
 morning's brief (`txn-20261008-fa6b84f9`); it must be removed after the check. Also open for that
 same check:
-- Whether `gmailSearchUrl`'s `authuser` parameter opens the right Gmail account on an iPhone with
-  more than one signed in.
 - Whether Gmail search treats the hyphen as a separator (a search for "21 main" finding a thread
-  about "19-21 Main").
+  about "19-21 Main"). Not about the per-deal email-search link (removed, session 85): this is about
+  Gmail's own search matching, which still applies to whatever search text the agent types by hand.
 
 ## How Mo collapses or closes a deal
 
@@ -130,8 +144,8 @@ same check:
 3. Confirm the address in the preview is the right deal.
 4. Run it again with `--yes` to write.
 
-`--reason` is required when moving to `collapsed` or `terminated`; optional for `closed` and every
-non-terminal move.
+`--reason` is required when moving to any terminal state except `closed`; optional for `closed` and
+every non-terminal move.
 
 ## Session 83: the DONE verb (DONE, RECEIPT, UNDO on `assistant@`)
 
@@ -221,14 +235,17 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. Live check (Session 85, above), then merge session-85 to `main`.
+1. Live check: done, except the Sunday/Monday/Tuesday checks above (Session 85).
 2. `opened_in_error` exit state, promoted from tier-3 debt because Mo opens deals by hand in Phase A
-   and the only exits today (`collapsed`, `closed`) would write something false. Design locked,
-   recon done; next session starts at commit 5.
+   and the only exits today (`collapsed`, `closed`) would write something false. Built (Session 85);
+   merges to `main` with this commit.
 3. Brief polish batch: SMS only when something needs the agent; copy fixes ("1 leads", the doubled
    "0 need you today", "Pre-flight skips" moved out of the agent view, filtered vs archived lines,
    "Leads intaken" to "New leads"); filtered items listed inline when few; brief sent from
-   `assistant@getklosed.ca`.
+   `assistant@getklosed.ca`; the deals block and the SMS deal line move BEFORE the leads line, and
+   the leads line reads "0 leads need you" (today's SMS read "0 need you today" followed by a deal
+   that needed the agent); replace every Gmail web link in the brief (per-deal email search, Review
+   archived noise, the lead thread link) with plain text (see the finding above).
 4. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
 5. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
    (APS); Mo opens the deal. Watch what lands in their inbox at acceptance (this designs Phase B).
@@ -282,8 +299,6 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
   history is kept); any reader must key on `completed`, never on a date or note being present.
 - A dated "latest activity" line per deal in the Monday picture, and a STATUS verb on `assistant@`
   returning one deal's one-pager on demand. Both after a founding agent is on.
-- The two existing `mail.google.com` links in `digest.js` use `/u/0/` and open the first signed-in
-  account, which may be the wrong one for agents with several accounts.
 - `parseAddress` loses the street type when the address string contains "#<unit>" ("12 Main Street
   #4" parses as street "main street 4"). This also affects address matching for filing. Convention
   until fixed: units always go in `--unit` at deal-open, never inside `--address`.
