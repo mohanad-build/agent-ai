@@ -199,3 +199,65 @@ describe('applyPreFilter with ctx (own address / known lead)', () => {
     expect(result).toEqual({ pass: false, reason: 'own address (self-sent)' });
   });
 });
+
+describe('applyPreFilter: system sender (getklosed.ca)', () => {
+  const labelMap = new Map([
+    ['agent-ai/processing', 'L_PROC'],
+    ['agent-ai/intaken', 'L_INTAKEN'],
+    ['agent-ai/noise', 'L_NOISE'],
+    ['agent-ai/first-touch-pending', 'L_FTP'],
+    ['agent-ai/business', 'L_BIZ'],
+  ]);
+
+  test('an assistant@ confirmation (no In-Reply-To, real subject and body) is blocked as system sender', () => {
+    const result = applyPreFilter(
+      {
+        from: 'Assistant <assistant@getklosed.ca>',
+        subject: 'Re: DONE txn-20261001-aaaaaaaa financing_condition',
+        body: 'Done. Marked complete for 12 Main St: Financing condition cleared by waiver, notice of fulfilment, or amendment.',
+      },
+      labelMap,
+      { ownAddress: 'agent@example.com' }
+    );
+    expect(result).toEqual({ pass: false, reason: 'system sender' });
+  });
+
+  test('the welcome-sender address is blocked the same way', () => {
+    const result = applyPreFilter(
+      {
+        from: 'GetKlosed <welcome@getklosed.ca>',
+        subject: "You're all set with GetKlosed",
+        body: "Hi there,\n\nYou're all set. I'm Mohanad, and I built GetKlosed to take lead follow-up off your plate.",
+      },
+      labelMap,
+      { ownAddress: 'agent@example.com' }
+    );
+    expect(result).toEqual({ pass: false, reason: 'system sender' });
+  });
+
+  test('a display name merely containing "getklosed" with an outside address is NOT blocked', () => {
+    const result = applyPreFilter(
+      {
+        from: 'Getklosed Fan <fan@external.com>',
+        subject: 'Question about 45 Maple',
+        body: 'Is this still available?',
+      },
+      labelMap,
+      { ownAddress: 'agent@example.com' }
+    );
+    expect(result).toEqual({ pass: true, reason: '' });
+  });
+
+  test('a subdomain-lookalike (getklosed.ca.example.com) is NOT blocked', () => {
+    const result = applyPreFilter(
+      {
+        from: 'Spoofish <someone@getklosed.ca.example.com>',
+        subject: 'Question about 45 Maple',
+        body: 'Is this still available?',
+      },
+      labelMap,
+      { ownAddress: 'agent@example.com' }
+    );
+    expect(result).toEqual({ pass: true, reason: '' });
+  });
+});

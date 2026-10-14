@@ -27,6 +27,12 @@ const LABEL_NOISE = 'agent-ai/noise';
 const LABEL_FIRST_TOUCH_PENDING = 'agent-ai/first-touch-pending';
 const LABEL_BUSINESS = 'agent-ai/business';
 const CALENDAR_DOMAINS = new Set(['google.com', 'calendly.com', 'googleusercontent.com']);
+// Our own outbound domain (assistant@, welcome-sender, any future system
+// account). A message from here is never a lead or noise to classify --
+// it's the system's own mail landing back in the agent's inbox (a tap
+// confirmation, the onboarding welcome email). Exact-match on the
+// post-'@' domain only, so a lookalike subdomain never matches.
+const SYSTEM_SENDER_DOMAIN = 'getklosed.ca';
 // The 0.85 at determineAiEnabledDefault is a different policy that happens
 // to share this number. Do not collapse them into one constant.
 const NOISE_CONFIDENCE = 0.85;
@@ -203,6 +209,14 @@ function applyPreFilter(msg, labelMap, ctx) {
     if (senderAddr && senderAddr === ctx.ownAddress) {
       return { pass: false, reason: 'own address (self-sent)' };
     }
+  }
+
+  // Rule 0b: Sender is one of our own system accounts (assistant@,
+  // welcome-sender, any future getklosed.ca sender). Unconditional, unlike
+  // Rule 0: the system's own domain is a fixed fact about the address, not
+  // something that depends on which agent is running.
+  if (getSenderDomain(getSenderEmail(msg.from || '')) === SYSTEM_SENDER_DOMAIN) {
+    return { pass: false, reason: 'system sender' };
   }
 
   // Rule 1: Is a reply (In-Reply-To header set)
