@@ -1828,7 +1828,7 @@ describe('runActionHandler', () => {
 
     await runActionHandler([AGENT_CONFIG]);
 
-    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: '?' }));
+    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: 'Subject: ?\n\nBody: ?' }));
   });
 
   test('Track 2 iOS Mail-format reply: callRaw receives exactly the new text, quote stripped', async () => {
@@ -1842,7 +1842,7 @@ describe('runActionHandler', () => {
 
     await runActionHandler([AGENT_CONFIG]);
 
-    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: '?' }));
+    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: 'Subject: ?\n\nBody: ?' }));
   });
 
   test('Track 2 reply with only quoted text and no new text: skips Haiku, sends did-not-understand reply', async () => {
@@ -1862,14 +1862,16 @@ describe('runActionHandler', () => {
     );
   });
 
-  test('Track 2 body with no quote at all: callRaw receives it unchanged', async () => {
+  test('Track 2 body with no quote at all: callRaw receives it unchanged, labelled with the subject', async () => {
     const body = 'pause followups for Sarah';
     const msg = makeMsg({ subject: 'pause followups for Sarah', body });
     gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
 
     await runActionHandler([AGENT_CONFIG]);
 
-    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: 'pause followups for Sarah' }));
+    expect(callRaw).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'Subject: pause followups for Sarah\n\nBody: pause followups for Sarah' })
+    );
   });
 
   // Outlook's default reply format inserts a "From: ... Sent: ... To: ...
@@ -1895,7 +1897,69 @@ describe('runActionHandler', () => {
 
     await runActionHandler([AGENT_CONFIG]);
 
-    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: body }));
+    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: `Subject: ?\n\nBody: ${body}` }));
+  });
+
+  test('Track 2 subject-only command, empty body: Haiku receives the subject, labelled', async () => {
+    const msg = makeMsg({ subject: 'pause follow-ups for Jane Doe', body: '' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'Subject: pause follow-ups for Jane Doe' })
+    );
+  });
+
+  test('Track 2 "Re: Re: ..." subject with an empty body: prefixes stripped from the Haiku input, outgoing reply subject unchanged', async () => {
+    const msg = makeMsg({ subject: 'Re: Re: pause follow-ups for Jane', body: '' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'Subject: pause follow-ups for Jane' })
+    );
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ subject: 'Re: Re: Re: pause follow-ups for Jane' })
+    );
+  });
+
+  test('Track 2 body-only command, empty subject: the input has no Subject line', async () => {
+    const msg = makeMsg({ subject: '', body: 'pause follow-ups for Jane' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'Body: pause follow-ups for Jane' })
+    );
+  });
+
+  test('Track 2 subject and body both present: both labelled, subject first', async () => {
+    const msg = makeMsg({ subject: 'pause follow-ups', body: 'for Jane Doe please' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'Subject: pause follow-ups\n\nBody: for Jane Doe please' })
+    );
+  });
+
+  test('Track 2 pause_followups with leadName null: asks which lead, no Sheet read', async () => {
+    callRaw.mockResolvedValue(JSON.stringify({ intent: 'pause_followups', leadName: null, confidence: 0.95 }));
+    const msg = makeMsg({ subject: 'pause follow-ups for someone', body: '' });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(readSheetRows).not.toHaveBeenCalled();
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ body: expect.stringContaining('Which lead did you mean?'), autoSubmitted: true })
+    );
   });
 
   test('error in processing sends error reply and runActionHandler does not throw', async () => {

@@ -269,6 +269,8 @@ const TRACK2_SYSTEM = `You classify real-estate agent commands. Return ONLY a JS
   "confidence": 0.0
 }
 
+The agent's command may appear in the subject, the body, or both.
+
 Intent meanings:
 - pause_followups: agent wants to stop follow-ups for a specific lead
 - mark_soi: agent wants to mark a lead as sphere of influence
@@ -281,18 +283,43 @@ Return only the JSON object. No preamble, no markdown, no explanation.`;
 
 const UNKNOWN_REPLY = `Sorry, I didn't understand that request. You can ask me to: pause follow-ups for a lead, mark a lead as SOI, pause or resume your account, or send today's digest.`;
 
+// Strips a leading chain of Re:/RE:/Fwd:/FW: prefixes (repeated,
+// case-insensitive) before the subject reaches Haiku. The ORIGINAL
+// subject is still used on every outgoing reply (every `Re: ${origSubject}`
+// below) -- this stripped copy exists only for classification input, so a
+// thread with several "Re:"s on it doesn't bury the command under them.
+function stripReplyPrefixes(subject) {
+  return String(subject || '').replace(/^\s*(?:(?:re|fwd|fw)\s*:\s*)+/i, '').trim();
+}
+
+// Labelled, two-part input for Haiku: the agent's command can land in the
+// subject, the body, or both (a subject-only command is common -- agents
+// type "pause follow-ups for Jane" and leave the body blank), so both are
+// sent, each on its own labelled line, omitted entirely when empty so a
+// one-sided command never shows an empty "Subject:" or "Body:" line that
+// could itself read as part of the command.
+function buildTrack2Input(subject, body) {
+  const parts = [];
+  if (subject) parts.push(`Subject: ${subject}`);
+  if (body) parts.push(`Body: ${body}`);
+  return parts.join('\n\n');
+}
+
 async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSubject) {
   const agentId = agentConfig.agentId;
+  const strippedSubject = stripReplyPrefixes(origSubject);
 
   // A subject-only command (agent typed the command in the subject, left
-  // the body blank) has nothing for Haiku to read: callRaw would hand the
+  // the body blank) has nothing for Haiku to read if the subject is also
+  // blank once its Re:/Fwd: chain is stripped: callRaw would hand the
   // Anthropic API an empty user turn, which rejects with "text content
   // blocks must contain non-whitespace text". Caught the same way a real
   // classification failure is, so the agent sees the same UNKNOWN_REPLY
   // either way, but skipped here so that never happens -- no wasted call,
   // no retry delay, and a log line that says why, distinct from a genuine
-  // Haiku failure.
-  if (!String(origSubject || '').trim() && !String(body || '').trim()) {
+  // Haiku failure. Checked against strippedSubject, not origSubject: a
+  // bare "Re:" reply with an empty body must still read as empty.
+  if (!strippedSubject && !String(body || '').trim()) {
     console.log(`[actionHandler] Track 2 message empty (no subject, no body) for ${agentId}`);
     await sendConfirmation(assistantConfig, {
       to: replyTo, subject: `Re: ${origSubject}`, body: UNKNOWN_REPLY,
@@ -304,7 +331,7 @@ async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSub
   try {
     const raw = await callRaw({
       system:    TRACK2_SYSTEM,
-      user:      body,
+      user:      buildTrack2Input(strippedSubject, body),
       model:     MODELS.CATEGORIZATION,
       maxTokens: 200,
     });
@@ -361,7 +388,21 @@ async function handleTrack2(agentConfig, body, assistantConfig, replyTo, origSub
     return;
   }
 
-  // Lead-specific: pause_followups, mark_soi
+  // Lead-specific: pause_followups, mark_soi. Haiku returns leadName null
+  // (or, occasionally, an empty string) when no name is anywhere in the
+  // input. Asking which lead is honest; a Sheet lookup on an empty name
+  // would either find nothing ("No lead found matching 'null'", confusing
+  // machine text) or, worse, match every row whose own name happens to be
+  // blank. No Sheet read happens on this path -- there's no name yet to
+  // look up.
+  if (!leadName || !String(leadName).trim()) {
+    await sendConfirmation(assistantConfig, {
+      to: replyTo, subject: `Re: ${origSubject}`,
+      body: `Which lead did you mean? Reply with their name.`,
+    });
+    return;
+  }
+
   const rows      = await email.readSheetRows(agentConfig);
   const nameLower = (leadName || '').toLowerCase();
 
