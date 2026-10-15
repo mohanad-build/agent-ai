@@ -17,6 +17,7 @@ const { parseAuthResults }        = require('../authResults');
 const { getStorageRoot }          = require('../storagePaths');
 const { clearLeadAndLogNote, parseCommandToken } = require('../webhook');
 const { CALL_NOTE_LABEL, stripCallNote }         = require('../callNote');
+const { stripQuotedReply }        = require('../replyText');
 const store                       = require('../transactions/store');
 const proposals                   = require('../transactions/proposals');
 const { confirmProposalSet }      = require('../transactions/confirmSet');
@@ -964,7 +965,12 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
     } else if (isTrack1) {
       await handleTrack1(agentConfig, subject, assistantConfig, replyTo);
     } else {
-      const body = msg.body || msg.snippet || '';
+      // Stripped before Track 2 ever sees it, so a reply that is nothing
+      // but quoted history (an agent hitting "reply" with no new text)
+      // reads as empty to the guard at the top of handleTrack2 instead of
+      // handing Haiku our own canned wording back as if it were the
+      // agent's command.
+      const body = stripQuotedReply(msg.body || msg.snippet || '').trim();
       await handleTrack2(agentConfig, body, assistantConfig, replyTo, subject);
     }
   } catch (err) {

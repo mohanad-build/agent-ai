@@ -1814,6 +1814,90 @@ describe('runActionHandler', () => {
     );
   });
 
+  const UNKNOWN_REPLY_TEXT = "Sorry, I didn't understand that request. You can ask me to: pause follow-ups for a lead, mark a lead as SOI, pause or resume your account, or send today's digest.";
+
+  test('Track 2 Gmail-format reply: callRaw receives exactly the new text, quote stripped', async () => {
+    const body = [
+      '?',
+      '',
+      'On Wed, Oct 14, 2026 at 7:11 PM <assistant@getklosed.ca> wrote:',
+      `> ${UNKNOWN_REPLY_TEXT}`,
+    ].join('\n');
+    const msg = makeMsg({ subject: '?', body });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: '?' }));
+  });
+
+  test('Track 2 iOS Mail-format reply: callRaw receives exactly the new text, quote stripped', async () => {
+    const body = [
+      '?',
+      'On Oct 14, 2026, at 7:11 PM, assistant@getklosed.ca wrote:',
+      `> ${UNKNOWN_REPLY_TEXT}`,
+    ].join('\n');
+    const msg = makeMsg({ subject: '?', body });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: '?' }));
+  });
+
+  test('Track 2 reply with only quoted text and no new text: skips Haiku, sends did-not-understand reply', async () => {
+    const body = [
+      'On Oct 14, 2026, at 7:11 PM, assistant@getklosed.ca wrote:',
+      `> ${UNKNOWN_REPLY_TEXT}`,
+    ].join('\n');
+    const msg = makeMsg({ subject: '', body });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).not.toHaveBeenCalled();
+    expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ body: expect.stringContaining("didn't understand that request"), autoSubmitted: true })
+    );
+  });
+
+  test('Track 2 body with no quote at all: callRaw receives it unchanged', async () => {
+    const body = 'pause followups for Sarah';
+    const msg = makeMsg({ subject: 'pause followups for Sarah', body });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: 'pause followups for Sarah' }));
+  });
+
+  // Outlook's default reply format inserts a "From: ... Sent: ... To: ...
+  // Subject: ..." header block with no ">" prefix and no "wrote:" line, so
+  // stripQuotedReply's two rules (strip "> " lines, cut at "on ... wrote:")
+  // both miss it. NOT handled today -- Parked (docs/STATE.md). This pins
+  // the gap rather than hiding it: if a future change starts stripping
+  // Outlook's quote too, this test goes red, which is the signal that this
+  // comment and the Parked entry are stale and should be removed.
+  test('Track 2 Outlook-format reply: quote is NOT stripped today (parked)', async () => {
+    const body = [
+      '?',
+      '',
+      'From: Assistant <assistant@getklosed.ca>',
+      'Sent: Wednesday, October 14, 2026 7:11 PM',
+      'To: Agent <agent@example.com>',
+      'Subject: Re: something',
+      '',
+      UNKNOWN_REPLY_TEXT,
+    ].join('\n');
+    const msg = makeMsg({ subject: '?', body });
+    gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+    await runActionHandler([AGENT_CONFIG]);
+
+    expect(callRaw).toHaveBeenCalledWith(expect.objectContaining({ user: body }));
+  });
+
   test('error in processing sends error reply and runActionHandler does not throw', async () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     readContentState.mockImplementation(() => { throw new Error('state read failed'); });

@@ -36,6 +36,7 @@ const { readAllTransactionsSettled } = require('./transactions/queries');
 const { collectDealAlerts } = require('./transactions/dealAlerts');
 const { todayInTimeZone } = require('./calendarDate');
 const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject } = require('./digestDeals');
+const { stripQuotedReply } = require('./replyText');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
 
@@ -1829,14 +1830,10 @@ function parseShadowDraftBody(rawBody) {
 
 function computeJaccardOverlap(draftBody, sentBody, agentConfig) {
   function normalize(text) {
-    // Strip quoted-reply text: lines starting with ">" and "On ... wrote:" onward
-    let lines = text.split('\n').filter(line => !line.trimStart().startsWith('>'));
-    text = lines.join('\n');
-    const onWroteMatch = text.match(/on .{1,80} wrote:/i);
-    if (onWroteMatch) text = text.slice(0, onWroteMatch.index);
+    text = stripQuotedReply(text);
 
     // Strip greeting: first non-empty line if it starts with Hi/Hello/Hey
-    lines = text.split('\n');
+    const lines = text.split('\n');
     const firstIdx = lines.findIndex(l => l.trim() !== '');
     if (firstIdx >= 0 && /^(hi|hello|hey)\b/i.test(lines[firstIdx])) {
       lines.splice(firstIdx, 1);
