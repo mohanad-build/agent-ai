@@ -41,13 +41,16 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
-## Session 86: lead intake skips mail from our own system senders (getklosed.ca)
+## Session 86: lead intake skips our own system senders; Track 2 reads subject and body, without quoted history
 
-Tests 4099/170 to 4103/170.
+Tests 4099/170 to 4116/170.
 
 | Commit | What |
 |---|---|
 | `baa1e44` | Rule 0b in `applyPreFilter` (`src/leadIntake.js`): any sender whose address domain is exactly `getklosed.ca` is pre-filter-blocked before classification, address only, never the display name |
+| `5561789` | Track 2: skip the classifier when subject and body are both empty (was an Anthropic 400, then "didn't understand") |
+| `f7a1873` | Track 2: strip quoted reply history before classifying; `src/replyText.js` (`stripQuotedReply`), extracted unchanged from digest.js's Shadow Mode catch detection |
+| `1e5eb11` | Track 2: classify subject and body as labelled input, Re:/Fwd: stripped for classification only; ask "Which lead did you mean?" when a lead intent has no name |
 
 Bug: assistant@'s DONE/RECEIPT/UNDO/CONFIRM/REJECT/WRONGDEAL/Track 1/Track 2 confirmations and the
 onboarding welcome email (sent from `mohanad@getklosed.ca`) carry no In-Reply-To header and passed
@@ -59,6 +62,11 @@ have hit any agent who left one unread.
 
 Live-verified 2026-10-14: log line "pre-filter blocked ...: system sender", candidates=0, the reply
 stayed in the inbox unread, no Sheet row written.
+
+Track 2 live-verified 2026-10-14: a subject-only "pause follow-ups for Zed Nobody" with an empty
+body got "No lead found matching 'Zed Nobody'" (Haiku read the subject; nothing changed).
+Why the quote strip mattered: a reply to our own "didn't understand" email handed Haiku our
+command menu ("pause or resume your account...") as if the agent wrote it.
 
 ## Session 85: overdue alerts fire once, on or after their threshold; the heads-up window widens to the day before and the day of
 
@@ -346,12 +354,19 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 - `headsUpDueWord` returns 'today' for any daysUntil other than 1; adding a heads-up threshold back
   requires changing its wording (test f in transactions-alerts covers it).
 - Folding session 81's alert design into `TC_SPEC.md` v24 now also includes session 85's changes.
-- Track 2 sends only the email body to Haiku. A subject-only command (empty body) gets a 400 "text
-  content blocks must contain non-whitespace text" and the agent is told "didn't understand".
-  Agents often type the command in the subject. Fix before a founding agent uses assistant@:
-  classify subject plus body; skip the call when both are empty. Seen live 2026-10-14.
+- `stripQuotedReply` does not handle Outlook's reply format (a "From: ... Sent: ..." header block,
+  no ">" and no "wrote:"), so the quote reaches Haiku. Pinned by a test. Ask the founding agent
+  which mail app they use; if Outlook, this moves up.
+- `stripQuotedReply` mishandles bottom-posting: the "on ... wrote:" cut also removes new text typed
+  below the quote. Fails safe in Track 2 ("didn't understand"). Inherited from digest.js.
+- The "on ... wrote:" match is not anchored to the start of a line, so "pause follow-ups on Sarah,
+  she wrote: ..." is cut at "on Sarah" and the lead name is lost. Fails safe ("which lead" or "no
+  lead found").
 - Reply Detection logs "unmatched sender" every cycle for an unread assistant@ confirmation.
   Harmless (left unread, correct), only log noise.
+- `pause_account` acts on a single classification with no confirmation. A false positive silently
+  stops the agent's follow-ups. Consider a confirm-reply step before a founding agent uses
+  assistant@.
 
 Carried from earlier sessions (details in `docs/history/PROJECT_STATE_to_session_80.md`, section 7
 and the session 80 board): 7.58.1 to 7.58.14, 7.57.5 to 7.57.12, 7.56.x, 7.54.x, the `listingId`
