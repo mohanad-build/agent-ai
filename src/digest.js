@@ -229,11 +229,10 @@ const WEEKLY_AGGREGATE_LABELS = {
 // Renderer-owned label map for Path B systemHandled section. Key order = render order.
 // Only keys present in the data object will produce a line (absent keys are silently skipped).
 const SYSTEM_HANDLED_LABELS = {
-  intaken: 'Leads intaken',
-  noiseFiltered: 'Noise filtered',
-  noiseArchived: 'Noise archived',
+  intaken: 'New leads',
+  noiseFiltered: 'Emails marked as not a lead',
+  noiseArchived: 'Emails moved to your noise label',
   followUpsFired: 'Follow-ups fired',
-  preflightSkips: 'Pre-flight skips this week',
   soiFiltered: 'SOI rows excluded',
 };
 

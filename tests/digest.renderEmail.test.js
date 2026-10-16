@@ -36,7 +36,7 @@ test('quiet day — subject is date-formatted, body has systemHandled only', () 
   expect(result.body).not.toContain('— Hot leads to call today —');
   expect(result.body).not.toContain('— Reliability —');
   expect(result.body).toContain('None need you.');
-  expect(result.body).toContain('Leads intaken: 0');
+  expect(result.body).toContain('New leads: 0');
 });
 
 test('day with one urgent HOT lead — subject names the lead, Needs you today section renders', () => {
@@ -222,26 +222,32 @@ test('when buildActionLink returns null — no arrow action line rendered', () =
   expect(result.body).not.toContain('→');
 });
 
-test('systemHandled with all zero counts renders exactly the three Path B lines', () => {
+test('systemHandled with all zero counts renders exactly the two Path B lines', () => {
   const sections = makeEmptySections();
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).toContain('— What the system handled —');
-  expect(result.body).toContain('Leads intaken: 0');
+  expect(result.body).toContain('New leads: 0');
   expect(result.body).toContain('Follow-ups fired: 0');
-  expect(result.body).toContain('Pre-flight skips this week: 0');
-  expect(result.body).not.toContain('Noise filtered:');
+  expect(result.body).not.toContain('Emails marked as not a lead:');
   expect(result.body).not.toContain('Business correspondence ignored:');
   expect(result.body).not.toContain('HOT alerts sent:');
 });
 
-test('systemHandled section renders the Noise filtered line when the field is present', () => {
+test('agent brief never mentions pre-flight skips, even when the counter is present on sections', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.preflightSkips = 5;
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).not.toContain('Pre-flight');
+});
+
+test('systemHandled section renders the Emails marked as not a lead line when the field is present', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseFiltered = 4;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).toContain('— What the system handled —');
-  expect(result.body).toContain('Noise filtered: 4');
+  expect(result.body).toContain('Emails marked as not a lead: 4');
 });
 
 test('leads unavailable (permission): warning opener, no Handled line, only noiseFiltered in systemHandled', () => {
@@ -252,8 +258,8 @@ test('leads unavailable (permission): warning opener, no Handled line, only nois
 
   expect(result.body).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
   expect(result.body).not.toContain('Handled');
-  expect(result.body).toContain('Noise filtered: 3');
-  expect(result.body).not.toContain('Leads intaken:');
+  expect(result.body).toContain('Emails marked as not a lead: 3');
+  expect(result.body).not.toContain('New leads:');
   expect(result.body).not.toContain('Follow-ups fired:');
 });
 
@@ -264,8 +270,7 @@ test('leads not_configured: What the system handled is omitted entirely, header 
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).not.toContain('What the system handled');
-  expect(result.body).not.toContain('Pre-flight skips this week:');
-  expect(result.body).not.toContain('Noise filtered:');
+  expect(result.body).not.toContain('Emails marked as not a lead:');
 });
 
 test('leads not_configured with urgent rows: opener is still suppressed, rest of body unaffected', () => {
@@ -288,7 +293,7 @@ test('noiseArchived > 0 renders the archived-noise link line', () => {
   sections.systemHandled.noiseArchived = 3;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.body).toContain('Noise archived: 3');
+  expect(result.body).toContain('Emails moved to your noise label: 3');
   expect(result.body).toContain('Review archived noise: https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise');
 });
 
@@ -297,7 +302,7 @@ test('noiseArchived = 0 renders the count but not the archived-noise link', () =
   sections.systemHandled.noiseArchived = 0;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.body).toContain('Noise archived: 0');
+  expect(result.body).toContain('Emails moved to your noise label: 0');
   expect(result.body).not.toContain('Review archived noise:');
 });
 

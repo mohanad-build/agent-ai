@@ -276,10 +276,10 @@ test('HOT lead in urgent is not also shown in hot leads section', () => {
 
 // ── systemHandled always renders ──────────────────────────────────────────────
 
-test('systemHandled section always present, shows Leads intaken count', () => {
+test('systemHandled section always present, shows New leads count', () => {
   const { html } = renderEmailHtml(makeEmptySections(), BASE_AGENT, NOW);
   expect(html).toContain('What the system handled');
-  expect(html).toContain('Leads intaken: 0');
+  expect(html).toContain('New leads: 0');
 });
 
 test('leads unavailable (permission): warning opener, no Handled text, only noiseFiltered in systemHandled', () => {
@@ -290,8 +290,8 @@ test('leads unavailable (permission): warning opener, no Handled text, only nois
 
   expect(html).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
   expect(html).not.toContain('Handled');
-  expect(html).toContain('Noise filtered: 3');
-  expect(html).not.toContain('Leads intaken:');
+  expect(html).toContain('Emails marked as not a lead: 3');
+  expect(html).not.toContain('New leads:');
   expect(html).not.toContain('Follow-ups fired:');
 });
 
@@ -302,8 +302,14 @@ test('leads not_configured: What the system handled is omitted entirely, header 
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
   expect(html).not.toContain('What the system handled');
-  expect(html).not.toContain('Pre-flight skips this week:');
-  expect(html).not.toContain('Noise filtered:');
+  expect(html).not.toContain('Emails marked as not a lead:');
+});
+
+test('agent brief never mentions pre-flight skips, even when the counter is present on sections', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.preflightSkips = 5;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).not.toContain('Pre-flight');
 });
 
 test('noiseArchived > 0 renders the archived-noise anchor with muted styling', () => {
@@ -311,7 +317,7 @@ test('noiseArchived > 0 renders the archived-noise anchor with muted styling', (
   sections.systemHandled.noiseArchived = 3;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
-  expect(html).toContain('Noise archived: 3');
+  expect(html).toContain('Emails moved to your noise label: 3');
   expect(html).toContain('href="https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise"');
   expect(html).toContain('Review archived noise');
   expect(html).toContain(`color:${T.mutedTextColor}`);
@@ -322,7 +328,7 @@ test('noiseArchived = 0 renders the count but no archived-noise anchor', () => {
   sections.systemHandled.noiseArchived = 0;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
-  expect(html).toContain('Noise archived: 0');
+  expect(html).toContain('Emails moved to your noise label: 0');
   expect(html).not.toContain('agent-ai%2Fnoise');
 });
 
