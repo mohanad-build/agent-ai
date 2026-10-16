@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 86 (2026-10-14).
+Last updated: session 87 (2026-10-16).
 
 ## What GetKlosed is
 
@@ -40,6 +40,27 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `CONTENT_ENGINE_SPEC.md`: a session 18 design draft. The engine was built afterwards and differs. Background only.
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
+
+## Session 87: brief polish, Commit A (copy and layout only)
+
+Tests 4116/170 to 4126/170.
+
+| Commit | What |
+|---|---|
+| `823d0e6` | `pluralize(n, singular, plural)`; fixes "1 leads" and "1 follow-ups" in the opener line |
+| `42c1eb1` | The leads opener reads "Leads: handled N overnight (...). None need you."; renderSMS puts the deals line ahead of the leads lines; "+ N more." names what it counts ("deals" or "leads") |
+| `aa09926` | `SYSTEM_HANDLED_LABELS`: pre-flight skips dropped from the agent brief (stays in the weekly operator digest); "Noise filtered"/"Noise archived" reworded; "Leads intaken" to "New leads" |
+| `69f9b69` | Every Gmail web link in the brief replaced with plain text the agent can act on in any mail app; `gmailSearchUrl` deleted (no callers left) |
+
+Recon found the item list in the prior session's Next section had one false claim: the per-deal
+email-search link was said to be "already removed, session 85." It was not; it was built in session
+84 (`d5ce367`) and still live going into this session. `69f9b69` removes it for real. The correction
+is folded into the note above where that claim originally appeared.
+
+Scope for this session: rendering only. No change to whether, when, or to whom anything sends. The
+SMS-only-when-something-needs-the-agent change, the filtered-items-inline idea, and the confirmation
+reply subject were all identified during recon as needing either a design decision or a data change
+beyond rendering, and were left out on purpose; see Next and Parked below.
 
 ## Session 86: lead intake skips our own system senders; Track 2 reads subject and body, without quoted history
 
@@ -166,8 +187,12 @@ the brief's deals section on a real phone. A deposit alert deal is seeded on `mo
 morning's brief (`txn-20261008-fa6b84f9`); it must be removed after the check. Also open for that
 same check:
 - Whether Gmail search treats the hyphen as a separator (a search for "21 main" finding a thread
-  about "19-21 Main"). Not about the per-deal email-search link (removed, session 85): this is about
-  Gmail's own search matching, which still applies to whatever search text the agent types by hand.
+  about "19-21 Main"). Not about the per-deal email-search link: this is about Gmail's own search
+  matching, which still applies to whatever search text the agent types by hand. Correction (session
+  87): this note previously said the per-deal email-search link was already removed in session 85.
+  It was not; session 85 touched only the alert thresholds and heads-up window (see that section's
+  own commit list). The link was still live, built in session 84 (`d5ce367`), until session 87 removed
+  it for real (`69f9b69`, see below).
 
 ## How Mo collapses or closes a deal
 
@@ -267,20 +292,26 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
 
 ## Next: the shortest path to a founding agent
 
-1. Brief polish batch: SMS only when something needs the agent; copy fixes ("1 leads", the doubled
-   "0 need you today", "Pre-flight skips" moved out of the agent view, filtered vs archived lines,
-   "Leads intaken" to "New leads"); filtered items listed inline when few; the deals block and the
-   SMS deal line move BEFORE the leads line, and the leads line reads "0 leads need you" (today's
-   SMS read "0 need you today" followed by a deal that needed the agent); replace every Gmail web
-   link in the brief (per-deal email search, Review archived noise, the lead thread link) with
-   plain text (see the finding above); the SMS "+ 1 more." reads like a typo -- say what it means
-   (e.g. "+1 more deal in your inbox"); the confirmation reply's subject shows raw machine text
-   ("Re: RECEIPT txn-... brokerage_deposit_receipt_received"), so consider a human-readable reply
-   subject -- safe to change on its own, since nothing parses assistant@'s own outgoing subjects
-   (`TC_CLAIM_RE` and `parseTcCommand` only read the incoming tap, never the confirmation reply).
-   Sender move to `assistant@getklosed.ca` pulled out of this batch: needs (a) lead intake skipping
-   our own getklosed.ca senders, now done (Session 86), and (b) a decision on what a reply to the
-   brief itself should do -- today it would fall into Track 2, not anything brief-aware.
+1. Brief polish batch, Commit A (copy and layout only, Session 87): pluralization fixed ("1 leads"
+   to "1 lead", "1 follow-ups" to "1 follow-up"); the leads opener now reads "Leads: handled N
+   overnight (...). None need you." as its own statement (no cross-block suppression against the
+   deals block's own "nothing needs you today"); the deals block and the SMS deal line now render
+   before the leads lines in the SMS (email already had the order right); the SMS "+ N more." now
+   says what it is counting ("+ N more deals." on the deals line, "+ N more leads." on the hot-lead
+   line); "Pre-flight skips" dropped from the agent-facing brief, stays in the weekly operator
+   digest unchanged; "Noise filtered" and "Noise archived" reworded to say what each mechanism
+   actually does; "Leads intaken" to "New leads"; every Gmail web link in the brief (the per-deal
+   email search, "Review archived noise", buildActionLink's thread fallback for HOT, needs_review
+   and path1b) replaced with plain text the agent can act on in any mail app. The per-deal search
+   link had NOT already been removed (see the correction above); it is now. Commits: `823d0e6`,
+   `42c1eb1`, `aa09926`, `69f9b69`.
+   Still open, Commit B (behavior, not copy, deliberately kept separate): SMS only when something
+   needs the agent; filtered items listed inline when few (parked below, needs a capture design
+   first); a human-readable confirmation reply subject (parked below, a real threading risk found
+   during Commit A's recon). Sender move to `assistant@getklosed.ca` pulled out of this batch: needs
+   (a) lead intake skipping our own getklosed.ca senders, now done (Session 86), and (b) a decision
+   on what a reply to the brief itself should do -- today it would fall into Track 2, not anything
+   brief-aware.
 2. Live check: Done (Session 85/86, see above).
 3. `opened_in_error` exit state: Done -- built and live-verified (Session 85/86, see above).
 4. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
@@ -292,6 +323,26 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 
 ## Parked
 
+- List filtered emails inline in the brief when there are only a few (Session 87 recon, item 5).
+  Needs a capture design first: `dailyNoiseFiltered`/`dailyNoiseArchived` (`agentState.js`) are bare
+  incrementing counters, no sender, subject or lead identity stored alongside them, so there is
+  nothing to list yet. Not pure rendering; out of Commit A's scope on that basis alone.
+- A human-readable confirmation reply subject, replacing the raw machine text ("Re: RECEIPT
+  txn-... brokerage_deposit_receipt_received") the agent sees today (Session 87 recon, item 9).
+  Deferred: `sendConfirmation` sends via `gmail.sendNewEmail`, which never sets threadId,
+  In-Reply-To or References (confirmed by reading `buildRfc5322Message`, `gmail.js`), and neither
+  does the agent's own original tap (a fresh `mailto:` compose, not a reply). Whatever groups the
+  tap and its confirmation into one conversation on Gmail and the iPhone today is Gmail's own
+  subject-plus-participants heuristic, which depends on the confirmation's subject matching the
+  tap's subject (minus "Re:"). A human-readable subject would very likely break that grouping,
+  splitting the tap from its own confirmation in the agent's inbox. Not verifiable from code alone;
+  needs a live check before it is safe to change. See the next item, which would remove the
+  dependency on that heuristic entirely.
+- Thread the confirmation reply under the agent's original tap for real: send it with `threadId`
+  (and `In-Reply-To`/`References`) the way `gmail.js`'s `sendReply` already does, instead of
+  `sendConfirmation`'s current `gmail.sendNewEmail`. Would remove the subject-matching dependency
+  above and make a human-readable subject safe to ship. Revisit together, after a founding agent is
+  on the system (same gate as the sender move to `assistant@getklosed.ca` in Next, item 1).
 - Fold session 81's alert design into `TC_SPEC.md` as version 24.
 - An inactive agent logs "skipped (inactive)" followed by "sms=n/a email=n/a" every cycle for about
   an hour after its brief time, and the second line contradicts the first.
