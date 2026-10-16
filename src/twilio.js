@@ -61,7 +61,7 @@ const TEMPLATES = {
   // Decision 4: sent once at signup and again if the dashboard phone edit
   // changes the number.
   welcomeText() {
-    return "GetKlosed here. This is the number your morning brief and hot-lead alerts will come from. Save it as a contact so you never miss one.";
+    return "GetKlosed here. We'll text you from this number whenever something needs you, like a hot lead or a deal deadline. Save it as a contact so you never miss one.";
   },
 };
 

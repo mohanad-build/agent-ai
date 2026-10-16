@@ -14,7 +14,7 @@ test('success: sendSMS called once with the welcome template, alert not called',
   const [calledAgent, smsBody] = sendSMS.mock.calls[0];
   expect(calledAgent).toBe(AGENT);
   expect(smsBody).toBe(
-    "GetKlosed here. This is the number your morning brief and hot-lead alerts will come from. Save it as a contact so you never miss one."
+    "GetKlosed here. We'll text you from this number whenever something needs you, like a hot lead or a deal deadline. Save it as a contact so you never miss one."
   );
   expect(alertAgentTextFailed).not.toHaveBeenCalled();
 });
