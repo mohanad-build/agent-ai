@@ -1,14 +1,19 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 87 (2026-10-16).
+Last updated: session 88 (2026-10-16).
 
 ## What GetKlosed is
 
 A system for Ontario real estate agents, built on their own Gmail. It answers and follows up leads,
-sends a daily brief by SMS and email, generates weekly content (a paid add-on), and runs a
-transaction coordinator (TC) that tracks each deal's checklist, files deal documents to Drive, and
-alerts the agent when something needs them. Mo runs the business and is the operator.
+sends a daily brief by email every morning and by SMS whenever something needs the agent, generates
+weekly content (a paid add-on), and runs a transaction coordinator (TC) that tracks each deal's
+checklist, files deal documents to Drive, and alerts the agent when something needs them. Mo runs
+the business and is the operator.
+
+The brief's SMS half follows one rule (Session 88): no text means we checked everything and nothing
+needs the agent; any morning we could not see part of the picture sends a text saying what we could
+not see.
 
 ## What is live in production
 
@@ -40,6 +45,28 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `CONTENT_ENGINE_SPEC.md`: a session 18 design draft. The engine was built afterwards and differs. Background only.
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
+
+## Session 88: brief polish, Commit B (SMS only when something needs the agent)
+
+Tests 4132/170 to 4156/171.
+
+| Commit | What |
+|---|---|
+| `b0439dd` | `smsDecision(inputs) -> { send, reason }`, pure, the closed reason list: disabled, not_configured, dry_run_no_phone, needs_agent, couldnt_check, quiet. Fixes a reachable gap: a not_configured agent whose deals failed to load or came back unreadable used to go silent on SMS |
+| `d4cf8f3` | Wired in, gating only the `twilio.sendSMS` dispatch; `renderSMS` still builds the body every morning. Uniform logging: "sms skipped (<reason>)" / "sms sending (<reason>)" |
+| `f442bf1` | couldnt_check copy: Sheet-unavailable and deals-couldn't-load SMS lines made actionable; a new, additive unreadable-deal-file SMS line |
+| `89f74c8` | Welcome text drops the implied daily cadence |
+| `99e6898` | Pre-existing, separate from Commit B: the inactive-agent "skipped (inactive)" / "sms=n/a email=n/a" contradiction. The generic summary line is now suppressed whenever `result.skipped` is set |
+
+The email brief is unchanged: it still goes out every morning exactly as before. Only the SMS half
+of the daily brief gained a decision. The one send reason that can coexist with another: needs_agent
+(an urgent lead or a deal alert) wins over couldnt_check when both apply, but couldnt_check's own
+copy still renders in the body whenever its condition is true, regardless of which reason triggered
+the send -- an unreadable deal file is additive with a real alert, never replaced by one.
+
+Live check still open: nothing below has been watched on a real phone yet. Before a founding agent
+relies on this, confirm a genuinely quiet morning produces no text, and that a couldnt_check morning
+reads as intended on an iPhone.
 
 ## Session 87: brief polish, Commit A (copy and layout only)
 
@@ -306,13 +333,14 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
    and path1b) replaced with plain text the agent can act on in any mail app. The per-deal search
    link had NOT already been removed (see the correction above); it is now. Commits: `823d0e6`,
    `42c1eb1`, `aa09926`, `69f9b69`.
-   Still open, Commit B (behavior, not copy, deliberately kept separate): SMS only when something
-   needs the agent; filtered items listed inline when few (parked below, needs a capture design
-   first); a human-readable confirmation reply subject (parked below, a real threading risk found
-   during Commit A's recon). Sender move to `assistant@getklosed.ca` pulled out of this batch: needs
-   (a) lead intake skipping our own getklosed.ca senders, now done (Session 86), and (b) a decision
-   on what a reply to the brief itself should do -- today it would fall into Track 2, not anything
-   brief-aware.
+   Commit B (behavior, Session 88): Done. SMS only when something needs the agent -- see Session 88
+   above for the invariant and the commit list. The email brief is unchanged.
+   Still open, not part of either commit batch: filtered items listed inline when few (parked below,
+   needs a capture design first); a human-readable confirmation reply subject (parked below, a real
+   threading risk found during Commit A's recon). Sender move to `assistant@getklosed.ca` pulled out
+   of this batch: needs (a) lead intake skipping our own getklosed.ca senders, now done (Session 86),
+   and (b) a decision on what a reply to the brief itself should do -- today it would fall into
+   Track 2, not anything brief-aware.
 2. Live check: Done (Session 85/86, see above).
 3. `opened_in_error` exit state: Done -- built and live-verified (Session 85/86, see above).
 4. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
@@ -324,11 +352,13 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 
 ## Parked
 
-- `tests/sessionStore.encryption.test.js` failed once during a full-suite run in session 87, then
-  passed both standalone and on an immediate full-suite rerun. The file is untouched by session 87's
-  changes and unrelated to the digest work in progress at the time. Likely transient (worker
-  teardown or a timing-sensitive assertion), not chased down. Watch for repeats; if it recurs, treat
-  it as a real flake worth isolating, not noise.
+- Three one-off full-suite test failures across two sessions, every one in a file untouched by that
+  session's own changes, every one passing standalone and on an immediate full-suite rerun:
+  `tests/sessionStore.encryption.test.js` (session 87, once) and `tests/dashboard.loginAudit.test.js`
+  (session 88, twice). Treating this as one suspected shared cause, not three coincidences: parallel
+  Jest workers, a shared temp directory, or a timer/interval not cleaned up between runs.
+  `dashboard.loginAudit.test.js` flaking twice in the same session is the stronger signal; worth a
+  dedicated investigation (not attempted here, and not blocking Commit B).
 - List filtered emails inline in the brief when there are only a few (Session 87 recon, item 5).
   Needs a capture design first: `dailyNoiseFiltered`/`dailyNoiseArchived` (`agentState.js`) are bare
   incrementing counters, no sender, subject or lead identity stored alongside them, so there is
@@ -355,9 +385,13 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 - Pre-existing, kept as-is by session 82's reminder-branch split: when the reminder text sends but
   the Sheet write fails, `reminderSent` is never recorded, so the reminder is sent again every cycle
   until the Sheet recovers.
-- The existing weekly digest plain-text section headers (for example "Aggregate stats") are wrapped
-  in em dashes; convert them to hyphens. Session 82's new Restarts section already uses hyphens
-  (CLAUDE.md rule 7); the rest of that renderer predates the rule.
+- Em dashes predating CLAUDE.md rule 7, wider than previously recorded here: not just the weekly
+  digest's plain-text section headers (for example "Aggregate stats"), but the daily, agent-facing
+  brief too, section headers ("Needs you today", "Hot leads to call today", "What the system
+  handled") and row lines ("John D, needs review", "Sarah K, flagged hot, 45 Maple") throughout
+  `renderEmail`/`renderEmailHtml`. Convert both renderers' em dashes to hyphens together, since they
+  are the same class of debt from the same era. Session 82's new Restarts section already uses
+  hyphens; the rest of both renderers predates the rule.
 - The onboarding done page writes the agent's name and Gmail address into the page unescaped (only
   the person who typed them sees it).
 - The 30-minute watchdog assumes no healthy cycle runs that long. Watch the "cycle finished in Nm"
