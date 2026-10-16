@@ -297,6 +297,13 @@ describe('renderDealsPlain: quiet line and unreadable', () => {
     );
   });
 
+  it('unreadable, canAlertOperator false: drops "Mo has been told"', () => {
+    const ctx = { ...CTX, canAlertOperator: false };
+    expect(renderDealsPlain(collected([], { activeCount: 0, unreadable: [{ transactionId: 'x', error: 'e' }] }), ctx)).toBe(
+      "-- Deals needing you --\n\nOne of your deal files couldn't be read this morning."
+    );
+  });
+
   it('quiet line and unreadable line are separated by a blank line, and neither names the file or the error', () => {
     const unreadable = [{ transactionId: 'x', error: 'some disk error message' }];
     const result = renderDealsPlain(collected([], { activeCount: 2, unreadable }), CTX);

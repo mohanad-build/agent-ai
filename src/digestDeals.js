@@ -162,10 +162,14 @@ function driveLinkFor(alert) {
   return url ? { label: 'Drive folder', url } : null;
 }
 
-function unreadableLine(unreadable) {
+// canAlertOperator (digest.js's own operatorAlertReachable, checked before
+// this is built) drops the "Mo has been told" claim when it would be false,
+// same handling as the SMS's unreadableSmsLine below.
+function unreadableLine(unreadable, canAlertOperator = true) {
+  const told = canAlertOperator ? ' Mo has been told.' : '';
   return unreadable.length === 1
-    ? "One of your deal files couldn't be read this morning. Mo has been told."
-    : `${unreadable.length} of your deal files couldn't be read this morning. Mo has been told.`;
+    ? `One of your deal files couldn't be read this morning.${told}`
+    : `${unreadable.length} of your deal files couldn't be read this morning.${told}`;
 }
 
 // Shorter sibling of unreadableLine, for the SMS (Commit B couldnt_check).
@@ -220,7 +224,7 @@ function renderDealsPlain(collected, ctx) {
   }
 
   if (unreadable.length > 0) {
-    sections.push(unreadableLine(unreadable));
+    sections.push(unreadableLine(unreadable, ctx.canAlertOperator));
   }
 
   return `-- ${SECTION_TITLE} --\n\n${sections.join('\n\n')}`;
@@ -291,7 +295,7 @@ function renderDealsHtml(collected, ctx) {
     : (activeCount > 0 ? `<div>${escapeHtml(`Deals: ${activeCount} active, nothing needs you today.`)}</div>` : '');
 
   const unreadableHtml = unreadable.length > 0
-    ? `<div>${escapeHtml(unreadableLine(unreadable))}</div>`
+    ? `<div>${escapeHtml(unreadableLine(unreadable, ctx.canAlertOperator))}</div>`
     : '';
 
   return sectionHeader(SECTION_TITLE) + bodyHtml + unreadableHtml;

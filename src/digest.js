@@ -533,22 +533,24 @@ function smsDecision(inputs) {
 // itself cannot be trusted to render anything (see runDailyDigestForAgent's
 // fault-isolating try/catch). Not worth exporting a shared header builder
 // for one line used in one place.
-function dealsErrorHtml() {
+// canAlertOperator (digest.js's own operatorAlertReachable, checked before
+// this is built) drops the "Mo has been told" claim when it would be
+// false, same as the SMS's dealsErrorSms.
+function dealsErrorHtml(canAlertOperator = true) {
   const T = STYLE_TOKENS;
+  const told = canAlertOperator ? ' Mo has been told.' : '';
   return `<div style="margin-top:24px;margin-bottom:12px;padding-bottom:8px;` +
     `border-bottom:1px solid ${T.sectionDividerColor};` +
     `font-weight:${T.buttonFontWeight};color:${T.bodyTextColor};">Deals needing you</div>` +
-    `<div>Deal updates couldn't be loaded this morning. Mo has been told.</div>`;
+    `<div>Deal updates couldn't be loaded this morning.${told}</div>`;
 }
 
-function dealsErrorPlain() {
-  return `-- Deals needing you --\n\nDeal updates couldn't be loaded this morning. Mo has been told.`;
+function dealsErrorPlain(canAlertOperator = true) {
+  const told = canAlertOperator ? ' Mo has been told.' : '';
+  return `-- Deals needing you --\n\nDeal updates couldn't be loaded this morning.${told}`;
 }
 
-// Commit B couldnt_check. Unlike dealsErrorPlain/Html, "Mo has been told" is
-// conditional here: canAlertOperator is checked synchronously before the
-// alert itself ever runs (see operatorAlertReachable), so when it is false
-// the claim is dropped rather than made and possibly broken.
+// Commit B couldnt_check. Same canAlertOperator handling as dealsErrorPlain/Html.
 function dealsErrorSms(canAlertOperator = true) {
   const told = canAlertOperator ? ' Mo has been told.' : '';
   return `Couldn't load your deals this morning. Check any conditions or deposits due today yourself.${told}`;
@@ -585,21 +587,28 @@ function resolveOperatorEmailForDeals(agentConfig) {
 // Same three checks alertOperatorSheetUnavailable and alertOperatorDealsUnavailable
 // each make before they can actually alert Mo (operatorId present, loadOperator
 // succeeds, operatorEmail present). Used only to decide whether a couldnt_check
-// SMS line's "Mo has been told" claim is honest this morning. Has to run here,
-// synchronously, before the SMS is built: the real alerts run later, in
-// maybeRunDailyDigest (index.js), after the SMS has already been dispatched, so
-// by the time either could fail there is no way to take the claim back.
+// line's "Mo has been told" claim is honest this morning. Has to run here,
+// synchronously, before the SMS and email are built: the real alerts run
+// later, in maybeRunDailyDigest (index.js), after both have already been
+// dispatched, so by the time either could fail there is no way to take the
+// claim back.
+//
+// The whole body is wrapped: loadOperator returns JSON.parse(raw), and a
+// config file whose content is literally "null" parses to null without
+// throwing, which would otherwise crash this function's own .operatorEmail
+// read (TypeError on a null, uncaught, since that read sat outside the
+// try). Never let this function being wrong about reachability take down
+// the brief it is only trying to word correctly.
 function operatorAlertReachable(agentConfig) {
-  if (!agentConfig.operatorId) {
-    return false;
-  }
-  let operatorConfig;
   try {
-    operatorConfig = loadOperator(agentConfig.operatorId);
+    if (!agentConfig.operatorId) {
+      return false;
+    }
+    const operatorConfig = loadOperator(agentConfig.operatorId);
+    return !!(operatorConfig && operatorConfig.operatorEmail);
   } catch (err) {
     return false;
   }
-  return !!operatorConfig.operatorEmail;
 }
 
 async function runDailyDigestForAgent(agentConfig, options = {}) {
@@ -686,27 +695,29 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     leads,
   };
 
+  // Resolved only when at least one couldnt_check line (SMS or email) could
+  // render this morning, so an agent with nothing to say about leads or
+  // deals never triggers an extra operator-file read. Checked
+  // synchronously, before the SMS or email is built: see
+  // operatorAlertReachable's own comment for why this cannot be checked
+  // any later.
+  const needsOperatorAlertCheck = leads.status === 'unavailable'
+    || dealsResult.status === 'error'
+    || dealsCollected.unreadable.length > 0;
+  const canAlertOperator = needsOperatorAlertCheck ? operatorAlertReachable(agentConfig) : true;
+
   // Resolved once per agent, only when a condition_passed row will actually
   // need it (the only kind that builds a fell-through link), so an agent
   // with no deals at all never triggers an operator-file read or a log line.
   const needsOperatorEmail = dealsCollected.alerts.some((a) => a.kind === 'condition_passed');
   const dealsCtx = {
     operatorEmail: needsOperatorEmail ? resolveOperatorEmailForDeals(agentConfig) : null,
+    canAlertOperator,
     T: STYLE_TOKENS,
   };
 
-  const dealsPlain = dealsResult.status === 'error' ? dealsErrorPlain() : renderDealsPlain(dealsCollected, dealsCtx);
-  const dealsHtmlSection = dealsResult.status === 'error' ? dealsErrorHtml() : renderDealsHtml(dealsCollected, dealsCtx);
-
-  // Resolved only when at least one couldnt_check SMS line could render
-  // this morning, so an agent with nothing to say about leads or deals
-  // never triggers an extra operator-file read. Checked synchronously,
-  // before the SMS is built: see operatorAlertReachable's own comment for
-  // why this cannot be checked any later.
-  const needsOperatorAlertCheck = leads.status === 'unavailable'
-    || dealsResult.status === 'error'
-    || dealsCollected.unreadable.length > 0;
-  const canAlertOperator = needsOperatorAlertCheck ? operatorAlertReachable(agentConfig) : true;
+  const dealsPlain = dealsResult.status === 'error' ? dealsErrorPlain(canAlertOperator) : renderDealsPlain(dealsCollected, dealsCtx);
+  const dealsHtmlSection = dealsResult.status === 'error' ? dealsErrorHtml(canAlertOperator) : renderDealsHtml(dealsCollected, dealsCtx);
 
   // Commit B couldnt_check copy: dealsResult.status === 'error' means
   // dealsCollected is the empty sentinel (no alerts, no unreadable --

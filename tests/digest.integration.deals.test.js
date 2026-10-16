@@ -247,8 +247,9 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
     expect(result.smsResult).toBe('sent');
     expect(result.deals.status).toBe('unreadable');
     expect(captured.sms).toBe("1 deal file couldn't be read.\nFull brief in your inbox.");
-    // The email keeps making the claim -- Commit B's fix is SMS-only.
-    expect(captured.email.body).toContain("couldn't be read this morning. Mo has been told.");
+    // The email drops the claim too -- Commit B's fix is not SMS-only.
+    expect(captured.email.body).toContain("One of your deal files couldn't be read this morning.\n");
+    expect(captured.email.body).not.toContain('Mo has been told');
   });
 
   test('deals-couldnt-load SMS line drops "Mo has been told" when the operator config cannot be loaded', async () => {
@@ -263,7 +264,9 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
     expect(captured.sms).toBe(
       "Couldn't load your deals this morning. Check any conditions or deposits due today yourself.\nFull brief in your inbox."
     );
-    expect(captured.email.body).toContain("Deal updates couldn't be loaded this morning. Mo has been told.");
+    // The email drops the claim too -- Commit B's fix is not SMS-only.
+    expect(captured.email.body).toContain("Deal updates couldn't be loaded this morning.\n");
+    expect(captured.email.body).not.toContain('Mo has been told');
   });
 
   test('no alerts, nothing unreadable, no error (active deals with nothing due): skips, exact unchanged return value', async () => {
@@ -286,6 +289,7 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
 describe('deals path throws: lead brief unchanged, honest line present, failure returned', () => {
   test('an ok Sheet with leads: the deals error line is added, the lead content is untouched', async () => {
     const captured = capture();
+    writeOperator(baseDir, 'test-operator', { operatorId: 'test-operator', operatorName: 'Mo', operatorEmail: 'mo@example.com' });
     emailMod.readSheetRows.mockResolvedValue([]); // no leads, isolates the assertion to the deals line only
     breakTransactionsDirectory(baseDir, AGENT.agentId);
 
