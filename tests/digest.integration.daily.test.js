@@ -366,8 +366,10 @@ describe('runDailyDigestForAgent integration', () => {
     expect(result.smsResult).toBe('sent');
     expect(result.emailResult).toBe('sent');
     expect(result.leads).toEqual({ status: 'unavailable', errorKind: 'permission' });
+    // This fixture's AGENT carries no operatorId at all, so the alert to Mo
+    // could never actually fire -- "Mo has been told" is correctly dropped.
     const line1 = capturedSmsArgs.split('\n')[0];
-    expect(line1).toBe("Couldn't read your lead sheet this morning. Check your inbox for new leads yourself today. Mo has been told.");
+    expect(line1).toBe("Couldn't read your lead sheet this morning. Check your inbox for new leads yourself today.");
     // The email keeps its own wording -- Commit B's actionable line is SMS-only.
     expect(capturedEmailArgs.body).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
   });

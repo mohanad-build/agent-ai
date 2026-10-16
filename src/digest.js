@@ -545,14 +545,13 @@ function dealsErrorPlain() {
   return `-- Deals needing you --\n\nDeal updates couldn't be loaded this morning. Mo has been told.`;
 }
 
-// Commit B couldnt_check: matches dealsErrorPlain/Html's own "Mo has been
-// told" claim. alertOperatorDealsUnavailable can itself fail silently (no
-// operatorId, operator config load failure, no operatorEmail -- see the
-// parked item on the deals-unavailable email), same as the email already
-// accepts; this line is not making a new promise, just matching the one
-// already made there.
-function dealsErrorSms() {
-  return "Couldn't load your deals this morning. Check any conditions or deposits due today yourself. Mo has been told.";
+// Commit B couldnt_check. Unlike dealsErrorPlain/Html, "Mo has been told" is
+// conditional here: canAlertOperator is checked synchronously before the
+// alert itself ever runs (see operatorAlertReachable), so when it is false
+// the claim is dropped rather than made and possibly broken.
+function dealsErrorSms(canAlertOperator = true) {
+  const told = canAlertOperator ? ' Mo has been told.' : '';
+  return `Couldn't load your deals this morning. Check any conditions or deposits due today yourself.${told}`;
 }
 
 // Same checks alertOperatorSheetUnavailable already makes (agentConfig.operatorId
@@ -581,6 +580,26 @@ function resolveOperatorEmailForDeals(agentConfig) {
   }
 
   return operatorConfig.operatorEmail;
+}
+
+// Same three checks alertOperatorSheetUnavailable and alertOperatorDealsUnavailable
+// each make before they can actually alert Mo (operatorId present, loadOperator
+// succeeds, operatorEmail present). Used only to decide whether a couldnt_check
+// SMS line's "Mo has been told" claim is honest this morning. Has to run here,
+// synchronously, before the SMS is built: the real alerts run later, in
+// maybeRunDailyDigest (index.js), after the SMS has already been dispatched, so
+// by the time either could fail there is no way to take the claim back.
+function operatorAlertReachable(agentConfig) {
+  if (!agentConfig.operatorId) {
+    return false;
+  }
+  let operatorConfig;
+  try {
+    operatorConfig = loadOperator(agentConfig.operatorId);
+  } catch (err) {
+    return false;
+  }
+  return !!operatorConfig.operatorEmail;
 }
 
 async function runDailyDigestForAgent(agentConfig, options = {}) {
@@ -678,6 +697,17 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
 
   const dealsPlain = dealsResult.status === 'error' ? dealsErrorPlain() : renderDealsPlain(dealsCollected, dealsCtx);
   const dealsHtmlSection = dealsResult.status === 'error' ? dealsErrorHtml() : renderDealsHtml(dealsCollected, dealsCtx);
+
+  // Resolved only when at least one couldnt_check SMS line could render
+  // this morning, so an agent with nothing to say about leads or deals
+  // never triggers an extra operator-file read. Checked synchronously,
+  // before the SMS is built: see operatorAlertReachable's own comment for
+  // why this cannot be checked any later.
+  const needsOperatorAlertCheck = leads.status === 'unavailable'
+    || dealsResult.status === 'error'
+    || dealsCollected.unreadable.length > 0;
+  const canAlertOperator = needsOperatorAlertCheck ? operatorAlertReachable(agentConfig) : true;
+
   // Commit B couldnt_check copy: dealsResult.status === 'error' means
   // dealsCollected is the empty sentinel (no alerts, no unreadable --
   // the try that would have populated either never ran), so the error
@@ -687,14 +717,14 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
   // while a different file is unreadable, and the agent needs to hear
   // about both.
   const smsDealsLine = dealsResult.status === 'error'
-    ? dealsErrorSms()
+    ? dealsErrorSms(canAlertOperator)
     : [
         dealsSmsLine(dealsCollected),
-        dealsCollected.unreadable.length > 0 ? unreadableSmsLine(dealsCollected.unreadable) : '',
+        dealsCollected.unreadable.length > 0 ? unreadableSmsLine(dealsCollected.unreadable, canAlertOperator) : '',
       ].filter(Boolean).join('\n');
   const dealsSubjectValue = dealsSubject(dealsCollected);
 
-  const smsBody         = renderSMS(smsStats, topUrgent, smsDealsLine);
+  const smsBody         = renderSMS(smsStats, topUrgent, smsDealsLine, canAlertOperator);
   const { subject: leadSubject, body: leadBody } = renderEmail(sections, agentConfig, now);
   const { html: emailHtml } = renderEmailHtml(sections, agentConfig, now, dealsHtmlSection);
 
@@ -1576,15 +1606,18 @@ function categorizeRowsForDigest(rows, now) {
  * @param {object|null} urgent  the top urgent item, or null if none
  * @returns {string}
  */
-function renderSMS(stats, urgent, dealsLine = '') {
+function renderSMS(stats, urgent, dealsLine = '', canAlertOperator = true) {
   const dealsSuffix = dealsLine ? `${dealsLine}\n` : '';
 
   // Commit B couldnt_check: leads.status === 'unavailable' means rows is
   // always [] (gatherWindowData), so urgent is always null here -- this
-  // always replaces the normal opener, never competes with it. Matches
-  // dealsErrorSms's own "Mo has been told" claim and the same caveat.
+  // always replaces the normal opener, never competes with it.
+  // canAlertOperator (digest.js's operatorAlertReachable, checked before
+  // this is built) drops the "Mo has been told" claim when it would be
+  // false -- matches dealsErrorSms's own handling of the same caveat.
   if (stats.leads && stats.leads.status === 'unavailable') {
-    return `${dealsSuffix}Couldn't read your lead sheet this morning. Check your inbox for new leads yourself today. Mo has been told.\nFull brief in your inbox.`;
+    const told = canAlertOperator ? ' Mo has been told.' : '';
+    return `${dealsSuffix}Couldn't read your lead sheet this morning. Check your inbox for new leads yourself today.${told}\nFull brief in your inbox.`;
   }
 
   const line1base = buildOpenerLine(
@@ -2494,6 +2527,7 @@ module.exports = {
   _internal: {
     splitName,
     urgentVerbWithAge,
+    operatorAlertReachable,
     parseColumnLFirstLineTimestamp,
     parseColumnLPropertyReference,
     computeNextTouch,

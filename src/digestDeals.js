@@ -171,10 +171,13 @@ function unreadableLine(unreadable) {
 // Shorter sibling of unreadableLine, for the SMS (Commit B couldnt_check).
 // Additive, not a replacement: the normal dealsSmsLine alert (if any) for
 // the deal's readable files still renders; this is appended alongside it.
-function unreadableSmsLine(unreadable) {
+// canAlertOperator (digest.js's operatorAlertReachable, checked before the
+// SMS is built) drops the "Mo has been told" claim when it would be false.
+function unreadableSmsLine(unreadable, canAlertOperator = true) {
+  const told = canAlertOperator ? ' Mo has been told.' : '';
   return unreadable.length === 1
-    ? "1 deal file couldn't be read. Mo has been told."
-    : `${unreadable.length} deal files couldn't be read. Mo has been told.`;
+    ? `1 deal file couldn't be read.${told}`
+    : `${unreadable.length} deal files couldn't be read.${told}`;
 }
 
 const SECTION_TITLE = 'Deals needing you';

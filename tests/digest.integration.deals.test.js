@@ -185,6 +185,7 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
 
   test('no alerts, but an unreadable file is present: email and SMS both send (couldnt_check: we could not see this deal)', async () => {
     const captured = capture();
+    writeOperator(baseDir, 'test-operator', { operatorId: 'test-operator', operatorName: 'Mo', operatorEmail: 'mo@example.com' });
     writeUnreadableFile(baseDir);
 
     const result = await runDailyDigestForAgent(notConfigured, { baseDir });
@@ -200,6 +201,7 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
 
   test('no alerts, one deal file is unreadable (a single bad transaction, caught inside collectDealAlerts): email and SMS both send (couldnt_check)', async () => {
     const captured = capture();
+    writeOperator(baseDir, 'test-operator', { operatorId: 'test-operator', operatorName: 'Mo', operatorEmail: 'mo@example.com' });
     const txn = openConditionPassedDeal(baseDir, '12 Main St');
     corruptConditionsFact(baseDir, txn);
 
@@ -218,6 +220,7 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
 
   test('no alerts, the deals path itself threw (an agent-level failure, not one bad file): email and SMS both send (couldnt_check)', async () => {
     const captured = capture();
+    writeOperator(baseDir, 'test-operator', { operatorId: 'test-operator', operatorName: 'Mo', operatorEmail: 'mo@example.com' });
     breakTransactionsDirectory(baseDir, AGENT.agentId);
 
     const result = await runDailyDigestForAgent(notConfigured, { baseDir });
@@ -231,6 +234,36 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
     );
     expect(captured.email.body).toContain("Deal updates couldn't be loaded this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('What the system handled');
+  });
+
+  test('couldnt_check SMS lines drop "Mo has been told" when the operator config cannot be loaded', async () => {
+    const captured = capture();
+    // Deliberately no writeOperator call: _operators/test-operator.json does
+    // not exist, so operatorAlertReachable returns false on this morning.
+    writeUnreadableFile(baseDir);
+
+    const result = await runDailyDigestForAgent(notConfigured, { baseDir });
+
+    expect(result.smsResult).toBe('sent');
+    expect(result.deals.status).toBe('unreadable');
+    expect(captured.sms).toBe("1 deal file couldn't be read.\nFull brief in your inbox.");
+    // The email keeps making the claim -- Commit B's fix is SMS-only.
+    expect(captured.email.body).toContain("couldn't be read this morning. Mo has been told.");
+  });
+
+  test('deals-couldnt-load SMS line drops "Mo has been told" when the operator config cannot be loaded', async () => {
+    const captured = capture();
+    // Deliberately no writeOperator call.
+    breakTransactionsDirectory(baseDir, AGENT.agentId);
+
+    const result = await runDailyDigestForAgent(notConfigured, { baseDir });
+
+    expect(result.smsResult).toBe('sent');
+    expect(result.deals.status).toBe('error');
+    expect(captured.sms).toBe(
+      "Couldn't load your deals this morning. Check any conditions or deposits due today yourself.\nFull brief in your inbox."
+    );
+    expect(captured.email.body).toContain("Deal updates couldn't be loaded this morning. Mo has been told.");
   });
 
   test('no alerts, nothing unreadable, no error (active deals with nothing due): skips, exact unchanged return value', async () => {
@@ -272,6 +305,7 @@ describe('deals path throws: lead brief unchanged, honest line present, failure 
 describe('unreadable deal file present (ok Sheet)', () => {
   test('one unreadable file alongside one real alert: both surface, file name and error never leaked', async () => {
     const captured = capture();
+    writeOperator(baseDir, 'test-operator', { operatorId: 'test-operator', operatorName: 'Mo', operatorEmail: 'mo@example.com' });
     openConditionPassedDeal(baseDir, '12 Main St');
     writeUnreadableFile(baseDir);
 
@@ -548,6 +582,7 @@ describe('commit 3, fix 1: today computed inside the deals try', () => {
     // subject skips formatDailyDate (same agentConfig.timezone) entirely --
     // otherwise the lead brief itself would also throw on the bad timezone,
     // and this test would not isolate fix 1's claim at all.
+    writeOperator(baseDir, 'test-operator', { operatorId: 'test-operator', operatorName: 'Mo', operatorEmail: 'mo@example.com' });
     emailMod.readSheetRows.mockResolvedValue([HOT_ROW]);
     openConditionHeadsUpDeal(baseDir, '12 Main St');
 
