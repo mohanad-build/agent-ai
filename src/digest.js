@@ -453,6 +453,67 @@ function _appendDigestErrorLog(filepath, label, error) {
   }
 }
 
+// ── SMS send decision ────────────────────────────────────────────────────────
+
+// The invariant: no text means we checked everything and nothing needs the
+// agent. Any morning we could not see part of the picture sends a text
+// saying what we could not see.
+//
+// Pure function. Decides only whether to dispatch the already-built SMS
+// body, never whether to build it (renderSMS runs every morning regardless).
+//
+// not_configured only blocks the text when there is truly nothing else to
+// say: a not_configured agent whose deals failed to load or came back
+// unreadable still has something the agent could not see, so that case
+// falls through past not_configured into couldnt_check rather than going
+// silent. Without the dealsCouldNotLoad/dealsUnreadable checks here, this
+// condition degenerates to today's suppressSmsForNotConfigured, which
+// silences exactly that case.
+//
+// @param {object} inputs
+//   smsEnabled: boolean, from agentConfig.digestSmsEnabled (absent-as-true already applied)
+//   notConfigured: boolean, leads.status === 'not_configured'
+//   dealsAlertsPresent: boolean, dealsCollected.alerts.length > 0
+//   dryRun: boolean
+//   operatorPhone: string|null|undefined, agentConfig.operatorPhone
+//   hasUrgentLead: boolean, topUrgent !== null
+//   leadsUnavailable: boolean, leads.status === 'unavailable'
+//   dealsCouldNotLoad: boolean, dealsResult.status === 'error'
+//   dealsUnreadable: boolean, dealsCollected.unreadable.length > 0
+// @returns {{ send: boolean, reason: string }}
+//   reason is one of: disabled, not_configured, dry_run_no_phone, needs_agent,
+//   couldnt_check, quiet. needs_agent wins over couldnt_check when both apply.
+function smsDecision(inputs) {
+  const {
+    smsEnabled,
+    notConfigured,
+    dealsAlertsPresent,
+    dryRun,
+    operatorPhone,
+    hasUrgentLead,
+    leadsUnavailable,
+    dealsCouldNotLoad,
+    dealsUnreadable,
+  } = inputs;
+
+  if (!smsEnabled) {
+    return { send: false, reason: 'disabled' };
+  }
+  if (notConfigured && !dealsAlertsPresent && !dealsCouldNotLoad && !dealsUnreadable) {
+    return { send: false, reason: 'not_configured' };
+  }
+  if (dryRun && !operatorPhone) {
+    return { send: false, reason: 'dry_run_no_phone' };
+  }
+  if (hasUrgentLead || dealsAlertsPresent) {
+    return { send: true, reason: 'needs_agent' };
+  }
+  if (leadsUnavailable || dealsCouldNotLoad || dealsUnreadable) {
+    return { send: true, reason: 'couldnt_check' };
+  }
+  return { send: false, reason: 'quiet' };
+}
+
 // ── Entry points ──────────────────────────────────────────────────────────────
 
 /**
@@ -2385,6 +2446,7 @@ module.exports = {
   gatherWindowData,
   categorizeRowsForDigest,
   buildActionLink,
+  smsDecision,
   renderSMS,
   renderEmail,
   renderEmailHtml,
