@@ -562,26 +562,32 @@ function dealsErrorSms(canAlertOperator = true) {
 // never let a broken operator record blank the whole deals section (see the
 // commit-6 recon) -- fall back to Mo's own fixed address instead. Logs the
 // agentId and the reason only, never an email address, on every fallback.
+//
+// Runs before the sends (dealsCtx is built ahead of the SMS and email), so it
+// must never throw: the whole body is wrapped. loadOperator returns
+// JSON.parse(raw), and a config file whose content is literally "null" parses
+// to null without throwing -- the operatorEmail read below would otherwise
+// crash on that null, uncaught, with no try above it (same bug class as
+// operatorAlertReachable's original one).
 function resolveOperatorEmailForDeals(agentConfig) {
-  if (!agentConfig.operatorId) {
-    console.warn(`[${agentConfig.agentId}] deals: no operatorId (reason: no_operator), falling back to the operator contact address`);
-    return OPERATOR_CONTACT_EMAIL;
-  }
-
-  let operatorConfig;
   try {
-    operatorConfig = loadOperator(agentConfig.operatorId);
+    if (!agentConfig.operatorId) {
+      console.warn(`[${agentConfig.agentId}] deals: no operatorId (reason: no_operator), falling back to the operator contact address`);
+      return OPERATOR_CONTACT_EMAIL;
+    }
+
+    const operatorConfig = loadOperator(agentConfig.operatorId);
+
+    if (!operatorConfig || !operatorConfig.operatorEmail) {
+      console.warn(`[${agentConfig.agentId}] deals: operator has no operatorEmail (reason: no_operator_email), falling back to the operator contact address`);
+      return OPERATOR_CONTACT_EMAIL;
+    }
+
+    return operatorConfig.operatorEmail;
   } catch (err) {
     console.warn(`[${agentConfig.agentId}] deals: loadOperator failed (reason: operator_load_failed), falling back to the operator contact address`);
     return OPERATOR_CONTACT_EMAIL;
   }
-
-  if (!operatorConfig.operatorEmail) {
-    console.warn(`[${agentConfig.agentId}] deals: operator has no operatorEmail (reason: no_operator_email), falling back to the operator contact address`);
-    return OPERATOR_CONTACT_EMAIL;
-  }
-
-  return operatorConfig.operatorEmail;
 }
 
 // Same three checks alertOperatorSheetUnavailable and alertOperatorDealsUnavailable
@@ -883,7 +889,12 @@ async function alertOperatorSheetUnavailable(agentConfig, leads, deps = {}) {
       return { sent: false, reason: 'operator_load_failed' };
     }
 
-    if (!operatorConfig.operatorEmail) {
+    // operatorConfig can be null without doLoadOperator throwing: it returns
+    // JSON.parse(raw), and a config file whose content is literally "null"
+    // parses to null. Already safe either way (this whole function is
+    // wrapped), but checking operatorConfig here first reports the precise
+    // reason instead of falling through to the generic catch below.
+    if (!operatorConfig || !operatorConfig.operatorEmail) {
       console.warn(`[${agentId}] sheet alert: operator has no operatorEmail, cannot alert`);
       return { sent: false, reason: 'no_operator_email' };
     }
@@ -1020,7 +1031,12 @@ async function alertOperatorDealsUnavailable(agentConfig, deals, deps = {}) {
       return { sent: false, reason: 'operator_load_failed' };
     }
 
-    if (!operatorConfig.operatorEmail) {
+    // operatorConfig can be null without doLoadOperator throwing: it returns
+    // JSON.parse(raw), and a config file whose content is literally "null"
+    // parses to null. Already safe either way (this whole function is
+    // wrapped), but checking operatorConfig here first reports the precise
+    // reason instead of falling through to the generic catch below.
+    if (!operatorConfig || !operatorConfig.operatorEmail) {
       warnNotSent('no_operator_email');
       return { sent: false, reason: 'no_operator_email' };
     }
@@ -2539,6 +2555,7 @@ module.exports = {
     splitName,
     urgentVerbWithAge,
     operatorAlertReachable,
+    resolveOperatorEmailForDeals,
     parseColumnLFirstLineTimestamp,
     parseColumnLPropertyReference,
     computeNextTouch,

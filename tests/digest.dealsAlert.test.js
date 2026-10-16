@@ -84,6 +84,21 @@ test('5. operator with no operatorEmail: no send, reason no_operator_email, exac
   expect(warnSpy).toHaveBeenCalledWith('[agent-1] deals alert NOT sent: reason=no_operator_email');
 });
 
+// loadOperator returns JSON.parse(raw); a config file whose content is
+// literally "null" parses to null without throwing. Already safe either
+// way (the whole function is wrapped), but this pins the precise reason
+// (no_operator_email) rather than the generic catch-all one.
+test('5b. loadOperator returns null: no send, reason no_operator_email (not the generic "error"), does not throw', async () => {
+  loadOperatorMock.mockReturnValue(null);
+  const deals = { status: 'error', error: 'read failed' };
+
+  await expect(alertOperatorDealsUnavailable(AGENT, deals, { loadOperator: loadOperatorMock })).resolves.toEqual(
+    { sent: false, reason: 'no_operator_email' }
+  );
+  expect(emailMod.sendNewEmail).not.toHaveBeenCalled();
+  expect(warnSpy).toHaveBeenCalledWith('[agent-1] deals alert NOT sent: reason=no_operator_email');
+});
+
 test('6. sendNewEmail always rejects: resolves sent false reason send_failed, exact warn text, logs to digest-errors', async () => {
   jest.useFakeTimers();
   try {
