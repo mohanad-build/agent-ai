@@ -19,7 +19,7 @@
 
 const { escapeHtml } = require('./plainTextHtml');
 const { buildDoneMailtoHref, buildReceiptMailtoHref, catalogItemLabel } = require('./transactions/tapLinks');
-const { driveFolderUrl, gmailSearchUrl, fellThroughMailtoHref } = require('./transactions/dealLinks');
+const { driveFolderUrl, gmailSearchQuery, fellThroughMailtoHref } = require('./transactions/dealLinks');
 
 // The closed vocabulary (rules/conditions.js CONDITION_NAMES) read badly in
 // a sentence as raw ids: 'sale_of_property condition passed...'. Every name
@@ -150,8 +150,11 @@ function rowContent(alert, ctx) {
   }
 }
 
-function emailsLinkFor(alert, ctx) {
-  return { label: `Emails about ${alert.address}`, url: gmailSearchUrl(alert.address, ctx.gmailAddress) };
+// Not a link: the Gmail web link did nothing when tapped in the Gmail iOS
+// app (finding, session 85). The search text itself is the one piece worth
+// keeping -- the agent can paste it into search in any mail app.
+function emailsSearchLine(alert) {
+  return `Search your inbox for: ${gmailSearchQuery(alert.address)}`;
 }
 
 function driveLinkFor(alert) {
@@ -180,8 +183,7 @@ function renderDealBlockPlain(dealAlerts, ctx) {
     if (content.secondary) lines.push(`→ ${content.secondary.label}: ${content.secondary.url}`);
   });
 
-  const emailsLink = emailsLinkFor(first, ctx);
-  lines.push(`→ ${emailsLink.label}: ${emailsLink.url}`);
+  lines.push(`→ ${emailsSearchLine(first)}`);
 
   const driveLink = driveLinkFor(first);
   if (driveLink) lines.push(`→ ${driveLink.label}: ${driveLink.url}`);
@@ -251,6 +253,10 @@ function renderDealsHtml(collected, ctx) {
     return `<div style="margin-top:4px;color:${T.mutedTextColor};font-size:${T.fontSize};">${joined}</div>`;
   }
 
+  function plainLine(text) {
+    return `<div style="margin-top:4px;color:${T.mutedTextColor};font-size:${T.fontSize};">${escapeHtml(text)}</div>`;
+  }
+
   function renderDealBlockHtml(dealAlerts) {
     const first = dealAlerts[0];
     const addressHtml = `<div style="font-weight:${T.buttonFontWeight};">${escapeHtml(displayAddress(first))}</div>`;
@@ -263,7 +269,7 @@ function renderDealsHtml(collected, ctx) {
       return textHtml + buttonHtml + secondaryHtml;
     }).join('');
 
-    const contextHtml = quietLinksLine([emailsLinkFor(first, ctx), driveLinkFor(first)]);
+    const contextHtml = plainLine(emailsSearchLine(first)) + quietLinksLine([driveLinkFor(first)]);
 
     return `<div style="margin-bottom:16px;">${addressHtml}${alertsHtml}${contextHtml}</div>`;
   }

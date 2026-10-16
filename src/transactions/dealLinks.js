@@ -53,17 +53,6 @@ function gmailSearchQuery(address) {
   return `"${civic} ${parsed.street}"`;
 }
 
-// The URL shape lives here, in this one function: whether authuser opens
-// the right account on an iPhone with several Gmail accounts signed in is
-// unverified, and a live check may change this line.
-function gmailSearchUrl(address, gmailAddress) {
-  if (typeof gmailAddress !== 'string' || gmailAddress.trim() === '') {
-    throw new Error('gmailSearchUrl: gmailAddress must be a non-empty string');
-  }
-  return 'https://mail.google.com/mail/?authuser=' + encodeURIComponent(gmailAddress)
-    + '#search/' + encodeURIComponent(gmailSearchQuery(address));
-}
-
 // Straight to Mo, not through assistant@: a collapsed deal cannot be
 // undone, so nothing on our side changes deal state from this link.
 function fellThroughMailtoHref({ address, transactionId, operatorEmail }) {
@@ -86,6 +75,5 @@ function fellThroughMailtoHref({ address, transactionId, operatorEmail }) {
 module.exports = {
   driveFolderUrl,
   gmailSearchQuery,
-  gmailSearchUrl,
   fellThroughMailtoHref,
 };

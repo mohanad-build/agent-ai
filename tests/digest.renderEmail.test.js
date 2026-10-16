@@ -151,7 +151,7 @@ test('urgent HOT row with phone — body contains tel: action line', () => {
   expect(result.body).toContain('→ Call Sarah: tel:+16475551234');
 });
 
-test('urgent needs_review with thread — body contains mail.google.com action line', () => {
+test('urgent needs_review with a Sheet row, body contains the Open row action line, no Gmail link', () => {
   const sections = makeEmptySections();
   sections.urgent = [{
     firstName: 'John', lastInitial: 'D', category: 'needs_review',
@@ -159,7 +159,22 @@ test('urgent needs_review with thread — body contains mail.google.com action l
     phone: '', gmailThreadId: 'thread-xyz', leadId: 'jd@example.com',
   }];
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
-  expect(result.body).toContain('→ Open thread: https://mail.google.com/mail/u/0/#inbox/thread-xyz');
+  expect(result.body).toContain(
+    '→ Open row: https://docs.google.com/spreadsheets/d/sheet-abc/edit#gid=0&range=A4'
+  );
+  expect(result.body).not.toContain('mail.google.com');
+});
+
+test('urgent needs_review with no Sheet, body contains the search-your-inbox instruction', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'John', lastInitial: 'D', category: 'needs_review',
+    propertyReference: null, hoursAwaiting: null, rowIndex: 4,
+    phone: '', gmailThreadId: 'thread-xyz', leadId: 'jd@example.com',
+  }];
+  const agentNoSheet = { timezone: 'America/Toronto' };
+  const result = renderEmail(sections, agentNoSheet, NOW);
+  expect(result.body).toContain('→ Search your inbox for: jd@example.com');
 });
 
 test('CALLED affordance renders for a HOT row with a leadId', () => {
@@ -288,22 +303,22 @@ test('leads not_configured with urgent rows: opener is still suppressed, rest of
   expect(result.body).not.toContain('What the system handled');
 });
 
-test('noiseArchived > 0 renders the archived-noise link line', () => {
+test('noiseArchived > 0 renders the search-your-inbox instruction', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 3;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).toContain('Emails moved to your noise label: 3');
-  expect(result.body).toContain('Review archived noise: https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise');
+  expect(result.body).toContain('Search your inbox for the label: agent-ai/noise');
 });
 
-test('noiseArchived = 0 renders the count but not the archived-noise link', () => {
+test('noiseArchived = 0 renders the count but not the search-your-inbox instruction', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 0;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).toContain('Emails moved to your noise label: 0');
-  expect(result.body).not.toContain('Review archived noise:');
+  expect(result.body).not.toContain('Search your inbox for the label:');
 });
 
 test('hotLeads row with cooling=true renders the cooling marker', () => {

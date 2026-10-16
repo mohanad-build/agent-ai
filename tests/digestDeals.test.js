@@ -16,7 +16,7 @@ const T = {
   fontSize:            '16px',
 };
 
-const CTX = { gmailAddress: 'agent@gmail.com', operatorEmail: 'mohanad@getklosed.ca', T };
+const CTX = { operatorEmail: 'mohanad@getklosed.ca', T };
 const TXN = 'txn-20261001-aaaaaaaa';
 
 function collected(alerts, overrides = {}) {
@@ -37,7 +37,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20financing_condition\n'
       + '→ It fell through: mailto:mohanad@getklosed.ca?subject=12%20Main%20St%20fell%20through'
       + '&body=Deal%3A%20txn-20261001-aaaaaaaa%0A%0AAnything%20Mo%20should%20know%3A%20\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
+      + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
   });
@@ -76,7 +76,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'Inspection condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
+      + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
   });
@@ -91,7 +91,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'Inspection condition is due today.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
+      + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
   });
@@ -108,7 +108,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + 'Deposit not confirmed, 7 days after acceptance. Waiting on: Deposit Obtained from Client.\n'
       + '→ Receipt in hand: mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received\n'
       + '→ Deposit Obtained from Client: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20deposit_obtained_from_client\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22'
+      + '→ Search your inbox for: "12 main"'
     );
   });
 
@@ -122,7 +122,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
+      + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
   });
@@ -137,7 +137,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       '-- Deals needing you --\n\n'
       + '34 Oak Ave\n'
       + "A document (APS.pdf) couldn't be filed to Drive.\n"
-      + '→ Emails about 34 Oak Ave: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2234%20oak%22\n'
+      + '→ Search your inbox for: "34 oak"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-C'
     );
   });
@@ -161,11 +161,11 @@ describe('renderDealsPlain: grouping by deal', () => {
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued\n'
       + 'Financing condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20financing_condition\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n'
+      + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
     // The two context links appear exactly once, not once per alert.
-    expect(result.match(/Emails about/g)).toHaveLength(1);
+    expect(result.match(/Search your inbox for/g)).toHaveLength(1);
     expect(result.match(/Drive folder/g)).toHaveLength(1);
   });
 
@@ -200,11 +200,11 @@ describe('renderDealsPlain: grouping by deal', () => {
       + '&body=Deal%3A%20txn-x%0A%0AAnything%20Mo%20should%20know%3A%20\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-x%20additional_deposit_receipt_issued\n'
-      + '→ Emails about 9 X St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%229%20x%22\n\n'
+      + '→ Search your inbox for: "9 x"\n\n'
       + '2 Y St\n'
       + 'Inspection condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-y%20inspection_condition\n'
-      + '→ Emails about 2 Y St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%222%20y%22'
+      + '→ Search your inbox for: "2 y"'
     );
   });
 });
@@ -262,7 +262,7 @@ describe('renderDealsPlain: unit', () => {
       + '19 Wax Myrtle Way, unit 35\n'
       + 'Additional deposit is 2 days overdue.\n'
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued\n'
-      + '→ Emails about 19 Wax Myrtle Way: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2219%20wax%20myrtle%22\n'
+      + '→ Search your inbox for: "19 wax myrtle"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
   });
@@ -320,7 +320,7 @@ describe('renderDealsPlain: quiet line and unreadable', () => {
       + '12 Main St\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n\n'
+      + '→ Search your inbox for: "12 main"\n\n'
       + "One of your deal files couldn't be read this morning. Mo has been told."
     );
   });
@@ -343,8 +343,7 @@ describe('renderDealsHtml', () => {
       + '<div style="font-weight:600;">12 Main St &amp; Co &lt;Unit&gt;</div>'
       + '<div>A document (APS &lt;v2&gt; &amp; &quot;final&quot;.pdf) couldn&#39;t be filed to Drive.</div>'
       + '<div style="margin-top:4px;color:#666666;font-size:16px;">'
-      + '<a href="https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%20st%20co%20unit%22" style="color:#666666;">'
-      + 'Emails about 12 Main St &amp; Co &lt;Unit&gt;</a></div></div>'
+      + 'Search your inbox for: &quot;12 main st co unit&quot;</div></div>'
     );
   });
 
@@ -362,7 +361,7 @@ describe('renderDealsHtml', () => {
     );
   });
 
-  it('a per-alert secondary link and the once-per-deal context links (joined by " | ") each render as their own muted line', () => {
+  it('a per-alert secondary link, the search instruction, and the Drive link each render as their own muted line', () => {
     const alert = {
       kind: 'deposit_overdue', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
       driveFolderId: 'folder-1', itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
@@ -375,8 +374,10 @@ describe('renderDealsHtml', () => {
       + 'Deposit Obtained from Client</a></div>'
     );
     expect(html).toContain(
+      '<div style="margin-top:4px;color:#666666;font-size:16px;">Search your inbox for: &quot;12 main&quot;</div>'
+    );
+    expect(html).toContain(
       '<div style="margin-top:4px;color:#666666;font-size:16px;">'
-      + '<a href="https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22" style="color:#666666;">Emails about 12 Main St</a> | '
       + '<a href="https://drive.google.com/drive/folders/folder-1" style="color:#666666;">Drive folder</a></div>'
     );
   });
@@ -461,18 +462,18 @@ describe('sample fixture: every kind, three deals (two of them two-alert blocks)
       + '&body=Deal%3A%20txn-20261001-bbbbbbbb%0A%0AAnything%20Mo%20should%20know%3A%20\n'
       + 'Additional deposit is 2 days overdue.\n'
       + '→ Deposit received: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-bbbbbbbb%20additional_deposit_receipt_issued\n'
-      + '→ Emails about 12 Main St: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2212%20main%22\n\n'
+      + '→ Search your inbox for: "12 main"\n\n'
       + '19 Wax Myrtle Way, unit 35\n'
       + 'Deposit not confirmed, 7 days after acceptance. Waiting on: Deposit Obtained from Client.\n'
       + '→ Receipt in hand: mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received\n'
       + '→ Deposit Obtained from Client: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20deposit_obtained_from_client\n'
       + 'Inspection condition is due today.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition\n'
-      + '→ Emails about 19 Wax Myrtle Way: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2219%20wax%20myrtle%22\n'
+      + '→ Search your inbox for: "19 wax myrtle"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-A\n\n'
       + '34 Oak Ave\n'
       + "A document (APS.pdf) couldn't be filed to Drive.\n"
-      + '→ Emails about 34 Oak Ave: https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%2234%20oak%22\n'
+      + '→ Search your inbox for: "34 oak"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-C\n\n'
       + "One of your deal files couldn't be read this morning. Mo has been told."
     );

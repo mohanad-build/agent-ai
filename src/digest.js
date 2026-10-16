@@ -111,20 +111,25 @@ function sheetLink(googleSheetId, rowIndex) {
 }
 
 /**
- * Pure function. Builds the primary action link for a digest row, implementing
- * the per-category preferred-link + fallback chain (Decision 1, HTML email spec):
+ * Pure function. Builds the primary action for a digest row, implementing
+ * the per-category preferred-action + fallback chain (Decision 1, HTML email
+ * spec, revised to drop the Gmail web link -- it does nothing when tapped in
+ * the Gmail iOS app):
  *
- *   HOT            tel:${phone}          → Gmail thread  → Sheet row
- *   needs_review   Gmail thread          → Sheet row
+ *   HOT            tel:${phone}          → Sheet row     → search instruction
+ *   needs_review   Sheet row             → search instruction
  *   operatorEscalated  Sheet row         (no fallback)
- *   path1b         Gmail thread          → Sheet row
+ *   path1b         Sheet row             → search instruction
  *
- * @param {object} rowData  digest row — must carry category, phone, gmailThreadId, rowIndex
+ * @param {object} rowData  digest row, must carry category, phone, rowIndex, leadId
  * @param {object} agentConfig  must carry googleSheetId for sheet links
- * @returns {{ label: string, url: string, isFallback: boolean } | null}
- *   Returns null only when no link is constructable (missing all three data points).
- *   isFallback=false means the preferred link for the category was used.
- *   isFallback=true  means a fallback link was substituted.
+ * @returns {{ label: string, url: string, isFallback: boolean } | { text: string, isFallback: boolean } | null}
+ *   A real link has label and url. The terminal fallback (no Sheet row
+ *   available) has text only -- there is nothing to link to, only an
+ *   instruction the agent can act on in any mail app. Returns null only
+ *   when nothing is constructable at all.
+ *   isFallback=false means the preferred action for the category was used.
+ *   isFallback=true  means a fallback was substituted.
  */
 function buildActionLink(rowData, agentConfig) {
   const category  = rowData.category || 'HOT';
@@ -138,26 +143,23 @@ function buildActionLink(rowData, agentConfig) {
     : rawPhone.replace(/\D/g, '');
   const hasPhone = normalised.length > 0;
 
-  const rawThread = rowData.gmailThreadId || '';
-  const hasThread = rawThread.length > 0;
-  const threadUrl = hasThread
-    ? `https://mail.google.com/mail/u/0/#inbox/${rawThread}`
-    : null;
-
   const hasSheet = !!(gid && rowData.rowIndex != null);
   const sheetUrl = hasSheet ? sheetLink(gid, rowData.rowIndex) : null;
 
+  const leadId = rowData.leadId || '';
+  const searchFallback = leadId
+    ? { text: `Search your inbox for: ${leadId}`, isFallback: true }
+    : null;
+
   if (category === 'HOT') {
-    if (hasPhone)  return { label: `Call ${firstName}`, url: `tel:${normalised}`, isFallback: false };
-    if (hasThread) return { label: 'Open thread',       url: threadUrl,           isFallback: true };
-    if (hasSheet)  return { label: 'Open row',          url: sheetUrl,            isFallback: true };
-    return null;
+    if (hasPhone) return { label: `Call ${firstName}`, url: `tel:${normalised}`, isFallback: false };
+    if (hasSheet) return { label: 'Open row', url: sheetUrl, isFallback: true };
+    return searchFallback;
   }
 
   if (category === 'needs_review' || category === 'path1b') {
-    if (hasThread) return { label: 'Open thread', url: threadUrl, isFallback: false };
-    if (hasSheet)  return { label: 'Open row',    url: sheetUrl,  isFallback: true };
-    return null;
+    if (hasSheet) return { label: 'Open row', url: sheetUrl, isFallback: false };
+    return searchFallback;
   }
 
   if (category === 'operatorEscalated') {
@@ -254,10 +256,6 @@ const STYLE_TOKENS = {
   fontSize:           '16px',
   lineHeight:         '1.5',
 };
-
-// Eighth agent-ai/ string site. A grep for LABEL_ will not find it. See
-// the pending agent-ai/ to GetKlosed/ label rename.
-const NOISE_LABEL_URL = 'https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise';
 
 function esc(str) {
   return String(str == null ? '' : str)
@@ -599,7 +597,6 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
   // with no deals at all never triggers an operator-file read or a log line.
   const needsOperatorEmail = dealsCollected.alerts.some((a) => a.kind === 'condition_passed');
   const dealsCtx = {
-    gmailAddress: agentConfig.gmailAddress,
     operatorEmail: needsOperatorEmail ? resolveOperatorEmailForDeals(agentConfig) : null,
     T: STYLE_TOKENS,
   };
@@ -1549,7 +1546,7 @@ function renderEmail(sections, agentConfig, now) {
         ? `${u.firstName} ${u.lastInitial} — ${verb}`
         : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
       const link = buildActionLink(u, agentConfig);
-      if (link) line += `\n→ ${link.label}: ${link.url}`;
+      if (link) line += link.url ? `\n→ ${link.label}: ${link.url}` : `\n→ ${link.text}`;
       if (u.category === 'HOT' && u.leadId) {
         line += calledAffordanceText(u.leadId);
       }
@@ -1565,7 +1562,7 @@ function renderEmail(sections, agentConfig, now) {
       let line = `${r.firstName} ${r.lastInitial} — ${r.propertyReference || '(property not captured)'} — last touch ${r.daysAgo}d ago`;
       if (r.cooling) line += ` (cooling, no activity ${HOT_COOLING_DAYS}d+)`;
       const link = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
-      if (link) line += `\n→ ${link.label}: ${link.url}`;
+      if (link) line += link.url ? `\n→ ${link.label}: ${link.url}` : `\n→ ${link.text}`;
       line += calledAffordanceText(r.leadId);
       return line;
     });
@@ -1606,7 +1603,7 @@ function renderEmail(sections, agentConfig, now) {
       .filter(([key]) => key in sh)
       .map(([key, label]) => `${label}: ${sh[key]}`);
     if (sh.noiseArchived > 0) {
-      lines.push(`Review archived noise: ${NOISE_LABEL_URL}`);
+      lines.push('Search your inbox for the label: agent-ai/noise');
     }
     parts.push(`— What the system handled —\n\n${lines.join('\n')}`);
   }
@@ -1658,6 +1655,9 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
 
   function button(link) {
     if (!link) return '';
+    if (!link.url) {
+      return `<div style="margin-top:8px;color:${T.mutedTextColor};font-size:${T.fontSize};">${esc(link.text)}</div>`;
+    }
     return (
       `<div style="margin-top:8px;">` +
       `<a href="${esc(link.url)}" ` +
@@ -1772,7 +1772,7 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
       .map(([key, label]) => `<div>${esc(`${label}: ${sh[key]}`)}</div>`)
       .join('');
     const noiseArchivedLink = sh.noiseArchived > 0
-      ? `<div><a href="${esc(NOISE_LABEL_URL)}" style="color:${T.mutedTextColor};font-size:${T.fontSize};font-family:${T.fontStack};">Review archived noise</a></div>`
+      ? `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};font-family:${T.fontStack};">Search your inbox for the label: agent-ai/noise</div>`
       : '';
     parts.push(
       sectionHeader('What the system handled') +

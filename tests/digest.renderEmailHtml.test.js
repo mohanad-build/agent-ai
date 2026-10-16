@@ -130,7 +130,7 @@ test('HOT urgent row: tel: link button with "Call Sarah" label', () => {
 
 // ── needs_review category button ─────────────────────────────────────────────
 
-test('needs_review urgent row: thread link button with "Open thread" label', () => {
+test('needs_review urgent row: Sheet row button with "Open row" label, no Gmail link', () => {
   const sections = makeEmptySections();
   sections.urgent = [{
     firstName: 'John', lastInitial: 'D', category: 'needs_review',
@@ -138,8 +138,22 @@ test('needs_review urgent row: thread link button with "Open thread" label', () 
     phone: '', gmailThreadId: 'thread-needs', leadId: 'jd@example.com',
   }];
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  expect(html).toContain('href="https://mail.google.com/mail/u/0/#inbox/thread-needs"');
-  expect(html).toContain('Open thread');
+  expect(html).toContain('href="https://docs.google.com/spreadsheets/d/sheet-abc/edit#gid=0&amp;range=A4"');
+  expect(html).toContain('Open row');
+  expect(html).not.toContain('mail.google.com');
+});
+
+test('needs_review urgent row with no Sheet: search-your-inbox instruction, no button', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'John', lastInitial: 'D', category: 'needs_review',
+    propertyReference: null, hoursAwaiting: null, rowIndex: 4,
+    phone: '', gmailThreadId: 'thread-needs', leadId: 'jd@example.com',
+  }];
+  const agentNoSheet = { timezone: 'America/Toronto' };
+  const { html } = renderEmailHtml(sections, agentNoSheet, NOW);
+  expect(html).toContain('Search your inbox for: jd@example.com');
+  expect(html).not.toContain('<a href=');
 });
 
 // ── operatorEscalated category button ────────────────────────────────────────
@@ -158,7 +172,7 @@ test('operatorEscalated urgent row: sheet link button with "Open row" label', ()
 
 // ── path1b category button ────────────────────────────────────────────────────
 
-test('path1b urgent row: thread link button with "Open thread" label', () => {
+test('path1b urgent row: Sheet row button with "Open row" label, no Gmail link', () => {
   const sections = makeEmptySections();
   sections.urgent = [{
     firstName: 'Mike', lastInitial: 'T', category: 'path1b',
@@ -166,13 +180,14 @@ test('path1b urgent row: thread link button with "Open thread" label', () => {
     phone: '', gmailThreadId: 'thread-p1b', leadId: 'mt@example.com',
   }];
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  expect(html).toContain('href="https://mail.google.com/mail/u/0/#inbox/thread-p1b"');
-  expect(html).toContain('Open thread');
+  expect(html).toContain('href="https://docs.google.com/spreadsheets/d/sheet-abc/edit#gid=0&amp;range=A5"');
+  expect(html).toContain('Open row');
+  expect(html).not.toContain('mail.google.com');
 });
 
 // ── Fallback button (HOT no phone → thread) ───────────────────────────────────
 
-test('HOT row with no phone falls back to thread button labeled "Open thread"', () => {
+test('HOT row with no phone falls back to a Sheet row button labeled "Open row", no Gmail link', () => {
   const sections = makeEmptySections();
   sections.urgent = [{
     firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
@@ -180,8 +195,23 @@ test('HOT row with no phone falls back to thread button labeled "Open thread"', 
     phone: '', gmailThreadId: 'thread-fallback', leadId: 'lead@example.com',
   }];
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  expect(html).toContain('href="https://mail.google.com/mail/u/0/#inbox/thread-fallback"');
-  expect(html).toContain('Open thread');
+  expect(html).toContain('href="https://docs.google.com/spreadsheets/d/sheet-abc/edit#gid=0&amp;range=A3"');
+  expect(html).toContain('Open row');
+  expect(html).not.toContain('tel:');
+  expect(html).not.toContain('mail.google.com');
+});
+
+test('HOT row with no phone and no Sheet falls back to the search-your-inbox instruction', () => {
+  const sections = makeEmptySections();
+  sections.urgent = [{
+    firstName: 'Sarah', lastInitial: 'K', category: 'HOT',
+    propertyReference: '45 Maple', hoursAwaiting: null, rowIndex: 3,
+    phone: '', gmailThreadId: 'thread-fallback', leadId: 'lead@example.com',
+  }];
+  const agentNoSheet = { timezone: 'America/Toronto' };
+  const { html } = renderEmailHtml(sections, agentNoSheet, NOW);
+  expect(html).toContain('Search your inbox for: lead@example.com');
+  expect(html).not.toContain('mail.google.com');
   expect(html).not.toContain('tel:');
 });
 
@@ -312,24 +342,24 @@ test('agent brief never mentions pre-flight skips, even when the counter is pres
   expect(html).not.toContain('Pre-flight');
 });
 
-test('noiseArchived > 0 renders the archived-noise anchor with muted styling', () => {
+test('noiseArchived > 0 renders the search-your-inbox instruction with muted styling, no link', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 3;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
   expect(html).toContain('Emails moved to your noise label: 3');
-  expect(html).toContain('href="https://mail.google.com/mail/u/0/#label/agent-ai%2Fnoise"');
-  expect(html).toContain('Review archived noise');
+  expect(html).toContain('Search your inbox for the label: agent-ai/noise');
+  expect(html).not.toContain('<a href="https://mail.google.com');
   expect(html).toContain(`color:${T.mutedTextColor}`);
 });
 
-test('noiseArchived = 0 renders the count but no archived-noise anchor', () => {
+test('noiseArchived = 0 renders the count but no search-your-inbox instruction', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseArchived = 0;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
   expect(html).toContain('Emails moved to your noise label: 0');
-  expect(html).not.toContain('agent-ai%2Fnoise');
+  expect(html).not.toContain('agent-ai/noise');
 });
 
 // ── Reliability ───────────────────────────────────────────────────────────────

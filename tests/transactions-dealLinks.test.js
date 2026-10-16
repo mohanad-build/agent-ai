@@ -3,7 +3,6 @@
 const {
   driveFolderUrl,
   gmailSearchQuery,
-  gmailSearchUrl,
   fellThroughMailtoHref,
 } = require('../src/transactions/dealLinks');
 
@@ -59,27 +58,6 @@ describe('gmailSearchQuery', () => {
   // is exercised by code reading alone, not by a test here.
   it('a rural address parseAddress cannot read at all: falls back to the full address, quoted', () => {
     expect(gmailSearchQuery('Lot 5 Concession Rd 3')).toBe('"Lot 5 Concession Rd 3"');
-  });
-});
-
-describe('gmailSearchUrl', () => {
-  it('an address with #, & and a comma, hitting the fallback: the whole query is percent-encoded', () => {
-    expect(gmailSearchUrl('Rural Route #2, Lot 7 & 8', 'agent@gmail.com')).toBe(
-      'https://mail.google.com/mail/?authuser=agent%40gmail.com#search/%22Rural%20Route%20%232%2C%20Lot%207%20%26%208%22'
-    );
-  });
-
-  it('a gmailAddress with a +tag', () => {
-    expect(gmailSearchUrl('Rural Route #2, Lot 7 & 8', 'agent+test@gmail.com')).toBe(
-      'https://mail.google.com/mail/?authuser=agent%2Btest%40gmail.com#search/%22Rural%20Route%20%232%2C%20Lot%207%20%26%208%22'
-    );
-  });
-
-  it('a bad gmailAddress throws', () => {
-    expect(() => gmailSearchUrl('12 Main St', '')).toThrow('gmailSearchUrl: gmailAddress must be a non-empty string');
-    expect(() => gmailSearchUrl('12 Main St', null)).toThrow('gmailSearchUrl: gmailAddress must be a non-empty string');
-    expect(() => gmailSearchUrl('12 Main St', undefined)).toThrow('gmailSearchUrl: gmailAddress must be a non-empty string');
-    expect(() => gmailSearchUrl('12 Main St', '   ')).toThrow('gmailSearchUrl: gmailAddress must be a non-empty string');
   });
 });
 

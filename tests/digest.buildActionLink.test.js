@@ -7,19 +7,18 @@ const AGENT_NO_SHEET = {};
 
 function makeRow(overrides) {
   return {
-    firstName:    'Sarah',
-    lastInitial:  'K',
-    rowIndex:     2,
-    phone:        '+16475551234',
-    gmailThreadId: 'thread-abc',
-    leadId:       'lead@example.com',
+    firstName:   'Sarah',
+    lastInitial: 'K',
+    rowIndex:    2,
+    phone:       '+16475551234',
+    leadId:      'lead@example.com',
     ...overrides,
   };
 }
 
-// ── HOT: preferred (tel) ──────────────────────────────────────────────────────
+// -- HOT: preferred (tel) --------------------------------------------------
 
-test('HOT with phone → tel link, label "Call Sarah", isFallback=false', () => {
+test('HOT with phone -> tel link, label "Call Sarah", isFallback=false', () => {
   const row = makeRow({ category: 'HOT' });
   const result = buildActionLink(row, AGENT);
   expect(result.label).toBe('Call Sarah');
@@ -27,20 +26,10 @@ test('HOT with phone → tel link, label "Call Sarah", isFallback=false', () => 
   expect(result.isFallback).toBe(false);
 });
 
-// ── HOT: first fallback (thread) ──────────────────────────────────────────────
+// -- HOT: fallback (sheet) --------------------------------------------------
 
-test('HOT with no phone, has thread → thread link, isFallback=true', () => {
+test('HOT with no phone, has sheet -> sheet link, isFallback=true', () => {
   const row = makeRow({ category: 'HOT', phone: '' });
-  const result = buildActionLink(row, AGENT);
-  expect(result.label).toBe('Open thread');
-  expect(result.url).toBe('https://mail.google.com/mail/u/0/#inbox/thread-abc');
-  expect(result.isFallback).toBe(true);
-});
-
-// ── HOT: final fallback (sheet) ───────────────────────────────────────────────
-
-test('HOT with no phone, no thread, has sheet → sheet link, isFallback=true', () => {
-  const row = makeRow({ category: 'HOT', phone: '', gmailThreadId: '' });
   const result = buildActionLink(row, AGENT);
   expect(result.label).toBe('Open row');
   expect(result.url).toContain('sheet-xyz');
@@ -48,36 +37,42 @@ test('HOT with no phone, no thread, has sheet → sheet link, isFallback=true', 
   expect(result.isFallback).toBe(true);
 });
 
-// ── HOT: null result when nothing available ────────────────────────────────────
+// -- HOT: terminal fallback (search instruction, no sheet) ------------------
 
-test('HOT with no phone, no thread, no sheet → null', () => {
-  const row = makeRow({ category: 'HOT', phone: '', gmailThreadId: '' });
+test('HOT with no phone, no sheet, has leadId -> search instruction, no url', () => {
+  const row = makeRow({ category: 'HOT', phone: '' });
+  const result = buildActionLink(row, AGENT_NO_SHEET);
+  expect(result).toEqual({ text: 'Search your inbox for: lead@example.com', isFallback: true });
+});
+
+// -- HOT: null result when nothing available ---------------------------------
+
+test('HOT with no phone, no sheet, no leadId -> null', () => {
+  const row = makeRow({ category: 'HOT', phone: '', leadId: '' });
   expect(buildActionLink(row, AGENT_NO_SHEET)).toBeNull();
 });
 
-// ── needs_review: preferred (thread) ─────────────────────────────────────────
+// -- needs_review: preferred (sheet) -----------------------------------------
 
-test('needs_review with thread → thread link, isFallback=false', () => {
+test('needs_review with sheet -> sheet link, isFallback=false', () => {
   const row = makeRow({ category: 'needs_review' });
   const result = buildActionLink(row, AGENT);
-  expect(result.label).toBe('Open thread');
-  expect(result.url).toBe('https://mail.google.com/mail/u/0/#inbox/thread-abc');
+  expect(result.label).toBe('Open row');
+  expect(result.url).toContain('sheet-xyz');
   expect(result.isFallback).toBe(false);
 });
 
-// ── needs_review: fallback (sheet) ────────────────────────────────────────────
+// -- needs_review: fallback (search instruction) -----------------------------
 
-test('needs_review with no thread → sheet link, isFallback=true', () => {
-  const row = makeRow({ category: 'needs_review', gmailThreadId: '' });
-  const result = buildActionLink(row, AGENT);
-  expect(result.label).toBe('Open row');
-  expect(result.url).toContain('sheet-xyz');
-  expect(result.isFallback).toBe(true);
+test('needs_review with no sheet -> search instruction', () => {
+  const row = makeRow({ category: 'needs_review' });
+  const result = buildActionLink(row, AGENT_NO_SHEET);
+  expect(result).toEqual({ text: 'Search your inbox for: lead@example.com', isFallback: true });
 });
 
-// ── operatorEscalated: preferred (sheet, no fallback) ────────────────────────
+// -- operatorEscalated: preferred (sheet, no fallback) -----------------------
 
-test('operatorEscalated with sheet → sheet link, isFallback=false', () => {
+test('operatorEscalated with sheet -> sheet link, isFallback=false', () => {
   const row = makeRow({ category: 'operatorEscalated' });
   const result = buildActionLink(row, AGENT);
   expect(result.label).toBe('Open row');
@@ -85,31 +80,29 @@ test('operatorEscalated with sheet → sheet link, isFallback=false', () => {
   expect(result.isFallback).toBe(false);
 });
 
-test('operatorEscalated with no sheet → null', () => {
+test('operatorEscalated with no sheet -> null, even with a leadId (no search fallback for this category)', () => {
   const row = makeRow({ category: 'operatorEscalated' });
   expect(buildActionLink(row, AGENT_NO_SHEET)).toBeNull();
 });
 
-// ── path1b: preferred (thread) ────────────────────────────────────────────────
+// -- path1b: preferred (sheet) ------------------------------------------------
 
-test('path1b with thread → thread link, isFallback=false', () => {
+test('path1b with sheet -> sheet link, isFallback=false', () => {
   const row = makeRow({ category: 'path1b' });
   const result = buildActionLink(row, AGENT);
-  expect(result.label).toBe('Open thread');
-  expect(result.url).toBe('https://mail.google.com/mail/u/0/#inbox/thread-abc');
+  expect(result.label).toBe('Open row');
   expect(result.isFallback).toBe(false);
 });
 
-// ── path1b: fallback (sheet) ──────────────────────────────────────────────────
+// -- path1b: fallback (search instruction) -----------------------------------
 
-test('path1b with no thread → sheet link, isFallback=true', () => {
-  const row = makeRow({ category: 'path1b', gmailThreadId: '' });
-  const result = buildActionLink(row, AGENT);
-  expect(result.label).toBe('Open row');
-  expect(result.isFallback).toBe(true);
+test('path1b with no sheet -> search instruction', () => {
+  const row = makeRow({ category: 'path1b' });
+  const result = buildActionLink(row, AGENT_NO_SHEET);
+  expect(result).toEqual({ text: 'Search your inbox for: lead@example.com', isFallback: true });
 });
 
-// ── Phone normalisation ───────────────────────────────────────────────────────
+// -- Phone normalisation ------------------------------------------------------
 
 test('phone with formatting "+1 (647) 555-1234" normalises to tel:+16475551234', () => {
   const row = makeRow({ category: 'HOT', phone: '+1 (647) 555-1234' });
@@ -117,15 +110,15 @@ test('phone with formatting "+1 (647) 555-1234" normalises to tel:+16475551234',
   expect(result.url).toBe('tel:+16475551234');
 });
 
-test('phone without leading "+" strips non-digits only — no "+" prepended', () => {
+test('phone without leading "+" strips non-digits only -- no "+" prepended', () => {
   const row = makeRow({ category: 'HOT', phone: '647-555-1234' });
   const result = buildActionLink(row, AGENT);
   expect(result.url).toBe('tel:6475551234');
 });
 
-// ── category absent → defaults to HOT behaviour ───────────────────────────────
+// -- category absent -> defaults to HOT behaviour -----------------------------
 
-test('category absent in rowData → defaults to HOT, uses tel link when phone present', () => {
+test('category absent in rowData -> defaults to HOT, uses tel link when phone present', () => {
   const row = makeRow({});  // no category field
   const result = buildActionLink(row, AGENT);
   expect(result.label).toBe('Call Sarah');
@@ -133,7 +126,7 @@ test('category absent in rowData → defaults to HOT, uses tel link when phone p
   expect(result.isFallback).toBe(false);
 });
 
-// ── Sheet URL structure ───────────────────────────────────────────────────────
+// -- Sheet URL structure -------------------------------------------------------
 
 test('sheet link includes googleSheetId and rowIndex in the URL', () => {
   const row = makeRow({ category: 'operatorEscalated' });
