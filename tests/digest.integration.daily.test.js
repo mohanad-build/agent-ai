@@ -354,7 +354,11 @@ describe('runDailyDigestForAgent integration', () => {
     expect(capturedEmailArgs.body).not.toContain('99');
   });
 
-  test('Sheet access denied (403): still sends, with the warning opener in both channels', async () => {
+  // Commit B: no urgent lead is possible here (leads.status === 'unavailable'
+  // means rows is always []), but the SMS still sends -- reason couldnt_check,
+  // not needs_agent: we could not see this morning's leads at all, and the
+  // invariant says that morning gets a text saying so.
+  test('Sheet access denied (403): still sends (couldnt_check), with the warning opener in both channels', async () => {
     emailMod.readSheetRows.mockRejectedValue(new gmail.SheetAccessError(403, AGENT.agentId));
 
     const result = await runDailyDigestForAgent(AGENT, { baseDir });

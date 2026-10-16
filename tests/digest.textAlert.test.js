@@ -29,6 +29,18 @@ const AGENT = {
   escalationEmail: 'mo@example.com',
 };
 
+// A HOT row so smsDecision sees needs_agent and actually attempts the send
+// -- without it, the SMS is correctly never attempted at all (Commit B),
+// and these tests would never reach the retry/failure logic they mean to
+// exercise.
+const HOT_ROW = {
+  leadId: 'hot@example.com', name: 'Alice Hot', phone: '+15555550100', source: '', dateAdded: '',
+  originalMessage: '', status: 'HOT', followUpCount: '0', nextFollowUpDay: '', lastFollowUpDate: '',
+  reserved: '', conversationHistory: '[2026-05-12T09:00:00.000Z] Heuristic intake (confidence 0.90): lead inquired',
+  pendingQuestion: '', gmailThreadId: '', aiEnabled: '', lastActionTimestamp: '2026-05-13T09:00:00.000Z',
+  reminderSent: '', validationStatus: '', operatorEscalated: '', leadCategory: '', rowIndex: 2,
+};
+
 let _origMockNow;
 
 beforeEach(() => {
@@ -54,6 +66,7 @@ afterEach(() => {
 });
 
 test('daily-brief SMS fails every retry: alerts with kind daily_brief, smsResult stays failed', async () => {
+  emailMod.readSheetRows.mockResolvedValue([HOT_ROW]);
   const smsError = new Error("The 'To' number is not a valid phone number.");
   twilioMod.sendSMS.mockRejectedValue(smsError);
 
@@ -72,11 +85,22 @@ test('daily-brief SMS fails every retry: alerts with kind daily_brief, smsResult
   expect(typeof payload.smsBody).toBe('string');
 });
 
-test('daily-brief SMS succeeds: alert is not called', async () => {
+test('daily-brief SMS succeeds (an urgent lead present): alert is not called', async () => {
+  emailMod.readSheetRows.mockResolvedValue([HOT_ROW]);
   twilioMod.sendSMS.mockResolvedValue();
 
   const result = await runDailyDigestForAgent(AGENT);
 
   expect(result.smsResult).toBe('sent');
+  expect(alertAgentTextFailed).not.toHaveBeenCalled();
+});
+
+test('quiet morning: SMS is never attempted, so no failure and no alert', async () => {
+  twilioMod.sendSMS.mockResolvedValue();
+
+  const result = await runDailyDigestForAgent(AGENT);
+
+  expect(result.smsResult).toBe('skipped');
+  expect(twilioMod.sendSMS).not.toHaveBeenCalled();
   expect(alertAgentTextFailed).not.toHaveBeenCalled();
 });

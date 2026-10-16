@@ -183,50 +183,50 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
     expect(captured.email.html).not.toContain('What the system handled');
   });
 
-  test('no alerts, but an unreadable file is present: email sent, no SMS', async () => {
+  test('no alerts, but an unreadable file is present: email and SMS both send (couldnt_check: we could not see this deal)', async () => {
     const captured = capture();
     writeUnreadableFile(baseDir);
 
     const result = await runDailyDigestForAgent(notConfigured, { baseDir });
 
-    expect(result.smsResult).toBe('skipped');
+    expect(result.smsResult).toBe('sent');
     expect(result.emailResult).toBe('sent');
     expect(result.deals.status).toBe('unreadable');
     expect(result.deals.unreadable).toHaveLength(1);
-    expect(captured.sms).toBeNull();
+    expect(captured.sms).toBeTruthy();
     expect(captured.email.body).toContain("couldn't be read this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('What the system handled');
   });
 
-  test('no alerts, one deal file is unreadable (a single bad transaction, caught inside collectDealAlerts): email sent, no SMS', async () => {
+  test('no alerts, one deal file is unreadable (a single bad transaction, caught inside collectDealAlerts): email and SMS both send (couldnt_check)', async () => {
     const captured = capture();
     const txn = openConditionPassedDeal(baseDir, '12 Main St');
     corruptConditionsFact(baseDir, txn);
 
     const result = await runDailyDigestForAgent(notConfigured, { baseDir });
 
-    expect(result.smsResult).toBe('skipped');
+    expect(result.smsResult).toBe('sent');
     expect(result.emailResult).toBe('sent');
     expect(result.deals).toEqual({
       status: 'unreadable',
       unreadable: [{ transactionId: txn.transactionId, error: expect.any(String), stage: 'alerts' }],
     });
-    expect(captured.sms).toBeNull();
+    expect(captured.sms).toBeTruthy();
     expect(captured.email.body).toContain("couldn't be read this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('What the system handled');
   });
 
-  test('no alerts, the deals path itself threw (an agent-level failure, not one bad file): email sent, no SMS', async () => {
+  test('no alerts, the deals path itself threw (an agent-level failure, not one bad file): email and SMS both send (couldnt_check)', async () => {
     const captured = capture();
     breakTransactionsDirectory(baseDir, AGENT.agentId);
 
     const result = await runDailyDigestForAgent(notConfigured, { baseDir });
 
-    expect(result.smsResult).toBe('skipped');
+    expect(result.smsResult).toBe('sent');
     expect(result.emailResult).toBe('sent');
     expect(result.deals.status).toBe('error');
     expect(typeof result.deals.error).toBe('string');
-    expect(captured.sms).toBeNull();
+    expect(captured.sms).toBeTruthy();
     expect(captured.email.body).toContain("Deal updates couldn't be loaded this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('What the system handled');
   });
@@ -462,7 +462,10 @@ describe('recordDeliveredDealAlerts: commit 3 wiring', () => {
     const secondResult = await runDailyDigestForAgent(AGENT, { baseDir });
 
     expect(secondResult.deals).toEqual({ status: 'ok' });
-    expect(secondCaptured.sms).not.toContain('📋');
+    // Already-delivered threshold means no new alert and no urgent lead:
+    // a genuinely quiet morning, so the SMS is skipped outright (Commit B).
+    expect(secondResult.smsResult).toBe('skipped');
+    expect(secondCaptured.sms).toBeNull();
     expect(secondCaptured.email.body).toContain('nothing needs you today');
   });
 

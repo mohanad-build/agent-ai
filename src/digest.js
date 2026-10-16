@@ -638,12 +638,6 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     }
   }
 
-  // An agent cannot act on an unreadable file or a broken deals read, so a
-  // not_configured agent with neither an alert to name nor a lead to report
-  // gets the email only, never a text: silence there would hide that their
-  // deal coverage is missing.
-  const suppressSmsForNotConfigured = leads.status === 'not_configured' && !dealsAlertsPresent;
-
   const categories = categorizeRowsForDigest(rows, now);
 
   const systemHandled = stateCounters.systemHandled;
@@ -674,7 +668,7 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
 
   const dealsPlain = dealsResult.status === 'error' ? dealsErrorPlain() : renderDealsPlain(dealsCollected, dealsCtx);
   const dealsHtmlSection = dealsResult.status === 'error' ? dealsErrorHtml() : renderDealsHtml(dealsCollected, dealsCtx);
-  const smsDealsLine = suppressSmsForNotConfigured ? '' : dealsSmsLine(dealsCollected);
+  const smsDealsLine = dealsSmsLine(dealsCollected);
   const dealsSubjectValue = dealsSubject(dealsCollected);
 
   const smsBody         = renderSMS(smsStats, topUrgent, smsDealsLine);
@@ -694,15 +688,25 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
     ? true
     : (typeof rawSmsFlag === 'boolean' ? rawSmsFlag : String(rawSmsFlag).trim().toLowerCase() !== 'false');
 
-  // SMS send
-  if (!smsEnabled) {
-    smsResult = 'skipped';
-  } else if (suppressSmsForNotConfigured) {
-    smsResult = 'skipped';
-  } else if (dryRun && !agentConfig.operatorPhone) {
-    console.log(`[${agentConfig.agentId}] daily digest dry-run: no operatorPhone, skipping SMS`);
+  // SMS send: smsDecision gates only the dispatch below, never smsBody's
+  // own construction above, which runs the same every morning regardless.
+  const { send: shouldSendSms, reason: smsReason } = smsDecision({
+    smsEnabled,
+    notConfigured: leads.status === 'not_configured',
+    dealsAlertsPresent,
+    dryRun,
+    operatorPhone: agentConfig.operatorPhone,
+    hasUrgentLead: topUrgent !== null,
+    leadsUnavailable: leads.status === 'unavailable',
+    dealsCouldNotLoad: dealsResult.status === 'error',
+    dealsUnreadable: dealsCollected.unreadable.length > 0,
+  });
+
+  if (!shouldSendSms) {
+    console.log(`[${agentConfig.agentId}] daily digest: sms skipped (${smsReason})`);
     smsResult = 'skipped';
   } else {
+    console.log(`[${agentConfig.agentId}] daily digest: sms sending (${smsReason})`);
     const smsTarget = dryRun
       ? { ...agentConfig, agentPhone: agentConfig.operatorPhone }
       : agentConfig;

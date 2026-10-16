@@ -180,6 +180,23 @@ describe('maybeRunDailyDigest', () => {
     expect(agentStateMod.resetDailyNoiseArchived).toHaveBeenCalledWith(agent.agentId);
   });
 
+  test('13b. Commit B: SMS skipped (quiet), email sent, leads ok: stamp and both resets still written', async () => {
+    const agent = makeAgent();
+    const leads = { status: 'ok', errorKind: null };
+    runDailyDigestForAgent.mockResolvedValue({
+      smsResult: 'skipped',
+      emailResult: 'sent',
+      errors: [],
+      leads,
+    });
+
+    await maybeRunDailyDigest(agent);
+
+    expect(agentStateMod.recordDailyDigestRun).toHaveBeenCalledWith(agent.agentId, '2026-06-18T10:00:00.000Z');
+    expect(agentStateMod.resetDailyNoiseFiltered).toHaveBeenCalledWith(agent.agentId);
+    expect(agentStateMod.resetDailyNoiseArchived).toHaveBeenCalledWith(agent.agentId);
+  });
+
   test('14. nothing_to_send: no stamp, no resets, no alert', async () => {
     const agent = makeAgent();
     const leads = { status: 'not_configured', errorKind: null };
