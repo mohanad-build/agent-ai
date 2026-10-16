@@ -304,7 +304,7 @@ describe('subject choice', () => {
 });
 
 describe('SMS line placement', () => {
-  test('a hot lead and a deal alert: deals line sits between the CALLED line and "Full brief in your inbox."', async () => {
+  test('a hot lead and a deal alert: deals line sits ahead of the leads opener and the CALLED line', async () => {
     const captured = capture();
     const hotRow = {
       leadId: 'hot@example.com', name: 'Alice Hot', phone: '+15555550100', source: '', dateAdded: '',
@@ -319,12 +319,14 @@ describe('SMS line placement', () => {
     await runDailyDigestForAgent(AGENT, { baseDir });
 
     const lines = captured.sms.split('\n');
-    const calledIdx = lines.findIndex((l) => l.startsWith('Reply CALLED'));
     const dealsIdx  = lines.findIndex((l) => l.startsWith('📋'));
+    const leadsIdx  = lines.findIndex((l) => l.startsWith('Leads:'));
+    const calledIdx = lines.findIndex((l) => l.startsWith('Reply CALLED'));
     const briefIdx  = lines.findIndex((l) => l === 'Full brief in your inbox.');
-    expect(calledIdx).toBeGreaterThan(-1);
-    expect(dealsIdx).toBe(calledIdx + 1);
-    expect(briefIdx).toBe(dealsIdx + 1);
+    expect(dealsIdx).toBe(0);
+    expect(leadsIdx).toBeGreaterThan(dealsIdx);
+    expect(calledIdx).toBeGreaterThan(leadsIdx);
+    expect(briefIdx).toBe(lines.length - 1);
   });
 });
 

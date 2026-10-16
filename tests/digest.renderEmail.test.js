@@ -35,7 +35,7 @@ test('quiet day — subject is date-formatted, body has systemHandled only', () 
   expect(result.body).not.toContain('— Needs you today —');
   expect(result.body).not.toContain('— Hot leads to call today —');
   expect(result.body).not.toContain('— Reliability —');
-  expect(result.body).toContain('0 need you today.');
+  expect(result.body).toContain('None need you.');
   expect(result.body).toContain('Leads intaken: 0');
 });
 
@@ -61,7 +61,7 @@ test('systemHandled totals to exactly 1 lead, singular "lead", "follow-ups" stay
   const sections = makeEmptySections();
   sections.systemHandled.intaken = 1;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
-  expect(result.body).toContain('Handled 1 lead overnight: 1 new, 0 follow-ups, 0 filtered. 0 need you today.');
+  expect(result.body).toContain('Leads: handled 1 overnight (1 new, 0 follow-ups, 0 filtered). None need you.');
 });
 
 test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plural "leads"', () => {
@@ -70,7 +70,7 @@ test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plura
   sections.systemHandled.followUpsFired = 1;
   sections.systemHandled.noiseFiltered = 3;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
-  expect(result.body).toContain('Handled 6 leads overnight: 2 new, 1 follow-up, 3 filtered. 0 need you today.');
+  expect(result.body).toContain('Leads: handled 6 overnight (2 new, 1 follow-up, 3 filtered). None need you.');
 });
 
 test('reliability errors > 0 — Reliability section renders', () => {

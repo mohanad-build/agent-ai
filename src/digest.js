@@ -206,10 +206,10 @@ function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0, leads) {
   if (total === 0 && hasUrgent) {
     const noun = urgentCount === 1 ? 'lead' : 'leads';
     const verb = urgentCount === 1 ? 'needs' : 'need';
-    return `${urgentCount} ${noun} ${verb} you this morning.`;
+    return `Leads: ${urgentCount} ${noun} ${verb} you this morning.`;
   }
-  const base = `Handled ${total} ${pluralize(total, 'lead', 'leads')} overnight: ${intaken} new, ${followUpsFired} ${pluralize(followUpsFired, 'follow-up', 'follow-ups')}, ${noiseFiltered} filtered.`;
-  return hasUrgent ? base : `${base} 0 need you today.`;
+  const base = `Leads: handled ${total} overnight (${intaken} new, ${followUpsFired} ${pluralize(followUpsFired, 'follow-up', 'follow-ups')}, ${noiseFiltered} filtered).`;
+  return hasUrgent ? base : `${base} None need you.`;
 }
 
 // Churn threshold description rendered at the bottom of every churn section.
@@ -1493,21 +1493,21 @@ function renderSMS(stats, urgent, dealsLine = '') {
   const dealsSuffix = dealsLine ? `${dealsLine}\n` : '';
 
   if (urgent === null) {
-    return `${opener}${dealsSuffix}Full brief in your inbox.`;
+    return `${dealsSuffix}${opener}Full brief in your inbox.`;
   }
 
   const ctx = urgentShortContext(urgent);
   const verb = urgentVerbWithAge(urgent);
   const line2base = `🔥 ${urgent.firstName} ${urgent.lastInitial} ${ctx} ${verb}`;
   const line2 = stats.urgentCount > 1
-    ? `${line2base} + ${stats.urgentCount - 1} more.`
+    ? `${line2base} + ${stats.urgentCount - 1} more ${pluralize(stats.urgentCount - 1, 'lead', 'leads')}.`
     : `${line2base}.`;
 
   const calledLine = (urgent.category === 'HOT' && urgent.leadId)
     ? `\nReply CALLED ${urgent.leadId} to clear it. Add a note after with anything from the call.`
     : '';
 
-  return `${opener}${line2}${calledLine}\n${dealsSuffix}Full brief in your inbox.`;
+  return `${dealsSuffix}${opener}${line2}${calledLine}\nFull brief in your inbox.`;
 }
 
 /**

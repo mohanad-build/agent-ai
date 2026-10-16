@@ -38,6 +38,10 @@ function dayWord(n) {
   return n === 1 ? 'day' : 'days';
 }
 
+function dealWord(n) {
+  return n === 1 ? 'deal' : 'deals';
+}
+
 function daysPhrase(n) {
   return `${n} ${dayWord(n)}`;
 }
@@ -310,9 +314,8 @@ function dealsSmsPhrase(alert) {
 // means nothing to name, matching renderDealsPlain/Html's own silence in
 // those cases. Otherwise names the single most dangerous alert (the
 // first; collected.alerts is already danger-sorted) and counts every
-// other alert into the "+ N more" suffix, matching renderSMS's own
-// hot-lead line and suffix (digest.js:1227-1232) exactly: a space, "+",
-// the count, " more.", or a bare "." when there is nothing else to count.
+// other alert into the "+ N more deals" suffix, or a bare "." when there
+// is nothing else to count.
 function dealsSmsLine(collected) {
   const { alerts } = collected;
   if (alerts.length === 0) {
@@ -321,7 +324,7 @@ function dealsSmsLine(collected) {
 
   const phrase = dealsSmsPhrase(alerts[0]);
   const more = alerts.length - 1;
-  const suffix = more > 0 ? ` + ${more} more.` : '.';
+  const suffix = more > 0 ? ` + ${more} more ${dealWord(more)}.` : '.';
 
   return `📋 ${phrase}${suffix}`;
 }

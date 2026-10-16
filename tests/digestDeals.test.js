@@ -558,7 +558,7 @@ describe('dealsSmsLine', () => {
     expect(dealsSmsLine(collected([alert]))).toBe("📋 12 Main St: well and septic condition passed, not marked done.");
   });
 
-  it('"+ 1 more." with exactly one other alert', () => {
+  it('"+ 1 more deal." with exactly one other alert', () => {
     const first = {
       kind: 'condition_passed', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
       driveFolderId: null, condition: 'financing', itemId: 'financing_condition', date: '2026-10-05', daysPast: 1,
@@ -568,11 +568,11 @@ describe('dealsSmsLine', () => {
       driveFolderId: null, filingKey: 'k', filename: 'x.pdf', threadId: 't', abandonedAt: 'x', lastError: 'y',
     };
     expect(dealsSmsLine(collected([first, second]))).toBe(
-      "📋 12 Main St: financing condition passed, not marked done + 1 more."
+      "📋 12 Main St: financing condition passed, not marked done + 1 more deal."
     );
   });
 
-  it('"+ 3 more." with three other alerts', () => {
+  it('"+ 3 more deals." with three other alerts', () => {
     const first = {
       kind: 'condition_passed', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
       driveFolderId: null, condition: 'financing', itemId: 'financing_condition', date: '2026-10-05', daysPast: 1,
@@ -582,7 +582,7 @@ describe('dealsSmsLine', () => {
       driveFolderId: null, filingKey: 'k', filename: 'x.pdf', threadId: 't', abandonedAt: 'x', lastError: 'y',
     }));
     expect(dealsSmsLine(collected([first, ...others]))).toBe(
-      "📋 12 Main St: financing condition passed, not marked done + 3 more."
+      "📋 12 Main St: financing condition passed, not marked done + 3 more deals."
     );
   });
 
@@ -606,7 +606,7 @@ describe('dealsSmsLine', () => {
       driveFolderId: null, filingKey: 'k', filename: 'x.pdf', threadId: 't', abandonedAt: 'x', lastError: 'y',
     };
     const line = dealsSmsLine(collected([first, otherDeal]));
-    expect(line).toBe("📋 1 X St: financing condition passed, not marked done + 1 more.");
+    expect(line).toBe("📋 1 X St: financing condition passed, not marked done + 1 more deal.");
     expect(line).not.toContain('2 Y St');
   });
 
