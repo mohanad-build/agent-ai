@@ -210,7 +210,17 @@ function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0, leads) {
     const verb = urgentCount === 1 ? 'needs' : 'need';
     return `Leads: ${urgentCount} ${noun} ${verb} you this morning.`;
   }
-  const base = `Leads: handled ${total} overnight (${intaken} new, ${followUpsFired} ${pluralize(followUpsFired, 'follow-up', 'follow-ups')}, ${noiseFiltered} filtered).`;
+  // hasUrgent is always false here: total === 0 with hasUrgent true already
+  // returned above, so reaching this line with total === 0 means the quiet
+  // case, never the "no suffix, something else needs you" case.
+  if (total === 0) {
+    return 'Leads: quiet overnight. None need you.';
+  }
+  const parts = [];
+  if (intaken > 0) parts.push(`${intaken} new`);
+  if (followUpsFired > 0) parts.push(`${followUpsFired} ${pluralize(followUpsFired, 'follow-up', 'follow-ups')}`);
+  if (noiseFiltered > 0) parts.push(`${noiseFiltered} filtered`);
+  const base = `Leads: handled ${total} overnight (${parts.join(', ')}).`;
   return hasUrgent ? base : `${base} None need you.`;
 }
 

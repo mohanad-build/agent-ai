@@ -61,7 +61,7 @@ test('systemHandled totals to exactly 1 lead, singular "lead", "follow-ups" stay
   const sections = makeEmptySections();
   sections.systemHandled.intaken = 1;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
-  expect(result.body).toContain('Leads: handled 1 overnight (1 new, 0 follow-ups, 0 filtered). None need you.');
+  expect(result.body).toContain('Leads: handled 1 overnight (1 new). None need you.');
 });
 
 test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plural "leads"', () => {

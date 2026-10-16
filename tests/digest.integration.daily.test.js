@@ -292,7 +292,7 @@ describe('runDailyDigestForAgent integration', () => {
   test('SMS line 1 is canonical', () => {
     // intaken=1 (Eva, row 5), followUpsFired=1 (Grace, row 7), noiseFiltered=0
     const line1 = capturedSmsArgs.split('\n')[0];
-    expect(line1).toBe('Leads: handled 2 overnight (1 new, 1 follow-up, 0 filtered).');
+    expect(line1).toBe('Leads: handled 2 overnight (1 new, 1 follow-up).');
   });
 
   test('urgent section contains all four urgent leads and excludes background row', () => {

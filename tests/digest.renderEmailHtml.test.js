@@ -94,7 +94,7 @@ test('opener (Handled … leads) suppressed when urgent rows present', () => {
 
 test('opener renders when no urgent rows', () => {
   const { html } = renderEmailHtml(makeEmptySections(), BASE_AGENT, NOW);
-  expect(html).toContain('Leads: handled 0 overnight');
+  expect(html).toContain('Leads: quiet overnight.');
   expect(html).toContain('None need you');
 });
 
@@ -102,7 +102,7 @@ test('systemHandled totals to exactly 1 lead, singular "lead", "follow-ups" stay
   const sections = makeEmptySections();
   sections.systemHandled.intaken = 1;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  expect(html).toContain('Leads: handled 1 overnight (1 new, 0 follow-ups, 0 filtered). None need you.');
+  expect(html).toContain('Leads: handled 1 overnight (1 new). None need you.');
 });
 
 test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plural "leads"', () => {
