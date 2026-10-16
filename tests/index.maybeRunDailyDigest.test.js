@@ -197,17 +197,41 @@ describe('maybeRunDailyDigest', () => {
     expect(agentStateMod.resetDailyNoiseArchived).toHaveBeenCalledWith(agent.agentId);
   });
 
-  test('14. nothing_to_send: no stamp, no resets, no alert', async () => {
+  test('14. nothing_to_send: no stamp, no resets, no alert, and no contradicting sms=n/a email=n/a log line', async () => {
     const agent = makeAgent();
     const leads = { status: 'not_configured', errorKind: null };
     runDailyDigestForAgent.mockResolvedValue({ skipped: 'nothing_to_send', leads });
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-    await maybeRunDailyDigest(agent);
+    try {
+      await maybeRunDailyDigest(agent);
 
-    expect(agentStateMod.recordDailyDigestRun).not.toHaveBeenCalled();
-    expect(agentStateMod.resetDailyNoiseFiltered).not.toHaveBeenCalled();
-    expect(agentStateMod.resetDailyNoiseArchived).not.toHaveBeenCalled();
-    expect(alertOperatorSheetUnavailable).not.toHaveBeenCalled();
+      expect(agentStateMod.recordDailyDigestRun).not.toHaveBeenCalled();
+      expect(agentStateMod.resetDailyNoiseFiltered).not.toHaveBeenCalled();
+      expect(agentStateMod.resetDailyNoiseArchived).not.toHaveBeenCalled();
+      expect(alertOperatorSheetUnavailable).not.toHaveBeenCalled();
+      expect(logSpy.mock.calls.some(args => String(args[0]).includes('sms='))).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test('14b. inactive: no stamp, no resets, no alert, and no contradicting sms=n/a email=n/a log line', async () => {
+    const agent = makeAgent();
+    runDailyDigestForAgent.mockResolvedValue({ skipped: 'inactive' });
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      await maybeRunDailyDigest(agent);
+
+      expect(agentStateMod.recordDailyDigestRun).not.toHaveBeenCalled();
+      expect(agentStateMod.resetDailyNoiseFiltered).not.toHaveBeenCalled();
+      expect(agentStateMod.resetDailyNoiseArchived).not.toHaveBeenCalled();
+      expect(alertOperatorSheetUnavailable).not.toHaveBeenCalled();
+      expect(logSpy.mock.calls.some(args => String(args[0]).includes('sms='))).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   test('15. deals unreadable, both channels failed: deals alert still called', async () => {

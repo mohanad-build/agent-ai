@@ -548,9 +548,15 @@ async function maybeRunDailyDigest(agent, opts = {}) {
         console.error(`[${agent.agentId}] deals alert failed: ${err.message}`);
       }
     }
-    const smsLabel   = result.smsResult   || 'n/a';
-    const emailLabel = result.emailResult || 'n/a';
-    console.log(`[${agent.agentId}] daily digest: sms=${smsLabel} email=${emailLabel}`);
+    // runDailyDigestForAgent already logs a specific reason when it skips
+    // entirely (skipped (inactive), nothing to send (no lead sheet
+    // configured)); a second, generic sms=n/a email=n/a line here would
+    // only contradict it, not add anything.
+    if (!result.skipped) {
+      const smsLabel   = result.smsResult   || 'n/a';
+      const emailLabel = result.emailResult || 'n/a';
+      console.log(`[${agent.agentId}] daily digest: sms=${smsLabel} email=${emailLabel}`);
+    }
   } catch (err) {
     console.error(`[${agent.agentId}] daily digest failed: ${err.message}`);
   }
