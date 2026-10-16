@@ -48,8 +48,10 @@ test('HOT with no phone, no sheet, has leadId -> search instruction, no url', ()
 // -- HOT: null result when nothing available ---------------------------------
 
 test('HOT with no phone, no sheet, no leadId -> null', () => {
-  const row = makeRow({ category: 'HOT', phone: '', leadId: '' });
-  expect(buildActionLink(row, AGENT_NO_SHEET)).toBeNull();
+  const rowEmpty = makeRow({ category: 'HOT', phone: '', leadId: '' });
+  const rowNull = makeRow({ category: 'HOT', phone: '', leadId: null });
+  expect(buildActionLink(rowEmpty, AGENT_NO_SHEET)).toBeNull();
+  expect(buildActionLink(rowNull, AGENT_NO_SHEET)).toBeNull();
 });
 
 // -- needs_review: preferred (sheet) -----------------------------------------
@@ -68,6 +70,15 @@ test('needs_review with no sheet -> search instruction', () => {
   const row = makeRow({ category: 'needs_review' });
   const result = buildActionLink(row, AGENT_NO_SHEET);
   expect(result).toEqual({ text: 'Search your inbox for: lead@example.com', isFallback: true });
+});
+
+// -- needs_review: null result when nothing available -------------------------
+
+test('needs_review with no sheet, no leadId -> null', () => {
+  const rowEmpty = makeRow({ category: 'needs_review', leadId: '' });
+  const rowNull = makeRow({ category: 'needs_review', leadId: null });
+  expect(buildActionLink(rowEmpty, AGENT_NO_SHEET)).toBeNull();
+  expect(buildActionLink(rowNull, AGENT_NO_SHEET)).toBeNull();
 });
 
 // -- operatorEscalated: preferred (sheet, no fallback) -----------------------
@@ -100,6 +111,15 @@ test('path1b with no sheet -> search instruction', () => {
   const row = makeRow({ category: 'path1b' });
   const result = buildActionLink(row, AGENT_NO_SHEET);
   expect(result).toEqual({ text: 'Search your inbox for: lead@example.com', isFallback: true });
+});
+
+// -- path1b: null result when nothing available --------------------------------
+
+test('path1b with no sheet, no leadId -> null', () => {
+  const rowEmpty = makeRow({ category: 'path1b', leadId: '' });
+  const rowNull = makeRow({ category: 'path1b', leadId: null });
+  expect(buildActionLink(rowEmpty, AGENT_NO_SHEET)).toBeNull();
+  expect(buildActionLink(rowNull, AGENT_NO_SHEET)).toBeNull();
 });
 
 // -- Phone normalisation ------------------------------------------------------
