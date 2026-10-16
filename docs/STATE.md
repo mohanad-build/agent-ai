@@ -43,7 +43,7 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 
 ## Session 87: brief polish, Commit A (copy and layout only)
 
-Tests 4116/170 to 4126/170.
+Tests 4116/170 to 4130/170.
 
 | Commit | What |
 |---|---|
@@ -51,6 +51,7 @@ Tests 4116/170 to 4126/170.
 | `42c1eb1` | The leads opener reads "Leads: handled N overnight (...). None need you."; renderSMS puts the deals line ahead of the leads lines; "+ N more." names what it counts ("deals" or "leads") |
 | `aa09926` | `SYSTEM_HANDLED_LABELS`: pre-flight skips dropped from the agent brief (stays in the weekly operator digest); "Noise filtered"/"Noise archived" reworded; "Leads intaken" to "New leads" |
 | `69f9b69` | Every Gmail web link in the brief replaced with plain text the agent can act on in any mail app; `gmailSearchUrl` deleted (no callers left) |
+| `7b9e9b8` | Leads opener omits zero-count parts from the parenthetical; a fully quiet night reads "Leads: quiet overnight" instead of naming zero of everything. Urgent branches untouched |
 
 Recon found the item list in the prior session's Next section had one false claim: the per-deal
 email-search link was said to be "already removed, session 85." It was not; it was built in session
@@ -323,6 +324,11 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 
 ## Parked
 
+- `tests/sessionStore.encryption.test.js` failed once during a full-suite run in session 87, then
+  passed both standalone and on an immediate full-suite rerun. The file is untouched by session 87's
+  changes and unrelated to the digest work in progress at the time. Likely transient (worker
+  teardown or a timing-sensitive assertion), not chased down. Watch for repeats; if it recurs, treat
+  it as a real flake worth isolating, not noise.
 - List filtered emails inline in the brief when there are only a few (Session 87 recon, item 5).
   Needs a capture design first: `dailyNoiseFiltered`/`dailyNoiseArchived` (`agentState.js`) are bare
   incrementing counters, no sender, subject or lead identity stored alongside them, so there is
