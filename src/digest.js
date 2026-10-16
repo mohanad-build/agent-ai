@@ -35,7 +35,7 @@ const { OPERATOR_CONTACT_EMAIL } = require('./operatorAddress');
 const { readAllTransactionsSettled } = require('./transactions/queries');
 const { collectDealAlerts } = require('./transactions/dealAlerts');
 const { todayInTimeZone } = require('./calendarDate');
-const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject } = require('./digestDeals');
+const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject, unreadableSmsLine } = require('./digestDeals');
 const { stripQuotedReply } = require('./replyText');
 
 // ── Renderer helpers ──────────────────────────────────────────────────────────
@@ -545,6 +545,16 @@ function dealsErrorPlain() {
   return `-- Deals needing you --\n\nDeal updates couldn't be loaded this morning. Mo has been told.`;
 }
 
+// Commit B couldnt_check: matches dealsErrorPlain/Html's own "Mo has been
+// told" claim. alertOperatorDealsUnavailable can itself fail silently (no
+// operatorId, operator config load failure, no operatorEmail -- see the
+// parked item on the deals-unavailable email), same as the email already
+// accepts; this line is not making a new promise, just matching the one
+// already made there.
+function dealsErrorSms() {
+  return "Couldn't load your deals this morning. Check any conditions or deposits due today yourself. Mo has been told.";
+}
+
 // Same checks alertOperatorSheetUnavailable already makes (agentConfig.operatorId
 // present, loadOperator succeeds, operatorEmail present), reused here because the
 // fell-through link needs an operator address too and must degrade the same way:
@@ -668,7 +678,20 @@ async function runDailyDigestForAgent(agentConfig, options = {}) {
 
   const dealsPlain = dealsResult.status === 'error' ? dealsErrorPlain() : renderDealsPlain(dealsCollected, dealsCtx);
   const dealsHtmlSection = dealsResult.status === 'error' ? dealsErrorHtml() : renderDealsHtml(dealsCollected, dealsCtx);
-  const smsDealsLine = dealsSmsLine(dealsCollected);
+  // Commit B couldnt_check copy: dealsResult.status === 'error' means
+  // dealsCollected is the empty sentinel (no alerts, no unreadable --
+  // the try that would have populated either never ran), so the error
+  // line always stands alone, matching dealsErrorPlain/Html. Otherwise
+  // the normal alert line and the unreadable-file line are independent
+  // and additive: a deal can have a real alert on its readable files
+  // while a different file is unreadable, and the agent needs to hear
+  // about both.
+  const smsDealsLine = dealsResult.status === 'error'
+    ? dealsErrorSms()
+    : [
+        dealsSmsLine(dealsCollected),
+        dealsCollected.unreadable.length > 0 ? unreadableSmsLine(dealsCollected.unreadable) : '',
+      ].filter(Boolean).join('\n');
   const dealsSubjectValue = dealsSubject(dealsCollected);
 
   const smsBody         = renderSMS(smsStats, topUrgent, smsDealsLine);
@@ -1554,6 +1577,16 @@ function categorizeRowsForDigest(rows, now) {
  * @returns {string}
  */
 function renderSMS(stats, urgent, dealsLine = '') {
+  const dealsSuffix = dealsLine ? `${dealsLine}\n` : '';
+
+  // Commit B couldnt_check: leads.status === 'unavailable' means rows is
+  // always [] (gatherWindowData), so urgent is always null here -- this
+  // always replaces the normal opener, never competes with it. Matches
+  // dealsErrorSms's own "Mo has been told" claim and the same caveat.
+  if (stats.leads && stats.leads.status === 'unavailable') {
+    return `${dealsSuffix}Couldn't read your lead sheet this morning. Check your inbox for new leads yourself today. Mo has been told.\nFull brief in your inbox.`;
+  }
+
   const line1base = buildOpenerLine(
     { intaken: stats.intaken, followUpsFired: stats.followUpsFired, noiseFiltered: stats.noiseFiltered },
     urgent !== null,
@@ -1561,7 +1594,6 @@ function renderSMS(stats, urgent, dealsLine = '') {
     stats.leads,
   );
   const opener = line1base === null ? '' : `${line1base}\n`;
-  const dealsSuffix = dealsLine ? `${dealsLine}\n` : '';
 
   if (urgent === null) {
     return `${dealsSuffix}${opener}Full brief in your inbox.`;

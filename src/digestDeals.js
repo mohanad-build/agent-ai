@@ -168,6 +168,15 @@ function unreadableLine(unreadable) {
     : `${unreadable.length} of your deal files couldn't be read this morning. Mo has been told.`;
 }
 
+// Shorter sibling of unreadableLine, for the SMS (Commit B couldnt_check).
+// Additive, not a replacement: the normal dealsSmsLine alert (if any) for
+// the deal's readable files still renders; this is appended alongside it.
+function unreadableSmsLine(unreadable) {
+  return unreadable.length === 1
+    ? "1 deal file couldn't be read. Mo has been told."
+    : `${unreadable.length} deal files couldn't be read. Mo has been told.`;
+}
+
 const SECTION_TITLE = 'Deals needing you';
 
 // -- plaintext ----------------------------------------------------------------------
@@ -347,6 +356,6 @@ function dealsSubject(collected) {
   return `Your morning brief: ${alerts[0].address} needs you today`;
 }
 
-module.exports = { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject };
+module.exports = { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject, unreadableSmsLine };
 
 module.exports._internal = { CONDITION_DISPLAY_OVERRIDES, rowContent };

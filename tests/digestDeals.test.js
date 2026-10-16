@@ -1,6 +1,6 @@
 'use strict';
 
-const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject, _internal } = require('../src/digestDeals');
+const { renderDealsPlain, renderDealsHtml, dealsSmsLine, dealsSubject, unreadableSmsLine, _internal } = require('../src/digestDeals');
 const { CONDITION_NAMES } = require('../src/transactions/rules/conditions');
 
 const T = {
@@ -617,6 +617,26 @@ describe('dealsSmsLine', () => {
 
   it('unreadable-only morning returns the empty string', () => {
     expect(dealsSmsLine(collected([], { activeCount: 0, unreadable: [{ transactionId: 'x', error: 'e' }] }))).toBe('');
+  });
+});
+
+describe('unreadableSmsLine', () => {
+  it('singular', () => {
+    expect(unreadableSmsLine([{ transactionId: 'x', error: 'e' }])).toBe(
+      "1 deal file couldn't be read. Mo has been told."
+    );
+  });
+
+  it('plural', () => {
+    const unreadable = [{ transactionId: 'x', error: 'e' }, { transactionId: 'y', error: 'f' }];
+    expect(unreadableSmsLine(unreadable)).toBe("2 deal files couldn't be read. Mo has been told.");
+  });
+
+  it('names neither the file nor the error', () => {
+    const unreadable = [{ transactionId: 'x', error: 'some disk error message' }];
+    const line = unreadableSmsLine(unreadable);
+    expect(line).not.toContain('x');
+    expect(line).not.toContain('some disk error message');
   });
 });
 

@@ -152,19 +152,19 @@ test('opener parenthetical: all three non-zero parts, nothing omitted', () => {
   expect(renderSMS(stats, null)).toBe(expected);
 });
 
-test('leads unavailable (permission) and no urgent: warning opener in place of Handled line', () => {
+test('leads unavailable (permission): couldnt_check, actionable line, errorKind does not change the wording', () => {
   const stats = { ...makeStats(0, 0, 0, 0), leads: { status: 'unavailable', errorKind: 'permission' } };
   const expected = [
-    "Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.",
+    "Couldn't read your lead sheet this morning. Check your inbox for new leads yourself today. Mo has been told.",
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, null)).toBe(expected);
 });
 
-test('leads unavailable (not_found) and no urgent: "(not found)" in place of "(access denied)"', () => {
+test('leads unavailable (not_found): same couldnt_check line as permission -- the SMS does not distinguish', () => {
   const stats = { ...makeStats(0, 0, 0, 0), leads: { status: 'unavailable', errorKind: 'not_found' } };
   const expected = [
-    "Couldn't read your lead sheet this morning (not found), so leads aren't in this brief.",
+    "Couldn't read your lead sheet this morning. Check your inbox for new leads yourself today. Mo has been told.",
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, null)).toBe(expected);

@@ -193,7 +193,7 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
     expect(result.emailResult).toBe('sent');
     expect(result.deals.status).toBe('unreadable');
     expect(result.deals.unreadable).toHaveLength(1);
-    expect(captured.sms).toBeTruthy();
+    expect(captured.sms).toBe("1 deal file couldn't be read. Mo has been told.\nFull brief in your inbox.");
     expect(captured.email.body).toContain("couldn't be read this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('What the system handled');
   });
@@ -211,7 +211,7 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
       status: 'unreadable',
       unreadable: [{ transactionId: txn.transactionId, error: expect.any(String), stage: 'alerts' }],
     });
-    expect(captured.sms).toBeTruthy();
+    expect(captured.sms).toBe("1 deal file couldn't be read. Mo has been told.\nFull brief in your inbox.");
     expect(captured.email.body).toContain("couldn't be read this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('What the system handled');
   });
@@ -226,7 +226,9 @@ describe('amendment 1: not_configured Sheet skip rule', () => {
     expect(result.emailResult).toBe('sent');
     expect(result.deals.status).toBe('error');
     expect(typeof result.deals.error).toBe('string');
-    expect(captured.sms).toBeTruthy();
+    expect(captured.sms).toBe(
+      "Couldn't load your deals this morning. Check any conditions or deposits due today yourself. Mo has been told.\nFull brief in your inbox."
+    );
     expect(captured.email.body).toContain("Deal updates couldn't be loaded this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('What the system handled');
   });
@@ -280,6 +282,15 @@ describe('unreadable deal file present (ok Sheet)', () => {
     expect(captured.email.body).toContain("One of your deal files couldn't be read this morning. Mo has been told.");
     expect(captured.email.body).not.toContain('txn-20261001-deadbeef');
     expect(captured.email.html).not.toContain('txn-20261001-deadbeef');
+    // The real alert and the unreadable-file line are additive in the SMS
+    // too, same as the email: a different file being unreadable is never
+    // a reason to drop the alert the agent can still act on.
+    expect(captured.sms).toBe(
+      "📋 12 Main St: financing condition passed, not marked done.\n"
+      + "1 deal file couldn't be read. Mo has been told.\n"
+      + 'Leads: quiet overnight. None need you.\n'
+      + 'Full brief in your inbox.'
+    );
   });
 });
 
@@ -546,7 +557,18 @@ describe('commit 3, fix 1: today computed inside the deals try', () => {
     expect(result.emailResult).toBe('sent');
     expect(result.deals.status).toBe('error');
     expect(typeof result.deals.error).toBe('string');
-    expect(captured.sms).toBeTruthy();
+    // The deals-error line still renders even though the send reason is
+    // needs_agent (the HOT row), not couldnt_check: the two are additive,
+    // never mutually exclusive -- the agent hears about everything that
+    // needed them or that we could not see, regardless of which one is
+    // the reason the text went out at all.
+    expect(captured.sms).toBe(
+      "Couldn't load your deals this morning. Check any conditions or deposits due today yourself. Mo has been told.\n"
+      + "Leads: 1 lead needs you this morning.\n"
+      + '🔥 Alice H (HOT signal) flagged hot 2h ago.\n'
+      + 'Reply CALLED hot@example.com to clear it. Add a note after with anything from the call.\n'
+      + 'Full brief in your inbox.'
+    );
     expect(agentStateMod.recordDeliveredDealAlerts).not.toHaveBeenCalled();
   });
 });
