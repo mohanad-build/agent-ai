@@ -184,6 +184,10 @@ function formatWeeklyDate(isoStr, timezone) {
   return `${month} ${day}`;
 }
 
+function pluralize(n, singular, plural) {
+  return n === 1 ? singular : plural;
+}
+
 // leads is optional; absent means 'ok', so every caller and test written
 // before this field existed behaves exactly as it did before.
 function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0, leads) {
@@ -204,7 +208,7 @@ function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0, leads) {
     const verb = urgentCount === 1 ? 'needs' : 'need';
     return `${urgentCount} ${noun} ${verb} you this morning.`;
   }
-  const base = `Handled ${total} leads overnight: ${intaken} new, ${followUpsFired} follow-ups, ${noiseFiltered} filtered.`;
+  const base = `Handled ${total} ${pluralize(total, 'lead', 'leads')} overnight: ${intaken} new, ${followUpsFired} ${pluralize(followUpsFired, 'follow-up', 'follow-ups')}, ${noiseFiltered} filtered.`;
   return hasUrgent ? base : `${base} 0 need you today.`;
 }
 

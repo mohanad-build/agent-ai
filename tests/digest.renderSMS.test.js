@@ -46,11 +46,29 @@ test('Path 1B urgent with 26 hours elapsed — correct context and verb phrase',
   const stats = makeStats(2, 1, 3, 1);
   const urgent = { firstName: 'Mike', lastInitial: 'T', category: 'path1b', propertyReference: null, hoursAwaiting: 26 };
   const expected = [
-    'Handled 6 leads overnight: 2 new, 1 follow-ups, 3 filtered.',
+    'Handled 6 leads overnight: 2 new, 1 follow-up, 3 filtered.',
     '🔥 Mike T (Path 1B 26h) is waiting on you.',
     'Full brief in your inbox.',
   ].join('\n');
   expect(renderSMS(stats, urgent)).toBe(expected);
+});
+
+test('total of exactly 1 handled overnight, singular "lead"', () => {
+  const stats = makeStats(1, 0, 0, 0);
+  const expected = [
+    'Handled 1 lead overnight: 1 new, 0 follow-ups, 0 filtered. 0 need you today.',
+    'Full brief in your inbox.',
+  ].join('\n');
+  expect(renderSMS(stats, null)).toBe(expected);
+});
+
+test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plural "leads"', () => {
+  const stats = makeStats(2, 1, 3, 0);
+  const expected = [
+    'Handled 6 leads overnight: 2 new, 1 follow-up, 3 filtered. 0 need you today.',
+    'Full brief in your inbox.',
+  ].join('\n');
+  expect(renderSMS(stats, null)).toBe(expected);
 });
 
 test('needs_review urgent with no property reference — context and verb phrase match the maps', () => {

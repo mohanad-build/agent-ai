@@ -57,6 +57,22 @@ test('day with one urgent HOT lead — subject names the lead, Needs you today s
   expect(result.body).not.toContain('this morning');
 });
 
+test('systemHandled totals to exactly 1 lead, singular "lead", "follow-ups" stays plural at zero', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.intaken = 1;
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).toContain('Handled 1 lead overnight: 1 new, 0 follow-ups, 0 filtered. 0 need you today.');
+});
+
+test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plural "leads"', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.intaken = 2;
+  sections.systemHandled.followUpsFired = 1;
+  sections.systemHandled.noiseFiltered = 3;
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+  expect(result.body).toContain('Handled 6 leads overnight: 2 new, 1 follow-up, 3 filtered. 0 need you today.');
+});
+
 test('reliability errors > 0 — Reliability section renders', () => {
   const sections = makeEmptySections();
   sections.reliability = { errors: 2, retries: 1, threadingSkipped: 0 };

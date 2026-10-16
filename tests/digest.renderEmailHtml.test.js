@@ -98,6 +98,22 @@ test('opener renders when no urgent rows', () => {
   expect(html).toContain('0 need you today');
 });
 
+test('systemHandled totals to exactly 1 lead, singular "lead", "follow-ups" stays plural at zero', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.intaken = 1;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).toContain('Handled 1 lead overnight: 1 new, 0 follow-ups, 0 filtered. 0 need you today.');
+});
+
+test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plural "leads"', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.intaken = 2;
+  sections.systemHandled.followUpsFired = 1;
+  sections.systemHandled.noiseFiltered = 3;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).toContain('Handled 6 leads overnight: 2 new, 1 follow-up, 3 filtered. 0 need you today.');
+});
+
 // ── HOT category button ───────────────────────────────────────────────────────
 
 test('HOT urgent row: tel: link button with "Call Sarah" label', () => {
