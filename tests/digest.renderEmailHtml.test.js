@@ -111,7 +111,14 @@ test('exactly 1 follow-up fired, total other than 1, singular "follow-up", plura
   sections.systemHandled.followUpsFired = 1;
   sections.systemHandled.noiseFiltered = 3;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  expect(html).toContain('Leads: handled 6 overnight (2 new, 1 follow-up, 3 filtered). None need you.');
+  expect(html).toContain('Leads: handled 3 overnight (2 new, 1 follow-up). None need you.');
+});
+
+test('noise-only night: noiseFiltered > 0, intaken and followUpsFired both 0, opener reads quiet overnight', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseFiltered = 1;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+  expect(html).toContain('Leads: quiet overnight. None need you.');
 });
 
 // ── HOT category button ───────────────────────────────────────────────────────

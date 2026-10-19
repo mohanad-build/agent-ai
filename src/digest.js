@@ -203,8 +203,10 @@ function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0, leads) {
   }
   const intaken = systemHandled.intaken || 0;
   const followUpsFired = systemHandled.followUpsFired || 0;
-  const noiseFiltered = systemHandled.noiseFiltered || 0;
-  const total = intaken + followUpsFired + noiseFiltered;
+  // noiseFiltered is screened junk mail, never real lead activity, so it is
+  // not part of this line's total -- it renders only in "What the system
+  // handled".
+  const total = intaken + followUpsFired;
   if (total === 0 && hasUrgent) {
     const noun = urgentCount === 1 ? 'lead' : 'leads';
     const verb = urgentCount === 1 ? 'needs' : 'need';
@@ -219,7 +221,6 @@ function buildOpenerLine(systemHandled, hasUrgent, urgentCount = 0, leads) {
   const parts = [];
   if (intaken > 0) parts.push(`${intaken} new`);
   if (followUpsFired > 0) parts.push(`${followUpsFired} ${pluralize(followUpsFired, 'follow-up', 'follow-ups')}`);
-  if (noiseFiltered > 0) parts.push(`${noiseFiltered} filtered`);
   const base = `Leads: handled ${total} overnight (${parts.join(', ')}).`;
   return hasUrgent ? base : `${base} None need you.`;
 }
