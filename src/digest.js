@@ -542,7 +542,7 @@ function smsDecision(inputs) {
 /**
  * Entry point: per-agent daily brief.
  * Computes the trailing-24h coverage window from getNow() (per spec section 7.5,
- * MOCK_NOW is the canonical time-injection primitive — entry points compute their
+ * MOCK_NOW is the canonical time-injection primitive - entry points compute their
  * own windows rather than accepting them, so there is one source of truth for
  * "what time is it"). Gathers window data, categorizes rows, renders SMS + email,
  * sends both via agent's Gmail OAuth + Twilio. See spec sections 3, 4, 7.1, 7.2.
@@ -1649,7 +1649,7 @@ function categorizeRowsForDigest(rows, now) {
 
 /**
  * Pure function. Produces the three-line SMS string per spec section 3.1.
- * Line 1 always renders (the "Handled N overnight" framing — never quiet).
+ * Line 1 always renders (the "Handled N overnight" framing - never quiet).
  * Line 2 omitted if no urgent items. Line 3 always renders.
  *
  * @param {{intaken: number, followUpsFired: number, noiseFiltered: number, urgentCount: number, leads?: {status: string, errorKind: string|null}}} stats
@@ -2131,7 +2131,7 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
   const timezone  = operatorConfig.timezone || 'America/Toronto';
   const startLabel = formatWeeklyDate(weeklySections.windowStart, timezone);
   const endLabel   = formatWeeklyDate(weeklySections.windowEnd,   timezone);
-  const subject    = `Weekly digest — ${startLabel} to ${endLabel}`;
+  const subject    = `Weekly digest: ${startLabel} to ${endLabel}`;
 
   const {
     aggregate,
@@ -2157,7 +2157,7 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
       .filter(([key]) => key in aggregate)
       .map(([key, label]) => `${label}: ${aggregate[key]}`);
     if (lines.length > 0) {
-      parts.push(`— Aggregate stats —\n\n${lines.join('\n')}`);
+      parts.push(`-- Aggregate stats --\n\n${lines.join('\n')}`);
     }
   }
 
@@ -2179,13 +2179,13 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
         }
         shadowText += '\nThis is the number that justifies $500/month long-term.';
       }
-      parts.push(`— Shadow Mode catches —\n\n${shadowText}`);
+      parts.push(`-- Shadow Mode catches --\n\n${shadowText}`);
     }
   }
 
   if (churnRisk && churnRisk.length > 0) {
     const lines = churnRisk.map(a => `${a.agentName} (${a.agentId}): ${a.reasons.join(', ')}`);
-    parts.push(`— Churn risk —\n\n${lines.join('\n')}`);
+    parts.push(`-- Churn risk --\n\n${lines.join('\n')}`);
   }
 
   if (recentlyDeactivated && recentlyDeactivated.length > 0) {
@@ -2193,9 +2193,9 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
     const lines = recentlyDeactivated.map(a => {
       const daysAgo = Math.floor((now.getTime() - new Date(a.deactivatedAt).getTime()) / MS_DAY);
       const rel = daysAgo === 0 ? 'today' : daysAgo === 1 ? '1 day ago' : `${daysAgo} days ago`;
-      return `${a.agentName} (${a.agentId}) — deactivated ${rel}`;
+      return `${a.agentName} (${a.agentId}) - deactivated ${rel}`;
     });
-    parts.push(`— Agents recently deactivated —\n\n${lines.join('\n')}`);
+    parts.push(`-- Agents recently deactivated --\n\n${lines.join('\n')}`);
   }
 
   {
@@ -2208,16 +2208,14 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
         const lines = notFresh.map(s => {
           if (s.status === 'never_pulled') return `${s.name}: never pulled`;
           if (s.status === 'check_failed') return `${s.name} failed: ${s.checkError}`;
-          return `${s.name}: overdue — last pulled ${Math.round(s.ageHours)}h ago`;
+          return `${s.name}: overdue - last pulled ${Math.round(s.ageHours)}h ago`;
         });
-        parts.push(`— Data layer —\n\n${lines.join('\n')}`);
+        parts.push(`-- Data layer --\n\n${lines.join('\n')}`);
       }
     }
   }
 
-  // Restarts (docs/designs/cycle-guard.md decision 4). Hyphens, not the
-  // em dash the rest of this renderer's section headers use (CLAUDE.md
-  // rule 7; the rest of this file predates the rule, see STATE.md).
+  // Restarts (docs/designs/cycle-guard.md decision 4).
   if (restartLogError) {
     parts.push(`-- Restarts --\n\nThe restart log could not be read: ${restartLogError}`);
   } else if (restartCount > 0) {
@@ -2233,7 +2231,7 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
       `  Urgent items: ${a.urgentCount}`,
       `  Pre-flight skips this week: ${a.weeklyPreflightSkips}`,
     ].join('\n'));
-    parts.push(`— Per-agent breakdown —\n\n${blocks.join('\n\n')}`);
+    parts.push(`-- Per-agent breakdown --\n\n${blocks.join('\n\n')}`);
   }
 
   parts.push('Pre-flight skip counters reset after this digest.');
@@ -2245,7 +2243,7 @@ function renderWeeklyEmail(weeklySections, operatorConfig, now) {
  * Pure function. Produces the HTML email body for the operator weekly digest,
  * mirroring the daily HTML renderer pattern (same STYLE_TOKENS, same section
  * header style, same 560px centered container). No per-lead rows so no action
- * buttons — all content is aggregate statistics in muted text.
+ * buttons - all content is aggregate statistics in muted text.
  *
  * @param {object} weeklySections  same shape as renderWeeklyEmail input
  * @param {object} operatorConfig
@@ -2256,7 +2254,7 @@ function renderWeeklyEmailHtml(weeklySections, operatorConfig, now) {
   const timezone   = operatorConfig.timezone || 'America/Toronto';
   const startLabel = formatWeeklyDate(weeklySections.windowStart, timezone);
   const endLabel   = formatWeeklyDate(weeklySections.windowEnd,   timezone);
-  const subject    = `Weekly digest — ${startLabel} to ${endLabel}`;
+  const subject    = `Weekly digest: ${startLabel} to ${endLabel}`;
 
   const {
     aggregate,
@@ -2350,7 +2348,7 @@ function renderWeeklyEmailHtml(weeklySections, operatorConfig, now) {
     const lines = recentlyDeactivated.map(a => {
       const daysAgo = Math.floor((now.getTime() - new Date(a.deactivatedAt).getTime()) / MS_DAY);
       const rel = daysAgo === 0 ? 'today' : daysAgo === 1 ? '1 day ago' : `${daysAgo} days ago`;
-      return `${a.agentName} (${a.agentId}) — deactivated ${rel}`;
+      return `${a.agentName} (${a.agentId}) - deactivated ${rel}`;
     });
     parts.push(sectionHeader('Agents recently deactivated') + statLines(lines));
   }
@@ -2366,7 +2364,7 @@ function renderWeeklyEmailHtml(weeklySections, operatorConfig, now) {
         const lines = notFresh.map(s => {
           if (s.status === 'never_pulled') return `${s.name}: never pulled`;
           if (s.status === 'check_failed') return `${s.name} failed: ${s.checkError}`;
-          return `${s.name}: overdue — last pulled ${Math.round(s.ageHours)}h ago`;
+          return `${s.name}: overdue - last pulled ${Math.round(s.ageHours)}h ago`;
         });
         parts.push(sectionHeader('Data layer') + statLines(lines));
       }

@@ -46,9 +46,9 @@ test('returns { subject, html } object', () => {
 
 // ── Subject line ──────────────────────────────────────────────────────────────
 
-test('subject is "Weekly digest — May 10 to May 17"', () => {
+test('subject is "Weekly digest: May 10 to May 17"', () => {
   const result = renderWeeklyEmailHtml(makeWeeklySections(), BASE_OPERATOR, NOW);
-  expect(result.subject).toBe('Weekly digest — May 10 to May 17');
+  expect(result.subject).toBe('Weekly digest: May 10 to May 17');
 });
 
 // ── HTML structure ────────────────────────────────────────────────────────────

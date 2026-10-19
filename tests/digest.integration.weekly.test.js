@@ -87,17 +87,17 @@ const ACTIVE1_ROW = {
   rowIndex:            2,
 };
 
-// Splits body on `\n\n<em-dash> ` boundaries.
+// Splits body on `\n\n<marker> ` boundaries.
 function parseSections(emailBody) {
-  const EM = '—';
-  const chunks = emailBody.split(`\n\n${EM} `);
+  const MARK = '--';
+  const chunks = emailBody.split(`\n\n${MARK} `);
   const result = { opener: chunks[0].trim() };
   for (let i = 1; i < chunks.length; i++) {
     const chunk = chunks[i];
-    const titleEnd = chunk.indexOf(` ${EM}`);
+    const titleEnd = chunk.indexOf(` ${MARK}`);
     if (titleEnd === -1) continue;
     const title   = chunk.slice(0, titleEnd).trim();
-    const content = chunk.slice(titleEnd + 2).replace(/^\n+/, '').trim();
+    const content = chunk.slice(titleEnd + 1 + MARK.length).replace(/^\n+/, '').trim();
     const key = title.toLowerCase()
       .replace(/[()]/g, '')
       .replace(/[^a-z0-9]+/g, '_')
@@ -173,10 +173,9 @@ describe('runWeeklyDigestForOperator integration', () => {
   });
 
   test('email recipient is operator email', () => {
-    const EM = '—';
     expect(capturedEmailArgs.to).toBe('op@example.com');
-    // subject format: Weekly digest <em-dash> <start> to <end>
-    expect(capturedEmailArgs.subject).toBe(`Weekly digest ${EM} May 10 to May 17`);
+    // subject format: Weekly digest: <start> to <end>
+    expect(capturedEmailArgs.subject).toBe('Weekly digest: May 10 to May 17');
   });
 
   test('shadow mode catches section reflects aggregate of both agents', () => {
