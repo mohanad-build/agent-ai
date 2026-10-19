@@ -26,17 +26,17 @@ function makeEmptySections() {
   };
 }
 
-test('quiet day — subject is date-formatted, body has systemHandled only', () => {
+test('quiet day — subject is date-formatted, body has no Handled section since every count is zero', () => {
   const sections = makeEmptySections();
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.subject).toBe('Your morning brief — Tuesday, May 12');
-  expect(result.body).toContain('— What the system handled —');
+  expect(result.body).not.toContain('What the system handled');
   expect(result.body).not.toContain('— Needs you today —');
   expect(result.body).not.toContain('— Hot leads to call today —');
   expect(result.body).not.toContain('— Reliability —');
   expect(result.body).toContain('None need you.');
-  expect(result.body).toContain('New leads: 0');
+  expect(result.body).not.toContain('New leads:');
 });
 
 test('day with one urgent HOT lead — subject names the lead, Needs you today section renders', () => {
@@ -52,7 +52,7 @@ test('day with one urgent HOT lead — subject names the lead, Needs you today s
   expect(result.subject).toBe('Your morning brief — Sarah needs you today');
   expect(result.body).toContain('— Needs you today —');
   expect(result.body).toContain('Sarah K');
-  expect(result.body).toContain('— What the system handled —');
+  expect(result.body).not.toContain('What the system handled');
   expect(result.body).not.toContain('Handled');
   expect(result.body).not.toContain('this morning');
 });
@@ -244,14 +244,14 @@ test('when buildActionLink returns null — no arrow action line rendered', () =
   expect(result.body).not.toContain('→');
 });
 
-test('systemHandled with all zero counts renders exactly the two Path B lines', () => {
+test('systemHandled with all zero counts omits the section entirely, heading included', () => {
   const sections = makeEmptySections();
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.body).toContain('— What the system handled —');
-  expect(result.body).toContain('New leads: 0');
-  expect(result.body).toContain('Follow-ups fired: 0');
-  expect(result.body).not.toContain('Emails marked as not a lead:');
+  expect(result.body).not.toContain('What the system handled');
+  expect(result.body).not.toContain('New leads:');
+  expect(result.body).not.toContain('Follow-ups fired:');
+  expect(result.body).not.toContain('Emails screened out as not a lead:');
   expect(result.body).not.toContain('Business correspondence ignored:');
   expect(result.body).not.toContain('HOT alerts sent:');
 });
@@ -263,13 +263,14 @@ test('agent brief never mentions pre-flight skips, even when the counter is pres
   expect(result.body).not.toContain('Pre-flight');
 });
 
-test('systemHandled section renders the Emails marked as not a lead line when the field is present', () => {
+test('systemHandled section renders the Emails screened out as not a lead line when the field is present', () => {
   const sections = makeEmptySections();
   sections.systemHandled.noiseFiltered = 4;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).toContain('— What the system handled —');
-  expect(result.body).toContain('Emails marked as not a lead: 4');
+  expect(result.body).toContain('Emails screened out as not a lead: 4');
+  expect(result.body).toContain('Find them under the label agent-ai/noise');
 });
 
 test('leads unavailable (permission): warning opener, no Handled line, only noiseFiltered in systemHandled', () => {
@@ -280,7 +281,7 @@ test('leads unavailable (permission): warning opener, no Handled line, only nois
 
   expect(result.body).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
   expect(result.body).not.toContain('Handled');
-  expect(result.body).toContain('Emails marked as not a lead: 3');
+  expect(result.body).toContain('Emails screened out as not a lead: 3');
   expect(result.body).not.toContain('New leads:');
   expect(result.body).not.toContain('Follow-ups fired:');
 });
@@ -292,7 +293,7 @@ test('leads not_configured: What the system handled is omitted entirely, header 
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
   expect(result.body).not.toContain('What the system handled');
-  expect(result.body).not.toContain('Emails marked as not a lead:');
+  expect(result.body).not.toContain('Emails screened out as not a lead:');
 });
 
 test('leads not_configured with urgent rows: opener is still suppressed, rest of body unaffected', () => {
@@ -310,22 +311,33 @@ test('leads not_configured with urgent rows: opener is still suppressed, rest of
   expect(result.body).not.toContain('What the system handled');
 });
 
-test('noiseArchived > 0 renders the search-your-inbox instruction', () => {
+test('noiseFiltered > 0, noiseArchived 0: no bracket, label line still renders', () => {
   const sections = makeEmptySections();
-  sections.systemHandled.noiseArchived = 3;
+  sections.systemHandled.noiseFiltered = 3;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.body).toContain('Emails moved to your noise label: 3');
-  expect(result.body).toContain('Search your inbox for the label: agent-ai/noise');
+  expect(result.body).toContain('Emails screened out as not a lead: 3');
+  expect(result.body).not.toContain('moved out of your inbox');
+  expect(result.body).toContain('Find them under the label agent-ai/noise');
 });
 
-test('noiseArchived = 0 renders the count but not the search-your-inbox instruction', () => {
+test('noiseFiltered > 0, noiseArchived > 0: bracket renders with the archived count on the same line', () => {
   const sections = makeEmptySections();
-  sections.systemHandled.noiseArchived = 0;
+  sections.systemHandled.noiseFiltered = 3;
+  sections.systemHandled.noiseArchived = 2;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.body).toContain('Emails moved to your noise label: 0');
-  expect(result.body).not.toContain('Search your inbox for the label:');
+  expect(result.body).toContain('Emails screened out as not a lead: 3 (2 moved out of your inbox)');
+  expect(result.body).toContain('Find them under the label agent-ai/noise');
+});
+
+test('noiseArchived > 0 with noiseFiltered 0 (should not happen in practice): row and label line both stay hidden, gated on noiseFiltered not noiseArchived', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseArchived = 2;
+  const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
+
+  expect(result.body).not.toContain('moved out of your inbox');
+  expect(result.body).not.toContain('Find them under the label agent-ai/noise');
 });
 
 test('hotLeads row with cooling=true renders the cooling marker', () => {

@@ -301,8 +301,9 @@ describe('deals path throws: lead brief unchanged, honest line present, failure 
     expect(captured.sms).not.toContain('📋');
     expect(captured.email.body).toContain("-- Deals needing you --\n\nDeal updates couldn't be loaded this morning. Mo has been told.");
     expect(captured.email.html).toContain("Deal updates couldn't be loaded this morning. Mo has been told.");
-    // The lead section ("What the system handled") still renders normally.
-    expect(captured.email.body).toContain('What the system handled');
+    // No Sheet rows means every systemHandled count is zero, so the section
+    // is correctly omitted; the deals line above is unaffected either way.
+    expect(captured.email.body).not.toContain('What the system handled');
   });
 });
 

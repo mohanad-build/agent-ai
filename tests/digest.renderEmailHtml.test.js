@@ -74,7 +74,9 @@ test('fontStack token appears in HTML output', () => {
 });
 
 test('mutedTextColor token used on systemHandled section', () => {
-  const { html } = renderEmailHtml(makeEmptySections(), BASE_AGENT, NOW);
+  const sections = makeEmptySections();
+  sections.systemHandled.intaken = 1;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
   expect(html).toContain(T.mutedTextColor);
 });
 
@@ -313,10 +315,10 @@ test('HOT lead in urgent is not also shown in hot leads section', () => {
 
 // ── systemHandled always renders ──────────────────────────────────────────────
 
-test('systemHandled section always present, shows New leads count', () => {
+test('systemHandled with all zero counts omits the section entirely, heading included', () => {
   const { html } = renderEmailHtml(makeEmptySections(), BASE_AGENT, NOW);
-  expect(html).toContain('What the system handled');
-  expect(html).toContain('New leads: 0');
+  expect(html).not.toContain('What the system handled');
+  expect(html).not.toContain('New leads:');
 });
 
 test('leads unavailable (permission): warning opener, no Handled text, only noiseFiltered in systemHandled', () => {
@@ -327,7 +329,7 @@ test('leads unavailable (permission): warning opener, no Handled text, only nois
 
   expect(html).toContain("Couldn't read your lead sheet this morning (access denied), so leads aren't in this brief.");
   expect(html).not.toContain('Handled');
-  expect(html).toContain('Emails marked as not a lead: 3');
+  expect(html).toContain('Emails screened out as not a lead: 3');
   expect(html).not.toContain('New leads:');
   expect(html).not.toContain('Follow-ups fired:');
 });
@@ -339,7 +341,7 @@ test('leads not_configured: What the system handled is omitted entirely, header 
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
   expect(html).not.toContain('What the system handled');
-  expect(html).not.toContain('Emails marked as not a lead:');
+  expect(html).not.toContain('Emails screened out as not a lead:');
 });
 
 test('agent brief never mentions pre-flight skips, even when the counter is present on sections', () => {
@@ -349,23 +351,34 @@ test('agent brief never mentions pre-flight skips, even when the counter is pres
   expect(html).not.toContain('Pre-flight');
 });
 
-test('noiseArchived > 0 renders the search-your-inbox instruction with muted styling, no link', () => {
+test('noiseFiltered > 0, noiseArchived 0: no bracket, label line still renders, muted styling', () => {
   const sections = makeEmptySections();
-  sections.systemHandled.noiseArchived = 3;
+  sections.systemHandled.noiseFiltered = 3;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
-  expect(html).toContain('Emails moved to your noise label: 3');
-  expect(html).toContain('Search your inbox for the label: agent-ai/noise');
+  expect(html).toContain('Emails screened out as not a lead: 3');
+  expect(html).not.toContain('moved out of your inbox');
+  expect(html).toContain('Find them under the label agent-ai/noise');
   expect(html).not.toContain('<a href="https://mail.google.com');
   expect(html).toContain(`color:${T.mutedTextColor}`);
 });
 
-test('noiseArchived = 0 renders the count but no search-your-inbox instruction', () => {
+test('noiseFiltered > 0, noiseArchived > 0: bracket renders with the archived count on the same line', () => {
   const sections = makeEmptySections();
-  sections.systemHandled.noiseArchived = 0;
+  sections.systemHandled.noiseFiltered = 3;
+  sections.systemHandled.noiseArchived = 2;
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
 
-  expect(html).toContain('Emails moved to your noise label: 0');
+  expect(html).toContain('Emails screened out as not a lead: 3 (2 moved out of your inbox)');
+  expect(html).toContain('Find them under the label agent-ai/noise');
+});
+
+test('noiseArchived > 0 with noiseFiltered 0 (should not happen in practice): row and label line both stay hidden, gated on noiseFiltered not noiseArchived', () => {
+  const sections = makeEmptySections();
+  sections.systemHandled.noiseArchived = 2;
+  const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
+
+  expect(html).not.toContain('moved out of your inbox');
   expect(html).not.toContain('agent-ai/noise');
 });
 

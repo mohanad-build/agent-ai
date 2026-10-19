@@ -350,7 +350,7 @@ describe('runDailyDigestForAgent integration', () => {
 
     await runDailyDigestForAgent(AGENT, { baseDir });
 
-    expect(capturedEmailArgs.body).toContain('Emails marked as not a lead: 37');
+    expect(capturedEmailArgs.body).toContain('Emails screened out as not a lead: 37');
     expect(capturedEmailArgs.body).not.toContain('99');
   });
 

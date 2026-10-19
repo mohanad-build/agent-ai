@@ -240,14 +240,36 @@ const WEEKLY_AGGREGATE_LABELS = {
 };
 
 // Renderer-owned label map for Path B systemHandled section. Key order = render order.
-// Only keys present in the data object will produce a line (absent keys are silently skipped).
+// Only keys present in the data object with a non-zero value produce a line
+// (absent or zero-valued keys are silently skipped; noiseArchived has no
+// entry of its own, see buildSystemHandledLines).
 const SYSTEM_HANDLED_LABELS = {
   intaken: 'New leads',
-  noiseFiltered: 'Emails marked as not a lead',
-  noiseArchived: 'Emails moved to your noise label',
+  noiseFiltered: 'Emails screened out as not a lead',
   followUpsFired: 'Follow-ups fired',
   soiFiltered: 'SOI rows excluded',
 };
+
+// Shared by renderEmail and renderEmailHtml so the two can never drift on
+// wording. noiseArchived is a subset of noiseFiltered (every archived email
+// was already counted as filtered), so it renders as a bracket on the same
+// line rather than a row of its own. The label-line below it is gated on
+// noiseFiltered, since the agent-ai/noise label is applied to every
+// screened email, not only the ones also removed from the inbox.
+function buildSystemHandledLines(sh) {
+  const lines = Object.entries(SYSTEM_HANDLED_LABELS)
+    .filter(([key]) => key in sh && sh[key] > 0)
+    .map(([key, label]) => {
+      if (key !== 'noiseFiltered') return `${label}: ${sh[key]}`;
+      const archived = sh.noiseArchived || 0;
+      const bracket = archived > 0 ? ` (${archived} moved out of your inbox)` : '';
+      return `${label}: ${sh[key]}${bracket}`;
+    });
+  if (sh.noiseFiltered > 0) {
+    lines.push('Find them under the label agent-ai/noise');
+  }
+  return lines;
+}
 
 // Design tokens for HTML email rendering (Decision 4). All visual choices live
 // here. Branding update = change tokens, nothing else.
@@ -1764,16 +1786,14 @@ function renderEmail(sections, agentConfig, now) {
     parts.push(`${header}\n\n${rows.join('\n')}`);
   }
 
-  // Omitted for not_configured: see the function docstring above.
+  // Omitted for not_configured: see the function docstring above. Also
+  // omitted, heading included, when every row would be zero -- a row an
+  // agent cannot act on is not worth a line.
   if (leadsStatus !== 'not_configured') {
-    const sh = systemHandled;
-    const lines = Object.entries(SYSTEM_HANDLED_LABELS)
-      .filter(([key]) => key in sh)
-      .map(([key, label]) => `${label}: ${sh[key]}`);
-    if (sh.noiseArchived > 0) {
-      lines.push('Search your inbox for the label: agent-ai/noise');
+    const lines = buildSystemHandledLines(systemHandled);
+    if (lines.length > 0) {
+      parts.push(`— What the system handled —\n\n${lines.join('\n')}`);
     }
-    parts.push(`— What the system handled —\n\n${lines.join('\n')}`);
   }
 
   {
@@ -1932,20 +1952,17 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
     }
   }
 
-  // What the system handled (muted text, no buttons; omitted for not_configured, see renderEmail)
+  // What the system handled (muted text, no buttons; omitted for not_configured,
+  // see renderEmail; also omitted, heading included, when every row is zero)
   if (leadsStatus !== 'not_configured') {
-    const sh = systemHandled;
-    const lines = Object.entries(SYSTEM_HANDLED_LABELS)
-      .filter(([key]) => key in sh)
-      .map(([key, label]) => `<div>${esc(`${label}: ${sh[key]}`)}</div>`)
-      .join('');
-    const noiseArchivedLink = sh.noiseArchived > 0
-      ? `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};font-family:${T.fontStack};">Search your inbox for the label: agent-ai/noise</div>`
-      : '';
-    parts.push(
-      sectionHeader('What the system handled') +
-      `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};">${lines}${noiseArchivedLink}</div>`
-    );
+    const lines = buildSystemHandledLines(systemHandled);
+    if (lines.length > 0) {
+      const htmlLines = lines.map((line) => `<div>${esc(line)}</div>`).join('');
+      parts.push(
+        sectionHeader('What the system handled') +
+        `<div style="color:${T.mutedTextColor};font-size:${T.fontSize};">${htmlLines}</div>`
+      );
+    }
   }
 
   // Reliability (only when non-zero)
