@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 88 (2026-10-16).
+Last updated: session 89 (2026-10-19).
 
 ## What GetKlosed is
 
@@ -46,6 +46,24 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
+## Session 89: brief copy fixes from the first live weekend, Commit A2
+
+Tests 4174/173 to 4179/173. Branch `session-89`, not merged.
+
+| Commit | What |
+|---|---|
+| `cd3c4f7` | The leads opener's total drops `noiseFiltered`: screened junk mail is no longer counted as "handled" leads. A noise-only night now reads "Leads: quiet overnight" instead of naming a filtered email as if it were a lead |
+| `9321572` | "What the system handled": any row at zero is omitted, and the whole section (heading included) is omitted when every row would be zero. `noiseFiltered` and `noiseArchived` collapse into one line ("Emails screened out as not a lead: N (M moved out of your inbox)"), since archived is always a subset of filtered; the "Find them under the label agent-ai/noise" line is gated on `noiseFiltered`, not `noiseArchived`, since the label is applied to every screened email |
+| `19f2e6a` | No em or en dashes in the daily brief: subjects read "Your morning brief: `<name>` needs you today" / "Your morning brief for `<date>`" (matching `dealsSubject`'s existing colon convention); plain-text section headers use "-- Title --" (matching `digestDeals.js`'s existing "-- Deals needing you --"); row separators use " - " |
+| `fdc4faf` | Same treatment for the weekly digest to Mo. The dash scan over `src/digest.js` and `src/digestDeals.js` now returns zero |
+
+Evidence: the three real `mo-test` briefs from the first live weekend (Oct 17-19) -- a noise-only
+night read as if a lead had been filtered, and a quiet day printed four zero-count rows under a
+heading that implied the system had done something.
+
+DO NOT MERGE yet: this branch waits for the live check of Commit B (Session 88), running the
+morning of 2026-10-20.
+
 ## Session 88: brief polish, Commit B (SMS only when something needs the agent)
 
 Tests 4132/170 to 4156/171.
@@ -67,6 +85,16 @@ the send -- an unreadable deal file is additive with a real alert, never replace
 Live check still open: nothing below has been watched on a real phone yet. Before a founding agent
 relies on this, confirm a genuinely quiet morning produces no text, and that a couldnt_check morning
 reads as intended on an iPhone.
+
+Follow-up, same session, after the table above was written (missed by its own docs commit `b553017`
+until now): every "Mo has been told" SMS and email line checked for honesty when the operator
+config itself cannot be read.
+
+| Commit | What |
+|---|---|
+| `33bbd35` | Drops "Mo has been told" from the SMS lines (Sheet unavailable, deals unavailable, unreadable deal files) when the operator alert that sentence promises cannot actually be sent |
+| `7377b61` | `operatorAlertReachable` made total: wrapped so a malformed or missing operator config (`loadOperator` returning `null`, `undefined`, or an object with no `operatorEmail`) returns false instead of throwing. The same honesty check carried into every matching email line (`dealsErrorPlain`, `dealsErrorHtml`, `unreadableLine`, the Sheet-unavailable email) |
+| `67ad2ec` | `resolveOperatorEmailForDeals` guarded the same way (never throws, falls back to the operator contact address). Precision fix on `alertOperatorSheetUnavailable` and `alertOperatorDealsUnavailable`: a `null` operator config now reports `no_operator_email` instead of the generic `error` (both functions already had an outer try/catch, so this was never a crash risk, only a reporting one) |
 
 ## Session 87: brief polish, Commit A (copy and layout only)
 
@@ -335,7 +363,9 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
    `42c1eb1`, `aa09926`, `69f9b69`.
    Commit B (behavior, Session 88): Done. SMS only when something needs the agent -- see Session 88
    above for the invariant and the commit list. The email brief is unchanged.
-   Still open, not part of either commit batch: filtered items listed inline when few (parked below,
+   Commit A2 (copy, Session 89): Built, not yet merged -- see Session 89 above. Waits for the Commit
+   B live check before merging, since both touch the same send path on the same morning.
+   Still open, not part of any commit batch: filtered items listed inline when few (parked below,
    needs a capture design first); a human-readable confirmation reply subject (parked below, a real
    threading risk found during Commit A's recon). Sender move to `assistant@getklosed.ca` pulled out
    of this batch: needs (a) lead intake skipping our own getklosed.ca senders, now done (Session 86),
@@ -385,13 +415,6 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 - Pre-existing, kept as-is by session 82's reminder-branch split: when the reminder text sends but
   the Sheet write fails, `reminderSent` is never recorded, so the reminder is sent again every cycle
   until the Sheet recovers.
-- Em dashes predating CLAUDE.md rule 7, wider than previously recorded here: not just the weekly
-  digest's plain-text section headers (for example "Aggregate stats"), but the daily, agent-facing
-  brief too, section headers ("Needs you today", "Hot leads to call today", "What the system
-  handled") and row lines ("John D, needs review", "Sarah K, flagged hot, 45 Maple") throughout
-  `renderEmail`/`renderEmailHtml`. Convert both renderers' em dashes to hyphens together, since they
-  are the same class of debt from the same era. Session 82's new Restarts section already uses
-  hyphens; the rest of both renderers predates the rule.
 - The onboarding done page writes the agent's name and Gmail address into the page unescaped (only
   the person who typed them sees it).
 - The 30-minute watchdog assumes no healthy cycle runs that long. Watch the "cycle finished in Nm"
