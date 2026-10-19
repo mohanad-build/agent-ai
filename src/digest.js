@@ -1716,8 +1716,8 @@ function renderEmail(sections, agentConfig, now) {
   const gid = agentConfig.googleSheetId;
 
   const subject = urgent.length > 0
-    ? `Your morning brief — ${urgent[0].firstName} needs you today`
-    : `Your morning brief — ${formatDailyDate(now, timezone)}`;
+    ? `Your morning brief: ${urgent[0].firstName} needs you today`
+    : `Your morning brief for ${formatDailyDate(now, timezone)}`;
 
   const parts = [];
 
@@ -1733,8 +1733,8 @@ function renderEmail(sections, agentConfig, now) {
       const ctx = urgentDisplayContext(u);
       const dropCtx = u.propertyReference == null && CONTEXT_FALLBACKS.has(ctx);
       let line = dropCtx
-        ? `${u.firstName} ${u.lastInitial} — ${verb}`
-        : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
+        ? `${u.firstName} ${u.lastInitial} - ${verb}`
+        : `${u.firstName} ${u.lastInitial} - ${verb} - ${ctx}`;
       const link = buildActionLink(u, agentConfig);
       if (link) line += link.url ? `\n→ ${link.label}: ${link.url}` : `\n→ ${link.text}`;
       if (u.category === 'HOT' && u.leadId) {
@@ -1742,46 +1742,46 @@ function renderEmail(sections, agentConfig, now) {
       }
       return line;
     });
-    parts.push(`— Needs you today —\n\n${rows.join('\n')}`);
+    parts.push(`-- Needs you today --\n\n${rows.join('\n')}`);
   }
 
   const urgentRowIndexes = new Set(urgent.filter(u => u.rowIndex != null).map(u => u.rowIndex));
   const deduplicatedHotLeads = hotLeads.filter(r => !urgentRowIndexes.has(r.rowIndex));
   if (deduplicatedHotLeads.length > 0) {
     const rows = deduplicatedHotLeads.map(r => {
-      let line = `${r.firstName} ${r.lastInitial} — ${r.propertyReference || '(property not captured)'} — last touch ${r.daysAgo}d ago`;
+      let line = `${r.firstName} ${r.lastInitial} - ${r.propertyReference || '(property not captured)'} - last touch ${r.daysAgo}d ago`;
       if (r.cooling) line += ` (cooling, no activity ${HOT_COOLING_DAYS}d+)`;
       const link = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
       if (link) line += link.url ? `\n→ ${link.label}: ${link.url}` : `\n→ ${link.text}`;
       line += calledAffordanceText(r.leadId);
       return line;
     });
-    parts.push(`— Hot leads to call today —\n\n${rows.join('\n')}`);
+    parts.push(`-- Hot leads to call today --\n\n${rows.join('\n')}`);
   }
 
   if (newToReview.length > 0) {
     const rows = newToReview.map(r =>
-      `${r.firstName} ${r.lastInitial} — ${r.sourceEmailSubject} — ${r.whyFlagged}`
+      `${r.firstName} ${r.lastInitial} - ${r.sourceEmailSubject} - ${r.whyFlagged}`
     );
-    parts.push(`— Possible new leads to review —\n\n${rows.join('\n')}`);
+    parts.push(`-- Possible new leads to review --\n\n${rows.join('\n')}`);
   }
 
   if (followUpsDue.length > 0) {
     const rows = followUpsDue.map(r => {
-      let line = `${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${r.daysSinceLastTouch}d since last touch — ${r.propertyReference}`;
+      let line = `${r.firstName} ${r.lastInitial} - Day ${r.touchDay} - ${r.daysSinceLastTouch}d since last touch - ${r.propertyReference}`;
       if (gid && r.rowIndex != null) line += ` (${sheetLink(gid, r.rowIndex)})`;
       return line;
     });
-    parts.push(`— Follow-ups due today —\n\n${rows.join('\n')}`);
+    parts.push(`-- Follow-ups due today --\n\n${rows.join('\n')}`);
   }
 
   if (followUpsFiredOvernight.length > 0) {
     const allLive = followUpsFiredOvernight.every(r => r.mode === 'live');
     const header = allLive
-      ? '— Follow-ups sent overnight —'
-      : '— Follow-ups fired overnight (shadow drafts) —';
+      ? '-- Follow-ups sent overnight --'
+      : '-- Follow-ups fired overnight (shadow drafts) --';
     const rows = followUpsFiredOvernight.map(r =>
-      `${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${r.mode === 'live' ? 'sent' : 'draft in inbox'}`
+      `${r.firstName} ${r.lastInitial} - Day ${r.touchDay} - ${r.mode === 'live' ? 'sent' : 'draft in inbox'}`
     );
     parts.push(`${header}\n\n${rows.join('\n')}`);
   }
@@ -1792,7 +1792,7 @@ function renderEmail(sections, agentConfig, now) {
   if (leadsStatus !== 'not_configured') {
     const lines = buildSystemHandledLines(systemHandled);
     if (lines.length > 0) {
-      parts.push(`— What the system handled —\n\n${lines.join('\n')}`);
+      parts.push(`-- What the system handled --\n\n${lines.join('\n')}`);
     }
   }
 
@@ -1804,7 +1804,7 @@ function renderEmail(sections, agentConfig, now) {
         `Retries: ${r.retries}`,
         `Threading-skipped follow-ups: ${r.threadingSkipped}`,
       ];
-      parts.push(`— Reliability —\n\n${lines.join('\n')}`);
+      parts.push(`-- Reliability --\n\n${lines.join('\n')}`);
     }
   }
 
@@ -1815,7 +1815,7 @@ function renderEmail(sections, agentConfig, now) {
  * Pure function. Produces the HTML email body for the daily digest per the
  * HTML email spec (Decisions 1-10). Same section ordering and input shape as
  * renderEmail. All styles inline (Gmail strips <style> blocks). All visual
- * values sourced from STYLE_TOKENS — no hardcoded colours or sizes in templates.
+ * values sourced from STYLE_TOKENS - no hardcoded colours or sizes in templates.
  *
  * Each urgent/hotLeads row renders as:
  *   <div> row text </div>
@@ -1835,8 +1835,8 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
   const timezone = agentConfig.timezone || 'America/Toronto';
 
   const subject = urgent.length > 0
-    ? `Your morning brief — ${urgent[0].firstName} needs you today`
-    : `Your morning brief — ${formatDailyDate(now, timezone)}`;
+    ? `Your morning brief: ${urgent[0].firstName} needs you today`
+    : `Your morning brief for ${formatDailyDate(now, timezone)}`;
 
   const T = STYLE_TOKENS;
   const parts = [];
@@ -1867,7 +1867,7 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
     );
   }
 
-  // Opener (suppressed when urgent rows exist — section headers carry the tone)
+  // Opener (suppressed when urgent rows exist - section headers carry the tone)
   if (urgent.length === 0) {
     const opener = buildOpenerLine(systemHandled, false, 0, leads);
     if (opener !== null) {
@@ -1884,8 +1884,8 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
       const ctx  = urgentDisplayContext(u);
       const dropCtx = u.propertyReference == null && CONTEXT_FALLBACKS_HTML.has(ctx);
       const rowText = dropCtx
-        ? `${u.firstName} ${u.lastInitial} — ${verb}`
-        : `${u.firstName} ${u.lastInitial} — ${verb} — ${ctx}`;
+        ? `${u.firstName} ${u.lastInitial} - ${verb}`
+        : `${u.firstName} ${u.lastInitial} - ${verb} - ${ctx}`;
       const link = buildActionLink(u, agentConfig);
       const calledLine = (u.category === 'HOT' && u.leadId) ? calledAffordanceHtml(u.leadId, u.firstName, T) : '';
       parts.push(
@@ -1906,7 +1906,7 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
     for (const r of deduplicatedHotLeads) {
       const propRef  = r.propertyReference || '(property not captured)';
       const coolingSuffix = r.cooling ? ` (cooling, no activity ${HOT_COOLING_DAYS}d+)` : '';
-      const rowText  = `${r.firstName} ${r.lastInitial} — ${propRef} — last touch ${r.daysAgo}d ago${coolingSuffix}`;
+      const rowText  = `${r.firstName} ${r.lastInitial} - ${propRef} - last touch ${r.daysAgo}d ago${coolingSuffix}`;
       const link     = buildActionLink({ ...r, category: 'HOT' }, agentConfig);
       const calledLine = calledAffordanceHtml(r.leadId, r.firstName, T);
       parts.push(
@@ -1919,12 +1919,12 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
     }
   }
 
-  // Possible new leads to review (no buttons — agent reviews manually)
+  // Possible new leads to review (no buttons - agent reviews manually)
   if (newToReview.length > 0) {
     parts.push(sectionHeader('Possible new leads to review'));
     for (const r of newToReview) {
       parts.push(
-        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} — ${r.sourceEmailSubject}`)}</div>`
+        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} - ${r.sourceEmailSubject}`)}</div>`
       );
     }
   }
@@ -1934,7 +1934,7 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
     parts.push(sectionHeader('Follow-ups due today'));
     for (const r of followUpsDue) {
       parts.push(
-        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${r.daysSinceLastTouch}d since last touch`)}</div>`
+        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} - Day ${r.touchDay} - ${r.daysSinceLastTouch}d since last touch`)}</div>`
       );
     }
   }
@@ -1947,7 +1947,7 @@ function renderEmailHtml(sections, agentConfig, now, dealsHtml = '') {
     for (const r of followUpsFiredOvernight) {
       const status = r.mode === 'live' ? 'sent' : 'draft in inbox';
       parts.push(
-        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} — Day ${r.touchDay} — ${status}`)}</div>`
+        `<div style="margin-bottom:8px;">${esc(`${r.firstName} ${r.lastInitial} - Day ${r.touchDay} - ${status}`)}</div>`
       );
     }
   }

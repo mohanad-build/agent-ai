@@ -30,11 +30,11 @@ test('quiet day — subject is date-formatted, body has no Handled section since
   const sections = makeEmptySections();
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.subject).toBe('Your morning brief — Tuesday, May 12');
+  expect(result.subject).toBe('Your morning brief for Tuesday, May 12');
   expect(result.body).not.toContain('What the system handled');
-  expect(result.body).not.toContain('— Needs you today —');
-  expect(result.body).not.toContain('— Hot leads to call today —');
-  expect(result.body).not.toContain('— Reliability —');
+  expect(result.body).not.toContain('-- Needs you today --');
+  expect(result.body).not.toContain('-- Hot leads to call today --');
+  expect(result.body).not.toContain('-- Reliability --');
   expect(result.body).toContain('None need you.');
   expect(result.body).not.toContain('New leads:');
 });
@@ -49,8 +49,8 @@ test('day with one urgent HOT lead — subject names the lead, Needs you today s
 
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.subject).toBe('Your morning brief — Sarah needs you today');
-  expect(result.body).toContain('— Needs you today —');
+  expect(result.subject).toBe('Your morning brief: Sarah needs you today');
+  expect(result.body).toContain('-- Needs you today --');
   expect(result.body).toContain('Sarah K');
   expect(result.body).not.toContain('What the system handled');
   expect(result.body).not.toContain('Handled');
@@ -86,7 +86,7 @@ test('reliability errors > 0 — Reliability section renders', () => {
 
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.body).toContain('— Reliability —');
+  expect(result.body).toContain('-- Reliability --');
   expect(result.body).toContain('Errors: 2');
   expect(result.body).toContain('Retries: 1');
 });
@@ -94,7 +94,7 @@ test('reliability errors > 0 — Reliability section renders', () => {
 test('reliability all zero — Reliability section does not render', () => {
   const sections = makeEmptySections();
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
-  expect(result.body).not.toContain('— Reliability —');
+  expect(result.body).not.toContain('-- Reliability --');
 });
 
 test('Sheet links present when googleSheetId set — hot lead row includes full link', () => {
@@ -133,16 +133,16 @@ test('shadow mode rows use shadow header; live mode rows use live header', () =>
     firstName: 'Jane', lastInitial: 'S', touchDay: 3, mode: 'shadow', rowIndex: 7,
   }];
   const shadowResult = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
-  expect(shadowResult.body).toContain('— Follow-ups fired overnight (shadow drafts) —');
-  expect(shadowResult.body).toContain('Jane S — Day 3 — draft in inbox');
+  expect(shadowResult.body).toContain('-- Follow-ups fired overnight (shadow drafts) --');
+  expect(shadowResult.body).toContain('Jane S - Day 3 - draft in inbox');
 
   // Live
   sections.followUpsFiredOvernight = [{
     firstName: 'Jane', lastInitial: 'S', touchDay: 7, mode: 'live', rowIndex: 7,
   }];
   const liveResult = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
-  expect(liveResult.body).toContain('— Follow-ups sent overnight —');
-  expect(liveResult.body).toContain('Jane S — Day 7 — sent');
+  expect(liveResult.body).toContain('-- Follow-ups sent overnight --');
+  expect(liveResult.body).toContain('Jane S - Day 7 - sent');
 });
 
 // ── Option A plaintext action lines ──────────────────────────────────────────
@@ -268,7 +268,7 @@ test('systemHandled section renders the Emails screened out as not a lead line w
   sections.systemHandled.noiseFiltered = 4;
   const result = renderEmail(sections, BASE_AGENT_CONFIG, NOW);
 
-  expect(result.body).toContain('— What the system handled —');
+  expect(result.body).toContain('-- What the system handled --');
   expect(result.body).toContain('Emails screened out as not a lead: 4');
   expect(result.body).toContain('Find them under the label agent-ai/noise');
 });

@@ -93,22 +93,22 @@ function makeColumnL(entries) {
   return entries.map(e => `[${e.timestamp}] ${e.text}`).join('\n');
 }
 
-// Splits body on `\n\n<em-dash> ` boundaries.
+// Splits body on `\n\n<marker> ` boundaries.
 // Returns { opener, key1: content, key2: content, ... }
 // Key = section title lowercased with non-alnum replaced by underscores.
 function parseSections(emailBody) {
-  const EM = '—';
+  const MARK = '--';
   // When urgent rows exist the email leads directly with a section header (no opener).
   // Prepend \n\n so the split delimiter catches it too.
-  const normalized = emailBody.startsWith(`${EM} `) ? `\n\n${emailBody}` : emailBody;
-  const chunks = normalized.split(`\n\n${EM} `);
+  const normalized = emailBody.startsWith(`${MARK} `) ? `\n\n${emailBody}` : emailBody;
+  const chunks = normalized.split(`\n\n${MARK} `);
   const result = { opener: chunks[0].trim() };
   for (let i = 1; i < chunks.length; i++) {
     const chunk = chunks[i];
-    const titleEnd = chunk.indexOf(` ${EM}`);
+    const titleEnd = chunk.indexOf(` ${MARK}`);
     if (titleEnd === -1) continue;
     const title   = chunk.slice(0, titleEnd).trim();
-    const content = chunk.slice(titleEnd + 2).replace(/^\n+/, '').trim();
+    const content = chunk.slice(titleEnd + 1 + MARK.length).replace(/^\n+/, '').trim();
     const key = title.toLowerCase()
       .replace(/[()]/g, '')
       .replace(/[^a-z0-9]+/g, '_')
@@ -285,8 +285,7 @@ describe('runDailyDigestForAgent integration', () => {
 
   test('subject line is canonical', () => {
     // urgent.length > 0 so subject names the top urgent lead (Alice, sorted by trigger timestamp)
-    const EM = '—';
-    expect(capturedEmailArgs.subject).toBe(`Your morning brief ${EM} Alice needs you today`);
+    expect(capturedEmailArgs.subject).toBe('Your morning brief: Alice needs you today');
   });
 
   test('SMS line 1 is canonical', () => {

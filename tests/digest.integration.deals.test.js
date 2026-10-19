@@ -343,13 +343,13 @@ describe('subject choice', () => {
     expect(captured.email.subject).toBe('Your morning brief: 12 Main St needs you today');
   });
 
-  test('no deals: lead subject unchanged (em dash, grandfathered)', async () => {
+  test('no deals: lead subject unchanged', async () => {
     const captured = capture();
     emailMod.readSheetRows.mockResolvedValue([]);
 
     await runDailyDigestForAgent(AGENT, { baseDir });
 
-    expect(captured.email.subject).toBe('Your morning brief — Thursday, October 8');
+    expect(captured.email.subject).toBe('Your morning brief for Thursday, October 8');
   });
 });
 

@@ -36,7 +36,7 @@ test('returns { subject, html } object', () => {
 
 test('subject is date-formatted when no urgent rows', () => {
   const result = renderEmailHtml(makeEmptySections(), BASE_AGENT, NOW);
-  expect(result.subject).toBe('Your morning brief — Tuesday, May 12');
+  expect(result.subject).toBe('Your morning brief for Tuesday, May 12');
 });
 
 test('subject names first urgent lead when urgent rows present', () => {
@@ -47,7 +47,7 @@ test('subject names first urgent lead when urgent rows present', () => {
     phone: '+16475551234', gmailThreadId: 'thread-abc', leadId: 'lead@example.com',
   }];
   const result = renderEmailHtml(sections, BASE_AGENT, NOW);
-  expect(result.subject).toBe('Your morning brief — Sarah needs you today');
+  expect(result.subject).toBe('Your morning brief: Sarah needs you today');
 });
 
 // ── STYLE_TOKENS applied ──────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ test('urgent row text and button both appear in output for HOT with property ref
     phone: '+16475551234', gmailThreadId: 'thread-abc', leadId: 'lead@example.com',
   }];
   const { html } = renderEmailHtml(sections, BASE_AGENT, NOW);
-  // Row text: "Sarah K — flagged hot — 45 Maple"
+  // Row text: "Sarah K - flagged hot - 45 Maple"
   expect(html).toContain('Sarah K');
   expect(html).toContain('flagged hot');
   expect(html).toContain('45 Maple');
