@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 89 (2026-10-19).
+Last updated: session 90 (2026-10-20).
 
 ## What GetKlosed is
 
@@ -382,13 +382,18 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 
 ## Parked
 
-- Three one-off full-suite test failures across two sessions, every one in a file untouched by that
-  session's own changes, every one passing standalone and on an immediate full-suite rerun:
-  `tests/sessionStore.encryption.test.js` (session 87, once) and `tests/dashboard.loginAudit.test.js`
-  (session 88, twice). Treating this as one suspected shared cause, not three coincidences: parallel
-  Jest workers, a shared temp directory, or a timer/interval not cleaned up between runs.
-  `dashboard.loginAudit.test.js` flaking twice in the same session is the stronger signal; worth a
-  dedicated investigation (not attempted here, and not blocking Commit B).
+- The `sessionStore.encryption.test.js` / `dashboard.loginAudit.test.js` flake (session 87 once,
+  session 88 twice): session 90 recon could not reproduce it in 40 standalone runs (20 each file)
+  or 10 full-suite runs (5 parallel, 5 in band), plus one clean `--detectOpenHandles` pass. Three
+  candidate causes were ruled out with evidence, not assumption: env vars leaking across test files
+  (Jest deep-clones `process`, including `.env`, per test file), a dangling `jest.spyOn` surviving a
+  failed assertion (Jest's runtime unconditionally restores all mocks at file teardown, regardless
+  of the `restoreMocks` config or whether the test's own cleanup ran), and a leaked interval
+  (`session-file-store`'s reaper is 3600s and `.unref()`'d, so it cannot fire inside a sub-two-minute
+  run). Leading guesses, unproven: host-level contention under the default 3 parallel Jest workers,
+  or a rare real race neither 40 nor 10 runs happened to hit. Nothing found is Node-version-sensitive
+  (the ruled-out mechanisms are Jest's own code, not Node's), so the Node 22 upgrade starts from a
+  clean baseline here. Next step if it recurs: the captured failure block, per CLAUDE.md rule 12.
 - List filtered emails inline in the brief when there are only a few (Session 87 recon, item 5).
   Needs a capture design first: `dailyNoiseFiltered`/`dailyNoiseArchived` (`agentState.js`) are bare
   incrementing counters, no sender, subject or lead identity stored alongside them, so there is

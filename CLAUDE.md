@@ -31,6 +31,7 @@ GetKlosed (repo: agent-ai) is a Node.js system for Ontario real estate agents. I
 9. Comments explain why, not what.
 10. Finish with a report: git status, full-suite totals before and after, each mutation (grep proof, failing tests, restore proof), and the dash check. Do not paste the diff; Mo reads it himself.
 11. When a milestone is finished, update docs/STATE.md in the same change: what was built, what is next, anything newly parked. Keep it short; history belongs in docs/history/.
+12. If any test fails in a full-suite run and passes on rerun, do not rerun first. Copy the full failure block (test name, assertion, error, stack) into the session's STATE.md entry, then rerun. A flake recorded without its error text cannot be investigated.
 
 ## Two levels of care
 - Full care: anything that sends to an agent or operator, writes an agent's data, touches Gmail, Sheets or Drive, or runs on the scheduler. Read first, report your plan, and wait for approval before editing.
