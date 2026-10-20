@@ -1,7 +1,7 @@
 # STATE.md: where GetKlosed stands
 
 Read this first. It is the short, current picture. Full history lives in `docs/history/`.
-Last updated: session 90 (2026-10-20).
+Last updated: session 91 (2026-10-20).
 
 ## What GetKlosed is
 
@@ -30,7 +30,10 @@ not see.
   proposal sets, and the `assistant@` verbs CONFIRM, REJECT and WRONGDEAL. The `assistant@` taps
   DONE, RECEIPT and UNDO, live-verified 2026-10-06.
 - Paying agents: none yet. TC deals in production: none yet.
-- Production runs Node 18.20.8 (end of life); local development runs Node 22. See Next.
+- Production still runs Node 18.20.8 (end of life). The repo now targets 22 (`package.json`
+  `engines.node`, `.nvmrc`, session 91); local development and every test run were already on 22.
+  Production itself does not move until Mo deploys and the Railway-side pin (not in this repo,
+  session 91 recon) is found and changed too.
 - Agent phones are validated at signup and on the dashboard edit; any failed agent text emails Mo
   (every hot lead, other kinds once a day); a welcome text goes out at signup and on a number change;
   cycles cannot overlap, and a cycle stuck 30 minutes restarts the process.
@@ -45,6 +48,20 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `CONTENT_ENGINE_SPEC.md`: a session 18 design draft. The engine was built afterwards and differs. Background only.
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
+
+## Session 91: repo pinned to Node 22
+
+Production moves from Node 18.20.8 to 22. Local dev and every test run were already on 22 (session
+91 recon finding), so this closes a test/production mismatch rather than opening one. `package.json`
+`engines.node` changed from the open floor `>=18.0.0` to `22.x`; added `.nvmrc` containing `22`. Full
+suite under Node 22: 4179/4179 passed, no new deprecation or experimental warnings.
+This is the repo-side change only. The recon found nothing in this repo sets Railway's current
+18.20.8 pin (no Dockerfile, no Nixpacks or Railway config file, no CI); whatever holds it today lives
+in the Railway dashboard and still needs to be found and changed before a deploy actually moves
+production. Parked below: `scripts/test-twilio.js`'s `toLocaleTimeString()`.
+Removed from "Next" (item 4, "move production from Node 18 to 22"): done on the repo side this
+session; the remaining Railway-side step is tracked above, not as a Next item, since it is a deploy
+action for Mo, not a build.
 
 ## Session 89: brief copy fixes from the first live weekend, Commit A2
 
@@ -373,15 +390,18 @@ Tests 2938/144 to 3210/150. Every commit reviewed from the raw diff before commi
    Track 2, not anything brief-aware.
 2. Live check: Done (Session 85/86, see above).
 3. `opened_in_error` exit state: Done -- built and live-verified (Session 85/86, see above).
-4. Move production from Node 18 to 22 (recommended before a real agent's deals are on the system).
-5. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
+4. Put one founding agent on the TC. Phase A convention: the agent forwards the accepted offer
    (APS); Mo opens the deal. Watch what lands in their inbox at acceptance (this designs Phase B).
-6. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
+5. Then: the Monday picture, and the proposal block (dormant until extraction feeds it).
 
 Not on the shortest path: new product scope, the small-business side idea, Phase B deal detection.
 
 ## Parked
 
+- `scripts/test-twilio.js`'s unguarded `toLocaleTimeString()` (session 91 recon): dev-only, never
+  runs unattended. Under Node 22's ICU, U+202F before AM/PM is outside the GSM-7 repertoire, so that
+  one manual test SMS would be pushed to UCS-2 encoding (more expensive, possibly an extra segment).
+  Low stakes; fix with explicit `hour12`/locale options whenever the script is next touched.
 - The `sessionStore.encryption.test.js` / `dashboard.loginAudit.test.js` flake (session 87 once,
   session 88 twice): session 90 recon could not reproduce it in 40 standalone runs (20 each file)
   or 10 full-suite runs (5 parallel, 5 in band), plus one clean `--detectOpenHandles` pass. Three
