@@ -30,10 +30,12 @@ not see.
   proposal sets, and the `assistant@` verbs CONFIRM, REJECT and WRONGDEAL. The `assistant@` taps
   DONE, RECEIPT and UNDO, live-verified 2026-10-06.
 - Paying agents: none yet. TC deals in production: none yet.
-- Production still runs Node 18.20.8 (end of life). The repo now targets 22 (`package.json`
-  `engines.node`, `.nvmrc`, session 91); local development and every test run were already on 22.
-  Production itself does not move until Mo deploys and the Railway-side pin (not in this repo,
-  session 91 recon) is found and changed too.
+- Production still runs Node 18.20.8 (end of life) as of the last deploy (build log, deployment
+  `c57ed7c3`, Railpack 0.43.0: `node | 18.20.8 | package.json > engines > node (>=18.0.0)`).
+  `package.json`'s `engines.node` was the pin the whole time; Railpack resolved the open floor
+  `>=18.0.0` to 18. No Railway variable sets a Node version (checked: none of the 15 service
+  variables). Session 91 changed `engines.node` to `22.x`; the next deploy moves production, no
+  Railway dashboard change needed.
 - Agent phones are validated at signup and on the dashboard edit; any failed agent text emails Mo
   (every hot lead, other kinds once a day); a welcome text goes out at signup and on a number change;
   cycles cannot overlap, and a cycle stuck 30 minutes restarts the process.
@@ -52,16 +54,17 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 ## Session 91: repo pinned to Node 22
 
 Production moves from Node 18.20.8 to 22. Local dev and every test run were already on 22 (session
-91 recon finding), so this closes a test/production mismatch rather than opening one. `package.json`
-`engines.node` changed from the open floor `>=18.0.0` to `22.x`; added `.nvmrc` containing `22`. Full
-suite under Node 22: 4179/4179 passed, no new deprecation or experimental warnings.
-This is the repo-side change only. The recon found nothing in this repo sets Railway's current
-18.20.8 pin (no Dockerfile, no Nixpacks or Railway config file, no CI); whatever holds it today lives
-in the Railway dashboard and still needs to be found and changed before a deploy actually moves
-production. Parked below: `scripts/test-twilio.js`'s `toLocaleTimeString()`.
-Removed from "Next" (item 4, "move production from Node 18 to 22"): done on the repo side this
-session; the remaining Railway-side step is tracked above, not as a Next item, since it is a deploy
-action for Mo, not a build.
+91 recon finding), so this closes a test/production mismatch rather than opening one. The production
+build log (deployment `c57ed7c3`, Railpack 0.43.0) shows the pin was `package.json` itself all along:
+`node | 18.20.8 | package.json > engines > node (>=18.0.0)`. Railpack resolved the open floor
+`>=18.0.0` to 18; no Railway variable sets a Node version (checked: none of the 15 service
+variables). `engines.node` changed to `22.x`; added `.nvmrc` containing `22`. This is the whole fix;
+the next deploy moves production, no Railway dashboard change needed. After deploy, the build log
+should read `package.json > engines > node (22.x)` and the service header `node@22`. Full suite under
+Node 22: 4179/4179 passed, no new deprecation or experimental warnings. Parked below:
+`scripts/test-twilio.js`'s `toLocaleTimeString()`, and `WEBHOOK_SKIP_SIGNATURE_CHECK`.
+Removed from "Next" (item 4, "move production from Node 18 to 22"): done this session; the next
+deploy is Mo's normal deploy step, not a tracked Next item.
 
 ## Session 89: brief copy fixes from the first live weekend, Commit A2
 
@@ -398,6 +401,11 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 
 ## Parked
 
+- `WEBHOOK_SKIP_SIGNATURE_CHECK` is set in production with value `false` (seen session 91). Not
+  exposed today: `src/webhook.js:547` and `:622` both check `=== 'true'`, so an absent variable
+  behaves exactly like the current `false`, confirmed by reading the code, not assumed. Remove both
+  the variable and the two read sites before the founding agent goes live, so there is no dev-only
+  bypass left in the production code path at all.
 - `scripts/test-twilio.js`'s unguarded `toLocaleTimeString()` (session 91 recon): dev-only, never
   runs unattended. Under Node 22's ICU, U+202F before AM/PM is outside the GSM-7 repertoire, so that
   one manual test SMS would be pushed to UCS-2 encoding (more expensive, possibly an extra segment).
