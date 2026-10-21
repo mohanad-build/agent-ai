@@ -66,6 +66,31 @@ Node 22: 4179/4179 passed, no new deprecation or experimental warnings. Parked b
 Removed from "Next" (item 4, "move production from Node 18 to 22"): done this session; the next
 deploy is Mo's normal deploy step, not a tracked Next item.
 
+## Session 92: one fact per tap on the deposit_overdue alert
+
+Tests 4179/173 to 4185/173. Branch `session-92`, not merged (awaiting Mo's Railway access).
+
+Recon (unmerged, no edits) walked every alert kind's exact brief text, tap target and confirmation
+reply, and found the Oct 20 live deposit_overdue row showing two links (RECEIPT and a DONE on the
+stuck step) where the second read as a status label, not an instruction, plus a blank mailto body
+on every tap. Design decision with Mo, deals desk: the receipt is what matters. The middle steps
+(`deposit_obtained_from_client`, `deposit_delivered_to_listing_agent` etc.) stay in the catalog and
+on the resolved checklist for future email detection; only the brief's own second link on the stuck
+step is gone.
+
+| Commit | What |
+|---|---|
+| `d6fdbb0` | `tapLinks.js`'s `buildDoneMailtoHref`/`buildReceiptMailtoHref`/`buildUndoMailtoHref` take an optional `body` param, appended as `&body=` after the existing `&subject=`; omitted, the href is byte-identical to before. Subject, verb and item ids untouched |
+| `14e6cd6` | `deposit_overdue` renders one link only ("I have the deposit receipt", RECEIPT), dropping the "Waiting on: `<stuck step>`" line and the secondary DONE-on-stuck-step link; new headline "No deposit receipt yet, `<N>` days after acceptance." and matching SMS phrase. `additional_deposit_overdue`'s link relabeled "I have the additional deposit receipt". Every DONE/RECEIPT tap this module builds now carries a plain-English mailto body |
+| `5607de1` | The Undo link's mailto also carries a body, naming the address when `buildDoneReply`/`buildReceiptReply` have one (the normal completed replies) and falling back to a generic sentence when they don't (the describe-threw fallback, which has no transaction object in scope). RECEIPT's completed reply now says "Done. Deposit receipt recorded for `<address>`." instead of naming every chain step `completeChain` happened to complete underneath it. DONE and UNDO reply wording unchanged; catalog labels in `src/transactions/rules/` untouched |
+
+Mutation-tested: broke the body's `encodeURIComponent` call (caught by the new `tapLinks.test.js`
+body-encoding cases), dropped the body argument from the brief's RECEIPT call (caught by the
+single-alert and sample-fixture tests), changed the RECEIPT completed sentence (caught by both
+RECEIPT-completed tests), and forced the Undo body to always use the address-less fallback text
+(caught by the two address-bearing tests, while the two already-address-less fallback tests
+correctly stayed green). Dash check clean on every commit.
+
 ## Session 89: brief copy fixes from the first live weekend, Commit A2
 
 Tests 4174/173 to 4179/173. Branch `session-89`, not merged.
