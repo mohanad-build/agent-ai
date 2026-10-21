@@ -54,6 +54,49 @@ describe('builder exact literals', () => {
   });
 });
 
+describe('mailto body: optional, appended after subject, encoded', () => {
+  it('buildDoneMailtoHref with no body is byte-identical to the no-body call', () => {
+    expect(buildDoneMailtoHref(TXN_ID, 'financing_condition', undefined))
+      .toBe(buildDoneMailtoHref(TXN_ID, 'financing_condition'));
+  });
+
+  it('buildDoneMailtoHref appends &body= after &subject=, encoded', () => {
+    const href = buildDoneMailtoHref(TXN_ID, 'financing_condition', "Just press Send. You'll get a confirmation back.");
+    expect(href).toBe(
+      `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(`DONE ${TXN_ID} financing_condition`)}`
+      + `&body=${encodeURIComponent("Just press Send. You'll get a confirmation back.")}`
+    );
+  });
+
+  it('buildReceiptMailtoHref appends &body= after &subject=, encoded', () => {
+    const href = buildReceiptMailtoHref(TXN_ID, 'brokerage_deposit_receipt_received', 'Sending this confirms you have the deposit receipt.');
+    expect(href).toBe(
+      `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(`RECEIPT ${TXN_ID} brokerage_deposit_receipt_received`)}`
+      + `&body=${encodeURIComponent('Sending this confirms you have the deposit receipt.')}`
+    );
+  });
+
+  it('buildUndoMailtoHref appends &body= after &subject=, encoded', () => {
+    const href = buildUndoMailtoHref(TXN_ID, ['a', 'b'], 'Sending this undoes what you just marked done.');
+    expect(href).toBe(
+      `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(`UNDO ${TXN_ID} a b`)}`
+      + `&body=${encodeURIComponent('Sending this undoes what you just marked done.')}`
+    );
+  });
+
+  it('a body with an ampersand and a plus sign encodes safely, and subjectFromHref still reads the subject back correctly', () => {
+    const href = buildDoneMailtoHref(TXN_ID, 'financing_condition', 'A & B + C');
+    expect(href).toContain('&body=A%20%26%20B%20%2B%20C');
+    expect(subjectFromHref(href)).toBe(`DONE ${TXN_ID} financing_condition`);
+  });
+
+  it('a body is appended after the subject, never before: subjectFromHref is unaffected by its presence', () => {
+    const withBodyHref = buildReceiptMailtoHref(TXN_ID, 'brokerage_deposit_receipt_received', 'hello');
+    const withoutBodyHref = buildReceiptMailtoHref(TXN_ID, 'brokerage_deposit_receipt_received');
+    expect(subjectFromHref(withBodyHref)).toBe(subjectFromHref(withoutBodyHref));
+  });
+});
+
 describe('round trip: parse(build(x)) === x', () => {
   it('DONE', () => {
     const subject = buildDoneSubject(TXN_ID, 'financing_condition');

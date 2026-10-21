@@ -85,16 +85,26 @@ function buildUndoSubject(transactionId, itemIds) {
   return `UNDO ${transactionId} ${itemIds.join(' ')}`;
 }
 
-function buildDoneMailtoHref(transactionId, itemId) {
-  return `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(buildDoneSubject(transactionId, itemId))}`;
+// body is optional and always the last argument: omitted, the href is
+// byte-identical to before body existed (every existing caller and test
+// that builds a subject-only href keeps working unchanged). Appended after
+// subject, never before, so a caller that only ever reads the subject back
+// out of the href (tapLinks.test.js's subjectFromHref) is unaffected by its
+// presence.
+function withBody(href, body) {
+  return body === undefined ? href : `${href}&body=${encodeURIComponent(body)}`;
 }
 
-function buildReceiptMailtoHref(transactionId, receiptItemId) {
-  return `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(buildReceiptSubject(transactionId, receiptItemId))}`;
+function buildDoneMailtoHref(transactionId, itemId, body) {
+  return withBody(`mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(buildDoneSubject(transactionId, itemId))}`, body);
 }
 
-function buildUndoMailtoHref(transactionId, itemIds) {
-  return `mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(buildUndoSubject(transactionId, itemIds))}`;
+function buildReceiptMailtoHref(transactionId, receiptItemId, body) {
+  return withBody(`mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(buildReceiptSubject(transactionId, receiptItemId))}`, body);
+}
+
+function buildUndoMailtoHref(transactionId, itemIds, body) {
+  return withBody(`mailto:${ASSISTANT_EMAIL}?subject=${encodeURIComponent(buildUndoSubject(transactionId, itemIds))}`, body);
 }
 
 module.exports = {
