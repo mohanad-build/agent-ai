@@ -1239,8 +1239,9 @@ describe('runActionHandler', () => {
       await runActionHandler([AGENT_CONFIG]);
 
       const expectedBody = `Done. Marked complete for ${ADDRESS}: ${DONE_ITEM_LABEL}.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${DONE_ITEM_ID}`;
+      const undoBody = `Sending this undoes what you just marked done for ${ADDRESS}. Just press Send. You'll get a confirmation back.`;
       const expectedHtml = `Done. Marked complete for ${ADDRESS}: ${DONE_ITEM_LABEL}.<br><br>` +
-        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}&amp;body=${encodeURIComponent(undoBody).replace(/'/g, '&#39;')}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 
       expect(gmail.sendNewEmail).toHaveBeenCalledWith(
         expect.any(Object),
@@ -1328,23 +1329,27 @@ describe('runActionHandler', () => {
       );
     });
 
-    test('RECEIPT completed, fresh chain: all three labels, Undo link lists all three ids', async () => {
+    // One fact per tap (Mo, deals desk, session 92): the reply names the
+    // receipt, not the chain's steps, even though completeChain freshly
+    // completed all three underneath it.
+    test('RECEIPT completed, fresh chain: names the receipt, not the chain steps; Undo link lists all three ids', async () => {
       completeChain.mockReturnValue({ outcome: 'completed', itemIds: PAYING_CHAIN });
       const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
       gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
 
       await runActionHandler([AGENT_CONFIG]);
 
-      const expectedBody = `Done. Marked complete for ${ADDRESS}: ${PAYING_CHAIN_LABELS.join(', ')}.\n\n` +
+      const expectedBody = `Done. Deposit receipt recorded for ${ADDRESS}.\n\n` +
         `Tapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`;
 
       expect(gmail.sendNewEmail).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody })
       );
+      PAYING_CHAIN_LABELS.forEach((label) => expect(expectedBody).not.toContain(label));
     });
 
-    test('RECEIPT completed, partial chain: itemIds returned by the tap is what the reply and the Undo link use, not the full chain', async () => {
+    test('RECEIPT completed, partial chain: same fixed sentence regardless of which steps were fresh; Undo link uses only the fresh ids', async () => {
       const freshIds = [PAYING_CHAIN[1], PAYING_CHAIN[2]];
       completeChain.mockReturnValue({ outcome: 'completed', itemIds: freshIds });
       const msg = makeMsg({ subject: `RECEIPT ${TXN_ID} ${RECEIPT_ID}` });
@@ -1352,16 +1357,17 @@ describe('runActionHandler', () => {
 
       await runActionHandler([AGENT_CONFIG]);
 
-      const expectedBody = `Done. Marked complete for ${ADDRESS}: ${PAYING_CHAIN_LABELS[1]}, ${PAYING_CHAIN_LABELS[2]}.\n\n` +
+      const undoBody = `Sending this undoes what you just marked done for ${ADDRESS}. Just press Send. You'll get a confirmation back.`;
+      const expectedBody = `Done. Deposit receipt recorded for ${ADDRESS}.\n\n` +
         `Tapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${freshIds.join(' ')}`;
-      const expectedHtml = `Done. Marked complete for ${ADDRESS}: ${PAYING_CHAIN_LABELS[1]}, ${PAYING_CHAIN_LABELS[2]}.<br><br>` +
-        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${freshIds.join(' ')}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+      const expectedHtml = `Done. Deposit receipt recorded for ${ADDRESS}.<br><br>` +
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${freshIds.join(' ')}`)}&amp;body=${encodeURIComponent(undoBody).replace(/'/g, '&#39;')}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 
       expect(gmail.sendNewEmail).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody, html: expectedHtml })
       );
-      expect(expectedBody).not.toContain(PAYING_CHAIN_LABELS[0]);
+      PAYING_CHAIN_LABELS.forEach((label) => expect(expectedBody).not.toContain(label));
     });
 
     // ── UNDO outcomes ────────────────────────────────────────────────────────
@@ -1456,9 +1462,10 @@ describe('runActionHandler', () => {
 
       await runActionHandler([AGENT_CONFIG]);
 
+      const undoBody = "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back.";
       const expectedBody = `Done. The item was marked complete.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${DONE_ITEM_ID}`;
       const expectedHtml = `Done. The item was marked complete.<br><br>` +
-        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}&amp;body=${encodeURIComponent(undoBody).replace(/'/g, '&#39;')}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 
       expect(gmail.sendNewEmail).toHaveBeenCalledWith(
         expect.any(Object),
@@ -1475,9 +1482,10 @@ describe('runActionHandler', () => {
 
       await runActionHandler([AGENT_CONFIG]);
 
+      const undoBody = "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back.";
       const expectedBody = `Done. The deposit was marked complete.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`;
       const expectedHtml = `Done. The deposit was marked complete.<br><br>` +
-        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`)}" style="color:#666666;">Tapped by mistake? Undo</a>`;
+        `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`)}&amp;body=${encodeURIComponent(undoBody).replace(/'/g, '&#39;')}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 
       expect(gmail.sendNewEmail).toHaveBeenCalledWith(
         expect.any(Object),

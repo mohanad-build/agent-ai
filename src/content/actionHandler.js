@@ -566,9 +566,15 @@ function undoPlainTextLine(transactionId, itemIds) {
 
 // Styled like digest.js's calledAffordanceHtml: a muted-grey inline link,
 // not a button. The href is escaped the same way digest.js escapes its own
-// mailtoHref; the visible label is a literal, not interpolated.
-function undoLinkHtml(transactionId, itemIds) {
-  const href = escapeHtml(buildUndoMailtoHref(transactionId, itemIds));
+// mailtoHref; the visible label is a literal, not interpolated. address is
+// optional: the describe-threw fallback (handleTcVerb) has no transaction
+// object in scope to read it from, so that one caller gets the generic
+// sentence below instead of a false "for undefined".
+function undoLinkHtml(transactionId, itemIds, address) {
+  const body = address !== undefined
+    ? `Sending this undoes what you just marked done for ${address}. Just press Send. You'll get a confirmation back.`
+    : "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back.";
+  const href = escapeHtml(buildUndoMailtoHref(transactionId, itemIds, body));
   return `<a href="${href}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 }
 
@@ -616,7 +622,7 @@ function buildDoneReply(outcome, transaction, writeResult, transactionId, itemId
       const sentence = `Done. Marked complete for ${address}: ${labels}.`;
       return {
         body: `${sentence}\n\n${undoPlainTextLine(transactionId, writeResult.itemIds)}`,
-        html: `${plainTextToHtml(sentence)}<br><br>${undoLinkHtml(transactionId, writeResult.itemIds)}`,
+        html: `${plainTextToHtml(sentence)}<br><br>${undoLinkHtml(transactionId, writeResult.itemIds, address)}`,
         noted: false,
       };
     }
@@ -639,12 +645,14 @@ function buildReceiptReply(outcome, transaction, writeResult, transactionId, rec
         body: `${catalogItemLabel(transaction.type, receiptItemId)} for ${address}. Already marked done on ${formatCompletedDate(writeResult.completedAt, timezone)}.`,
         noted: false,
       };
+    // One fact per tap (Mo, deals desk, session 92): the reply names the
+    // receipt, not the chain's middle steps, even on a fresh multi-step
+    // completion -- the agent confirmed one thing (the receipt), not three.
     case 'completed': {
-      const labels = writeResult.itemIds.map((id) => catalogItemLabel(transaction.type, id)).join(', ');
-      const sentence = `Done. Marked complete for ${address}: ${labels}.`;
+      const sentence = `Done. Deposit receipt recorded for ${address}.`;
       return {
         body: `${sentence}\n\n${undoPlainTextLine(transactionId, writeResult.itemIds)}`,
-        html: `${plainTextToHtml(sentence)}<br><br>${undoLinkHtml(transactionId, writeResult.itemIds)}`,
+        html: `${plainTextToHtml(sentence)}<br><br>${undoLinkHtml(transactionId, writeResult.itemIds, address)}`,
         noted: false,
       };
     }
@@ -852,7 +860,10 @@ async function handleTcVerb(agentConfig, msg, subject, assistantConfig, replyTo)
       // value, from before this describe-read ever ran) already has
       // itemIds, so this needs no re-read of the transaction that just
       // failed to read cleanly. UNDO's fallback carries no link, matching
-      // its normal reply.
+      // its normal reply. No address is passed to undoLinkHtml here
+      // (session 92, option 1): transaction is scoped to the try block
+      // above and never reaches this catch, and the read may itself be
+      // what failed, so there is no address to read even if it did.
       if (isWriteOutcome && (verb === 'DONE' || verb === 'RECEIPT')) {
         const sentence = TC_WRITE_OUTCOME_FALLBACK[verb];
         body = `${sentence}\n\n${undoPlainTextLine(transactionId, writeResult.itemIds)}`;
