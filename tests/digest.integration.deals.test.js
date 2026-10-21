@@ -464,7 +464,7 @@ describe('condition_heads_up and deposit_overdue through the real pipeline', () 
     const result = await runDailyDigestForAgent({ ...AGENT, googleSheetId: '' }, { baseDir });
 
     expect(result.deals).toEqual({ status: 'ok' });
-    expect(captured.email.body).toContain('Deposit not confirmed, 7 days after acceptance.');
+    expect(captured.email.body).toContain('No deposit receipt yet, 7 days after acceptance.');
   });
 });
 

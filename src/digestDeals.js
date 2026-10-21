@@ -18,8 +18,13 @@
 // whatever T the caller passes in.
 
 const { escapeHtml } = require('./plainTextHtml');
-const { buildDoneMailtoHref, buildReceiptMailtoHref, catalogItemLabel } = require('./transactions/tapLinks');
+const { buildDoneMailtoHref, buildReceiptMailtoHref } = require('./transactions/tapLinks');
 const { driveFolderUrl, gmailSearchQuery, fellThroughMailtoHref } = require('./transactions/dealLinks');
+
+// Shared tail for every assistant@ tap's pre-filled body (DONE, RECEIPT):
+// one sentence, no line breaks, telling the agent the tap is already the
+// whole action -- press Send, nothing else to fill in.
+const TAP_BODY_TAIL = " Just press Send. You'll get a confirmation back.";
 
 // The closed vocabulary (rules/conditions.js CONDITION_NAMES) read badly in
 // a sentence as raw ids: 'sale_of_property condition passed...'. Every name
@@ -98,12 +103,13 @@ function rowContent(alert, ctx) {
   switch (alert.kind) {
     case 'condition_passed': {
       const condition = conditionDisplayName(alert.condition);
+      const doneBody = `Sending this confirms the ${condition} condition for ${alert.address} was waived or fulfilled.${TAP_BODY_TAIL}`;
       return {
         textLines: [
           capitalizeFirst(`${condition} condition passed ${daysAgoPhrase(alert.daysPast)}, not marked waived or fulfilled.`),
           "If it wasn't waived in time, the deal may have ended. Check today.",
         ],
-        primary: { label: 'Waived or fulfilled', url: buildDoneMailtoHref(alert.transactionId, alert.itemId) },
+        primary: { label: 'Waived or fulfilled', url: buildDoneMailtoHref(alert.transactionId, alert.itemId, doneBody) },
         secondary: {
           label: 'It fell through',
           url: fellThroughMailtoHref({ address: alert.address, transactionId: alert.transactionId, operatorEmail: ctx.operatorEmail }),
@@ -113,26 +119,33 @@ function rowContent(alert, ctx) {
 
     case 'condition_heads_up': {
       const condition = conditionDisplayName(alert.condition);
+      const doneBody = `Sending this confirms the ${condition} condition for ${alert.address} was waived or fulfilled.${TAP_BODY_TAIL}`;
       return {
         textLines: [capitalizeFirst(`${condition} condition is due ${headsUpDueWord(alert.daysUntil)}.`)],
-        primary: { label: 'Waived or fulfilled', url: buildDoneMailtoHref(alert.transactionId, alert.itemId) },
+        primary: { label: 'Waived or fulfilled', url: buildDoneMailtoHref(alert.transactionId, alert.itemId, doneBody) },
         secondary: null,
       };
     }
 
+    // One fact per tap, decided with Mo at the deals desk: the receipt is
+    // what matters, so RECEIPT (completeChain) is the only tap here. The
+    // middle steps (deposit_obtained_from_client etc.) stay in the catalog
+    // and in the resolved checklist -- only the brief's own second link on
+    // the stuck step is gone, not the rows themselves.
     case 'deposit_overdue': {
-      const stuckLabel = catalogItemLabel(alert.type, alert.stuckAt);
+      const receiptBody = `Sending this confirms you have the deposit receipt for ${alert.address}.${TAP_BODY_TAIL}`;
       return {
-        textLines: [capitalizeFirst(`deposit not confirmed, ${daysPhrase(alert.daysPast)} after acceptance. Waiting on: ${stuckLabel}.`)],
-        primary: { label: 'Receipt in hand', url: buildReceiptMailtoHref(alert.transactionId, alert.itemId) },
-        secondary: { label: stuckLabel, url: buildDoneMailtoHref(alert.transactionId, alert.stuckAt) },
+        textLines: [capitalizeFirst(`no deposit receipt yet, ${daysPhrase(alert.daysPast)} after acceptance.`)],
+        primary: { label: 'I have the deposit receipt', url: buildReceiptMailtoHref(alert.transactionId, alert.itemId, receiptBody) },
+        secondary: null,
       };
     }
 
     case 'additional_deposit_overdue': {
+      const doneBody = `Sending this confirms you have the additional deposit receipt for ${alert.address}.${TAP_BODY_TAIL}`;
       return {
         textLines: [capitalizeFirst(`additional deposit is ${daysPhrase(alert.daysPast)} overdue.`)],
-        primary: { label: 'Deposit received', url: buildDoneMailtoHref(alert.transactionId, alert.itemId) },
+        primary: { label: 'I have the additional deposit receipt', url: buildDoneMailtoHref(alert.transactionId, alert.itemId, doneBody) },
         secondary: null,
       };
     }
@@ -319,7 +332,7 @@ function dealsSmsPhrase(alert) {
     }
 
     case 'deposit_overdue':
-      return `${alert.address}: deposit not confirmed, ${daysPhrase(alert.daysPast)} after acceptance`;
+      return `${alert.address}: no deposit receipt yet, ${daysPhrase(alert.daysPast)} after acceptance`;
 
     case 'additional_deposit_overdue':
       return `${alert.address}: additional deposit ${daysPhrase(alert.daysPast)} overdue`;
