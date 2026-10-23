@@ -68,7 +68,7 @@ describe('parseGmailMessage recipients', () => {
     const result = parseGmailMessage(message);
 
     expect(result.authResults).toEqual({
-      trusted: true, reason: 'ok', dmarc: 'pass', dkim: 'pass', spf: 'pass', fromDomain: 'gmail.com',
+      trusted: true, reason: 'ok', dmarc: 'pass', dkim: 'pass', spf: 'pass', fromDomain: 'gmail.com', dkimPassDomains: [],
     });
   });
 
@@ -78,7 +78,7 @@ describe('parseGmailMessage recipients', () => {
     const result = parseGmailMessage(message);
 
     expect(result.authResults).toEqual({
-      trusted: false, reason: 'none', dmarc: null, dkim: null, spf: null, fromDomain: null,
+      trusted: false, reason: 'none', dmarc: null, dkim: null, spf: null, fromDomain: null, dkimPassDomains: [],
     });
   });
 

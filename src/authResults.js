@@ -37,6 +37,7 @@ const SAFE_RESULT = Object.freeze({
   dkim: null,
   spf: null,
   fromDomain: null,
+  dkimPassDomains: Object.freeze([]),
 });
 
 function authservId(rawValue) {
@@ -62,6 +63,23 @@ function collectAuthResultsValues(headers) {
   return values;
 }
 
+// The domain a dkim=pass segment's signature actually belongs to: header.d
+// (the signing domain itself) when present, otherwise the domain half of
+// header.i (the signing identity, written as "@domain" or "local@domain").
+// Gmail's own Authentication-Results rendering commonly carries header.i
+// without header.d at all (see the dkim test fixtures below), so the
+// fallback is the common case, not a rare one.
+function dkimDomainFromSegment(trimmed) {
+  const dMatch = trimmed.match(/header\.d=([^\s;]+)/i);
+  if (dMatch) return dMatch[1].toLowerCase();
+  const iMatch = trimmed.match(/header\.i=([^\s;]*)/i);
+  if (iMatch) {
+    const at = iMatch[1].lastIndexOf('@');
+    if (at !== -1) return iMatch[1].slice(at + 1).toLowerCase();
+  }
+  return null;
+}
+
 // Parses ONLY the first collected header's method results, once the caller
 // has already established it is the sole trusted one. Comments are stripped
 // before splitting on ';' so a comment containing ';' (Gmail's spf comment
@@ -72,6 +90,12 @@ function parseMethodResults(rawValue) {
 
   const results = { dkim: null, spf: null, dmarc: null };
   let fromDomain = null;
+  // Every dkim=pass segment's own domain, not just the one the scalar dkim
+  // field above settled on: a message can carry more than one valid
+  // signature (e.g. a forwarded message re-signed by the forwarder), and
+  // verifySender needs to check each one for alignment, not only whichever
+  // segment happened to win the scalar dkim value.
+  const dkimPassDomains = [];
 
   segments.forEach((segment) => {
     const trimmed = segment.trim();
@@ -92,9 +116,16 @@ function parseMethodResults(rawValue) {
         fromDomain = fromMatch[1].toLowerCase();
       }
     }
+
+    if (method === 'dkim' && value === 'pass') {
+      const domain = dkimDomainFromSegment(trimmed);
+      if (domain !== null) {
+        dkimPassDomains.push(domain);
+      }
+    }
   });
 
-  return { dmarc: results.dmarc, dkim: results.dkim, spf: results.spf, fromDomain };
+  return { dmarc: results.dmarc, dkim: results.dkim, spf: results.spf, fromDomain, dkimPassDomains };
 }
 
 function parseAuthResults(headers) {
@@ -115,8 +146,75 @@ function parseAuthResults(headers) {
     return { ...SAFE_RESULT, reason: 'multiple_google' };
   }
 
-  const { dmarc, dkim, spf, fromDomain } = parseMethodResults(collected[0]);
-  return { trusted: true, reason: 'ok', dmarc, dkim, spf, fromDomain };
+  const { dmarc, dkim, spf, fromDomain, dkimPassDomains } = parseMethodResults(collected[0]);
+  return { trusted: true, reason: 'ok', dmarc, dkim, spf, fromDomain, dkimPassDomains };
 }
 
-module.exports = { parseAuthResults };
+// -- verifySender -------------------------------------------------------------
+//
+// Log-only for now (session 93): callers log this verdict and still process
+// the message exactly as before. Nothing in this file enforces anything.
+//
+// Rule: trusted AND (dmarc=pass for the agent's OWN domain, OR any dkim=pass
+// signature whose domain aligns with the agent's domain). dmarc=pass for a
+// DIFFERENT domain than the agent's own does not count on its own -- it
+// falls through to the dkim check -- but it is still distinguished in the
+// reason ('dmarc_other_domain') from a message with no passing method at
+// all, since it is a more specific, more informative signal than silence.
+//
+// ALIGNMENT is relaxed, not exact, and does not use a Public Suffix List:
+// two domains align if they are equal, or one is a literal subdomain of the
+// other (dot-boundary checked, so "evil-example.com" can never align with
+// "example.com"). Known gap: two sibling subdomains under the same
+// multi-label public suffix (e.g. "mail.example.co.uk" and
+// "billing.example.co.uk") would not align under this rule. Not a concern
+// for the sender population this gates -- a registered agent's own
+// gmailAddress domain versus either that same domain or Google's own
+// unrelated signing infrastructure -- but it is a documented limitation,
+// not an oversight.
+const VERIFY_REASONS = Object.freeze([
+  'untrusted', 'dmarc_pass', 'dkim_aligned', 'dmarc_other_domain', 'dkim_not_aligned', 'no_pass',
+]);
+
+function domainOf(address) {
+  const at = (address || '').lastIndexOf('@');
+  return at === -1 ? '' : address.slice(at + 1).toLowerCase();
+}
+
+function domainsAligned(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+function verifySender(authResults, gmailAddress) {
+  if (!authResults || authResults.trusted !== true) {
+    return { verified: false, reason: 'untrusted' };
+  }
+
+  const agentDomain = domainOf(gmailAddress);
+  const dmarcPassForAgentDomain = authResults.dmarc === 'pass' && domainsAligned(authResults.fromDomain, agentDomain);
+
+  if (dmarcPassForAgentDomain) {
+    return { verified: true, reason: 'dmarc_pass' };
+  }
+
+  const dkimPassDomains = authResults.dkimPassDomains || [];
+  const dkimAligned = dkimPassDomains.some((domain) => domainsAligned(domain, agentDomain));
+
+  if (dkimAligned) {
+    return { verified: true, reason: 'dkim_aligned' };
+  }
+
+  if (authResults.dmarc === 'pass') {
+    return { verified: false, reason: 'dmarc_other_domain' };
+  }
+
+  if (dkimPassDomains.length > 0) {
+    return { verified: false, reason: 'dkim_not_aligned' };
+  }
+
+  return { verified: false, reason: 'no_pass' };
+}
+
+module.exports = { parseAuthResults, verifySender, VERIFY_REASONS };
