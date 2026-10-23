@@ -97,12 +97,11 @@ Parked, before the Content Engine goes to any agent: `engine.js:421,425` falls b
 the agent instead; the weekly digest (`digest.js:1309-1316`) has no guard at all when `operatorEmail`
 is missing. Both should refuse to send and log, like every other operator alert already does.
 
-Flake, rule 12 violated: a full-suite run after the STATE.md commit (unrelated docs-only change)
-showed `tests/sessionStore.logFn.test.js` failing, the same flake class session 90 recon could not
-reproduce. Claude reran before capturing the full failure block -- only the trailing stack line and
-the summary counts survive, not the test name, assertion or error message, so this occurrence
-cannot be investigated. A second full-suite rerun came back 4200/4200 clean. Recorded so the next
-occurrence is not the first data point.
+Flake, rule 12 violated: `tests/sessionStore.logFn.test.js` failed on a full-suite run after the
+STATE.md commit (unrelated docs-only change), reran before the failure block was captured, came back
+clean on two subsequent full-suite runs. Folded into the login-session-store / dashboard-login flake
+entry under Parked, which now also carries rule 12's structural fix: every full-suite run tees its
+own timestamped log, so a rerun can no longer cost the failure block.
 
 ## Session 92: one fact per tap on the deposit_overdue alert
 
@@ -473,18 +472,24 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
   runs unattended. Under Node 22's ICU, U+202F before AM/PM is outside the GSM-7 repertoire, so that
   one manual test SMS would be pushed to UCS-2 encoding (more expensive, possibly an extra segment).
   Low stakes; fix with explicit `hour12`/locale options whenever the script is next touched.
-- The `sessionStore.encryption.test.js` / `dashboard.loginAudit.test.js` flake (session 87 once,
-  session 88 twice): session 90 recon could not reproduce it in 40 standalone runs (20 each file)
-  or 10 full-suite runs (5 parallel, 5 in band), plus one clean `--detectOpenHandles` pass. Three
-  candidate causes were ruled out with evidence, not assumption: env vars leaking across test files
-  (Jest deep-clones `process`, including `.env`, per test file), a dangling `jest.spyOn` surviving a
-  failed assertion (Jest's runtime unconditionally restores all mocks at file teardown, regardless
-  of the `restoreMocks` config or whether the test's own cleanup ran), and a leaked interval
-  (`session-file-store`'s reaper is 3600s and `.unref()`'d, so it cannot fire inside a sub-two-minute
-  run). Leading guesses, unproven: host-level contention under the default 3 parallel Jest workers,
-  or a rare real race neither 40 nor 10 runs happened to hit. Nothing found is Node-version-sensitive
-  (the ruled-out mechanisms are Jest's own code, not Node's), so the Node 22 upgrade starts from a
-  clean baseline here. Next step if it recurs: the captured failure block, per CLAUDE.md rule 12.
+- The login-session-store / dashboard-login flake, four occurrences across three sessions:
+  `sessionStore.encryption.test.js` (session 87, once), `dashboard.loginAudit.test.js` (session 88,
+  twice), `sessionStore.logFn.test.js` (session 93, once). The pattern: every occurrence so far is in
+  this one area (the session store and the dashboard login path that reads it), never elsewhere in
+  the suite -- the next investigation should start there, not suite-wide. Session 90 recon could not
+  reproduce the first three in 40 standalone runs (20 each file) or 10 full-suite runs (5 parallel, 5
+  in band), plus one clean `--detectOpenHandles` pass. Three candidate causes were ruled out with
+  evidence, not assumption: env vars leaking across test files (Jest deep-clones `process`, including
+  `.env`, per test file), a dangling `jest.spyOn` surviving a failed assertion (Jest's runtime
+  unconditionally restores all mocks at file teardown, regardless of the `restoreMocks` config or
+  whether the test's own cleanup ran), and a leaked interval (`session-file-store`'s reaper is 3600s
+  and `.unref()`'d, so it cannot fire inside a sub-two-minute run). Leading guesses, unproven:
+  host-level contention under the default 3 parallel Jest workers, or a rare real race neither 40 nor
+  10 runs happened to hit. Nothing found is Node-version-sensitive (the ruled-out mechanisms are
+  Jest's own code, not Node's). The session 93 occurrence (`sessionStore.logFn.test.js`) added no new
+  evidence: its failure block was lost to a rule 12 process error (rerun before capture) rather than
+  captured and still unexplained, so it confirms the area, not a cause. Next step on any future
+  occurrence: the captured failure block, per CLAUDE.md rule 12's now-structural `tee` capture.
 - List filtered emails inline in the brief when there are only a few (Session 87 recon, item 5).
   Needs a capture design first: `dailyNoiseFiltered`/`dailyNoiseArchived` (`agentState.js`) are bare
   incrementing counters, no sender, subject or lead identity stored alongside them, so there is

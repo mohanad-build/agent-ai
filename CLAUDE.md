@@ -3,7 +3,7 @@
 GetKlosed (repo: agent-ai) is a Node.js system for Ontario real estate agents. It answers and follows up leads from the agent's Gmail, sends a daily brief by SMS and email, generates weekly content, and runs a transaction coordinator (TC) that tracks each deal's checklist, files documents to Drive, and alerts the agent when something needs them. Production runs on Railway from the main branch. Mo (the operator) runs the business and makes every product decision.
 
 ## Commands
-- Full test suite: `npx jest`. Read the totals line; never add counts by hand.
+- Full test suite: `npx jest --silent 2>&1 | tee /tmp/jest-$(date +%Y%m%d-%H%M%S).log | tail -5`. Read the totals line; never add counts by hand. Every run writes its own timestamped file, so a rerun can never overwrite a failure; this is the only way the suite is run, by anyone, not a fallback for when a run turns out red.
 - One file: `npx jest tests/<file>.test.js`
 - Deal CLIs live in `scripts/`: open-transaction, set-fact, complete-item, satisfy-person, review-filing, list-participants.
 
@@ -31,7 +31,7 @@ GetKlosed (repo: agent-ai) is a Node.js system for Ontario real estate agents. I
 9. Comments explain why, not what.
 10. Finish with a report: git status, full-suite totals before and after, each mutation (grep proof, failing tests, restore proof), and the dash check. Do not paste the diff; Mo reads it himself.
 11. When a milestone is finished, update docs/STATE.md in the same change: what was built, what is next, anything newly parked. Keep it short; history belongs in docs/history/.
-12. If any test fails in a full-suite run and passes on rerun, do not rerun first. Copy the full failure block (test name, assertion, error, stack) into the session's STATE.md entry, then rerun. A flake recorded without its error text cannot be investigated.
+12. Every full-suite run uses the `tee` command in Commands above, so its full output always survives in its own file under `/tmp`. If any test fails and passes on rerun, rerunning first is fine; the failure is never lost. Before rerunning, copy the full failure block (test name, assertion, error, stack) out of that run's log file into the session's STATE.md entry. A flake recorded without its error text cannot be investigated.
 
 ## Two levels of care
 - Full care: anything that sends to an agent or operator, writes an agent's data, touches Gmail, Sheets or Drive, or runs on the scheduler. Read first, report your plan, and wait for approval before editing.
