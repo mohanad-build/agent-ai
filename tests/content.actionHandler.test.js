@@ -145,6 +145,15 @@ function makeTcTransaction(overrides = {}) {
   };
 }
 
+// Matches AGENT_EMAIL's own domain (example.com), so a test that doesn't
+// care about sender verification gets a verified=true [sender-verify] line
+// by default -- the realistic case for genuine agent traffic (session 93
+// recon) -- without having to set authResults on every single call site.
+const DEFAULT_AUTH_RESULTS = {
+  trusted: true, reason: 'ok', dmarc: 'pass', dkim: 'pass', spf: 'pass',
+  fromDomain: 'example.com', dkimPassDomains: ['example.com'],
+};
+
 function makeMsg(overrides = {}) {
   return {
     messageId: 'msg-1',
@@ -152,6 +161,7 @@ function makeMsg(overrides = {}) {
     subject:   '',
     body:      '',
     snippet:   '',
+    authResults: DEFAULT_AUTH_RESULTS,
     ...overrides,
   };
 }
@@ -2198,6 +2208,77 @@ describe('runActionHandler', () => {
       const lines = logSpy.mock.calls.map(call => call[0]).filter(line => line.startsWith('[unrecognized-reply]'));
       expect(lines.length).toBeGreaterThan(0);
       lines.forEach(line => expect(line).not.toContain('@'));
+    });
+  });
+
+  describe('sender verification (session 93): log-only, enforce=false, never gates processing', () => {
+    function findSenderVerifyLine(logSpy) {
+      return logSpy.mock.calls.map(call => call[0]).find(line => line.startsWith('[sender-verify]'));
+    }
+
+    test('a recognized sender with a passing authResults: processed exactly as before, logs verified=true reason=dmarc_pass', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const msg = makeMsg({ subject: 'APPROVE reel-001' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, subject: 'Re: APPROVE reel-001' })
+      );
+      expect(findSenderVerifyLine(logSpy)).toBe(
+        '[sender-verify] messageId=msg-1 agentId=mo-test verified=true reason=dmarc_pass enforce=false'
+      );
+    });
+
+    // The load-bearing test: proves "log-only" is actually true, not just
+    // claimed. An unverified recognized sender's command still runs exactly
+    // as it does for a verified one -- same reply, no early return, no
+    // reject -- only the log line differs.
+    test('a recognized sender with an UNVERIFIED authResults: still processed exactly as before (no reject, no early return), logs verified=false reason=no_pass', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const msg = makeMsg({
+        subject: 'APPROVE reel-001',
+        authResults: { trusted: true, reason: 'ok', dmarc: 'fail', dkim: 'fail', spf: 'fail', fromDomain: 'example.com', dkimPassDomains: [] },
+      });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, subject: 'Re: APPROVE reel-001' })
+      );
+      expect(findSenderVerifyLine(logSpy)).toBe(
+        '[sender-verify] messageId=msg-1 agentId=mo-test verified=false reason=no_pass enforce=false'
+      );
+    });
+
+    // extractEmailAddress (actionHandler.js:69-72) only ever reads the
+    // bracketed address, never the display name in front of it -- confirmed
+    // directly before this was written. A display name impersonating a real
+    // agent's address does not make the sender match that agent: the real
+    // (bracketed) address is unregistered, so this never reaches
+    // verifySender at all, and is handled entirely by the existing
+    // unrecognized-sender path.
+    test('a forged display name ("agent@example.com" <attacker@evil.com>): the sender is NOT recognized at all -- no [sender-verify] line, Track 1 never runs', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const msg = makeMsg({
+        from: `"${AGENT_EMAIL}" <attacker@evil.com>`,
+        subject: 'APPROVE reel-001',
+      });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const unrecognizedLine = logSpy.mock.calls.map(call => call[0]).find(line => line.startsWith('[actionHandler] unrecognized sender'));
+      expect(unrecognizedLine).toBeDefined();
+      expect(findSenderVerifyLine(logSpy)).toBeUndefined();
+      expect(gmail.sendNewEmail).not.toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ subject: 'Re: APPROVE reel-001' })
+      );
     });
   });
 });

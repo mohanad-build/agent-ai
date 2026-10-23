@@ -13,7 +13,7 @@ const { renderBlogPost }          = require('./renderBlogPost');
 const { callRaw, MODELS, stripCodeFences } = require('../claude');
 const gmail                       = require('../gmail');
 const email                       = require('../email');
-const { parseAuthResults }        = require('../authResults');
+const { parseAuthResults, verifySender } = require('../authResults');
 const { getStorageRoot }          = require('../storagePaths');
 const { clearLeadAndLogNote, parseCommandToken } = require('../webhook');
 const { CALL_NOTE_LABEL, stripCallNote }         = require('../callNote');
@@ -946,6 +946,12 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
     }
     return;
   }
+
+  // Log-only (session 93): nothing branches on this. verified/reason are
+  // observed in Railway's logs to confirm the rule produces zero false
+  // rejects on real agent traffic before any enforcement is built.
+  const verifyResult = verifySender(a, agentConfig.gmailAddress);
+  console.log(`[sender-verify] messageId=${msg.messageId} agentId=${agentConfig.agentId} verified=${verifyResult.verified} reason=${verifyResult.reason} enforce=false`);
 
   const subject     = (msg.subject || '').trim();
   const isTrack1    = /^(APPROVE|REGEN|SWAP)\b/i.test(subject);
