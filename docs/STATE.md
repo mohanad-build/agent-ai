@@ -59,12 +59,50 @@ build log (deployment `c57ed7c3`, Railpack 0.43.0) shows the pin was `package.js
 `node | 18.20.8 | package.json > engines > node (>=18.0.0)`. Railpack resolved the open floor
 `>=18.0.0` to 18; no Railway variable sets a Node version (checked: none of the 15 service
 variables). `engines.node` changed to `22.x`; added `.nvmrc` containing `22`. This is the whole fix;
-the next deploy moves production, no Railway dashboard change needed. After deploy, the build log
-should read `package.json > engines > node (22.x)` and the service header `node@22`. Full suite under
-Node 22: 4179/4179 passed, no new deprecation or experimental warnings. Parked below:
-`scripts/test-twilio.js`'s `toLocaleTimeString()`, and `WEBHOOK_SKIP_SIGNATURE_CHECK`.
-Removed from "Next" (item 4, "move production from Node 18 to 22"): done this session; the next
-deploy is Mo's normal deploy step, not a tracked Next item.
+the next deploy moves production, no Railway dashboard change needed. Full suite under Node 22:
+4179/4179 passed, no new deprecation or experimental warnings. Parked below: `scripts/test-twilio.js`'s
+`toLocaleTimeString()`, and `WEBHOOK_SKIP_SIGNATURE_CHECK`. Removed from "Next" (item 4, "move
+production from Node 18 to 22"): done this session; the next deploy is Mo's normal deploy step,
+not a tracked Next item.
+
+Correction (session 93): Railpack reads `.nvmrc` (its "idiomatic-version-file" source) before
+`package.json`'s `engines.node`, so the build log actually attributes the version to `.nvmrc`, not to
+`package.json > engines > node` as predicted above; the service header still reads `node@22`. Both
+files were set to `22` this session, so the Node version itself was never wrong, only the
+attribution. A future Node upgrade must change `.nvmrc` and `engines.node` together, since `.nvmrc`
+is what Railpack actually honors.
+
+## Session 93: sender verification, log-only
+
+Tests 4179/173 to 4200/173. Branch `session-93`, not merged.
+
+| Commit | What |
+|---|---|
+| `10c634a` | `authResults.js` captures `dkimPassDomains`: the domain (`header.d`, falling back to `header.i`) of every `dkim=pass` segment, not just whichever one the scalar `dkim` field settles on. Adds `verifySender(authResults, gmailAddress) -> { verified, reason }`: trusted AND (`dmarc=pass` for the agent's own domain, OR any `dkim=pass` signature whose domain aligns with it, relaxed/subdomain alignment, no Public Suffix List). `dmarc=pass` for a different domain than the agent's own falls through to the dkim check rather than failing outright, but is distinguished as `dmarc_other_domain` |
+| `ab56760` | Wired into `actionHandler.js`'s recognized-sender path: one `[sender-verify]` log line, `enforce=false`, right after the unrecognized-sender block and before any dispatch branch. Nothing branches on it |
+
+Design: log-only first. Enforcement (a reply plus the shared cooldown, designed in the session 93
+recon section 5) waits until the founding agent's real traffic shows zero false rejects under this
+rule -- Mo can grep Railway logs for `[sender-verify] ... verified=false` to find out. A forged
+display name (`"agent@example.com" <attacker@evil.com>`) never reaches this check at all:
+`extractEmailAddress` only ever reads the bracketed address, so the sender match already fails
+before `verifySender` runs, and the message is handled by the existing unrecognized-sender path.
+
+Operations: production `operatorEmail` moved from Mo's personal Gmail to `mohanad@getklosed.ca`
+(2026-10-23, verified). In `railway ssh`, `node` is not on PATH since the Railpack/Node 22 build --
+run scripts with `/mise/shims/node`.
+
+Parked, before the Content Engine goes to any agent: `engine.js:421,425` falls back to
+`agentConfig.escalationEmail` when `operatorEmail` is missing, so Mo's review copy silently goes to
+the agent instead; the weekly digest (`digest.js:1309-1316`) has no guard at all when `operatorEmail`
+is missing. Both should refuse to send and log, like every other operator alert already does.
+
+Flake, rule 12 violated: a full-suite run after the STATE.md commit (unrelated docs-only change)
+showed `tests/sessionStore.logFn.test.js` failing, the same flake class session 90 recon could not
+reproduce. Claude reran before capturing the full failure block -- only the trailing stack line and
+the summary counts survive, not the test name, assertion or error message, so this occurrence
+cannot be investigated. A second full-suite rerun came back 4200/4200 clean. Recorded so the next
+occurrence is not the first data point.
 
 ## Session 92: one fact per tap on the deposit_overdue alert
 
