@@ -353,11 +353,12 @@ describe('CLI: deal-open facts (spawned subprocess)', () => {
     expect(fs.readdirSync(baseDir)).toEqual([]);
   });
 
-  test('13. no new flags: no Facts set line, and every unanswered fact is listed', () => {
+  test('13. no new flags: no Facts set line, every unanswered fact is listed, and closingDate is flagged on its own line', () => {
     const stdout = run([AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir]);
 
     expect(stdout).not.toContain('Facts set');
     expect(stdout).toContain('Still unanswered: hasSelfRepresentedParty, representationArrangement, entityType, additionalDepositDueDates, conditions');
+    expect(stdout).toContain('No closing date yet.');
   });
 
   // run/runExpectingFailure append --no-folder AFTER the given args, so a
@@ -387,12 +388,13 @@ describe('CLI: deal-open facts (spawned subprocess)', () => {
   test('16. a full set of APS flags lands every fact and leaves nothing unanswered', () => {
     const stdout = run([
       AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
-      '--condition', 'financing=2026-10-06', '--accepted', '2026-10-01', '--no-additional-deposit',
+      '--condition', 'financing=2026-10-06', '--accepted', '2026-10-01', '--closing', '2026-11-15', '--no-additional-deposit',
       '--no-self-represented', '--entity', 'individual', '--representation', 'single',
     ]);
 
-    expect(stdout).toContain('Facts set: conditions, conditionDates, acceptedDate, additionalDepositDueDates, hasSelfRepresentedParty, entityType, representationArrangement');
+    expect(stdout).toContain('Facts set: conditions, conditionDates, acceptedDate, closingDate, additionalDepositDueDates, hasSelfRepresentedParty, entityType, representationArrangement');
     expect(stdout).toContain('Still unanswered: none');
+    expect(stdout).not.toContain('No closing date yet.');
 
     const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
@@ -473,6 +475,55 @@ describe('CLI: deal-open facts (spawned subprocess)', () => {
     const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
     expect(written.facts.representationArrangement).toBe('double_ended');
     expect(stdout).toContain('Transaction created:');
+  });
+
+  test('24. --closing lands closingDate and appears in Facts set, no "No closing date yet." line', () => {
+    const stdout = run([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--closing', '2026-11-15',
+    ]);
+
+    expect(stdout).toContain('Facts set: closingDate');
+    expect(stdout).not.toContain('No closing date yet.');
+
+    const dir = path.join(baseDir, `${AGENT_ID}.transactions`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    const written = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    expect(written.facts.closingDate).toBe('2026-11-15');
+  });
+
+  test('25. --closing given twice refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--closing', '2026-11-15', '--closing', '2026-12-01',
+    ]);
+
+    expect(result.stderr).toContain('--closing given more than once');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  test('26. an invalid --closing date refuses, nothing created', () => {
+    const result = runExpectingFailure([
+      AGENT_ID, 'buyer_purchase', 'conditional', '--address', '12 Main St', '--base-dir', baseDir,
+      '--closing', '2026-02-30',
+    ]);
+
+    expect(result.stderr).toContain('open-transaction: closingDate must be a calendar date');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
+  });
+
+  // run/runExpectingFailure append --no-folder AFTER the given args, so a
+  // "last argument" test has to spawn directly, with --no-folder placed
+  // earlier, to leave --closing as the true last argument with nothing
+  // after it to supply a value (same reasoning as tests 14 and 15).
+  test('27. --closing as the final argument refuses, nothing created', () => {
+    const result = spawnSync('node', [
+      scriptPath, AGENT_ID, 'buyer_purchase', 'conditional', '--no-folder', '--address', '12 Main St', '--base-dir', baseDir, '--closing',
+    ], { encoding: 'utf8' });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--closing needs a date');
+    expect(fs.readdirSync(baseDir)).toEqual([]);
   });
 });
 

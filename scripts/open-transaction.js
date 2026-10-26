@@ -19,7 +19,7 @@
 // report the agent confirms with --listing-id is not. Do not make this
 // write listingId automatically under any condition.
 //
-// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit] [--self-represented] [--no-self-represented] [--entity VALUE] [--representation VALUE]
+// Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--closing YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit] [--self-represented] [--no-self-represented] [--entity VALUE] [--representation VALUE]
 //
 // After a successful create, this also ensures a Drive folder exists for the
 // transaction (TC_SPEC 10.1/10.2), creating the agent's app-owned parent
@@ -128,6 +128,8 @@ if (require.main === module) {
   let noFolder = false;
   let acceptedFromFlag;
   let acceptedCount = 0;
+  let closingFromFlag;
+  let closingCount = 0;
   const conditionEntries = [];
   let noConditions = false;
   let additionalDepositFromFlag;
@@ -158,6 +160,10 @@ if (require.main === module) {
     } else if (args[i] === '--accepted') {
       acceptedFromFlag = args[i + 1];
       acceptedCount++;
+      i++;
+    } else if (args[i] === '--closing') {
+      closingFromFlag = args[i + 1];
+      closingCount++;
       i++;
     } else if (args[i] === '--condition') {
       const raw = args[i + 1] || '';
@@ -194,7 +200,7 @@ if (require.main === module) {
   }
   const [agentId, type, state] = positional;
 
-  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit] [--self-represented] [--no-self-represented] [--entity VALUE] [--representation VALUE]';
+  const usage = 'Usage: node scripts/open-transaction.js <agent-id> <type> <state> --address <address> [--base-dir <path>] [--listing-id <id>] [--unit <unit>] [--no-folder] [--accepted YYYY-MM-DD] [--closing YYYY-MM-DD] [--condition NAME[=YYYY-MM-DD]]... [--no-conditions] [--additional-deposit YYYY-MM-DD] [--no-additional-deposit] [--self-represented] [--no-self-represented] [--entity VALUE] [--representation VALUE]';
 
   if (!agentId || !type || !state) {
     console.error(usage);
@@ -208,6 +214,11 @@ if (require.main === module) {
 
   if (acceptedCount > 1) {
     console.error('open-transaction: --accepted given more than once');
+    process.exit(1);
+  }
+
+  if (closingCount > 1) {
+    console.error('open-transaction: --closing given more than once');
     process.exit(1);
   }
 
@@ -228,6 +239,11 @@ if (require.main === module) {
 
   if (acceptedCount > 0 && acceptedFromFlag === undefined) {
     console.error('open-transaction: --accepted needs a date (YYYY-MM-DD)');
+    process.exit(1);
+  }
+
+  if (closingCount > 0 && closingFromFlag === undefined) {
+    console.error('open-transaction: --closing needs a date (YYYY-MM-DD)');
     process.exit(1);
   }
 
@@ -288,8 +304,8 @@ if (require.main === module) {
 
   // Built in this order, including only what was given: conditions,
   // conditionDates (only when at least one condition carries a date),
-  // acceptedDate, additionalDepositDueDates, hasSelfRepresentedParty,
-  // entityType, representationArrangement.
+  // acceptedDate, closingDate, additionalDepositDueDates,
+  // hasSelfRepresentedParty, entityType, representationArrangement.
   const factPlan = [];
 
   if (conditionEntries.length > 0) {
@@ -307,6 +323,10 @@ if (require.main === module) {
 
   if (acceptedFromFlag !== undefined) {
     factPlan.push(['acceptedDate', acceptedFromFlag]);
+  }
+
+  if (closingFromFlag !== undefined) {
+    factPlan.push(['closingDate', closingFromFlag]);
   }
 
   if (additionalDepositFromFlag !== undefined) {
@@ -370,6 +390,15 @@ if (require.main === module) {
     const conditionsWithoutDate = conditionEntries.filter((e) => e.date === undefined).map((e) => e.name);
     if (conditionsWithoutDate.length > 0) {
       console.log(`No date yet for: ${conditionsWithoutDate.join(', ')}`);
+    }
+
+    // Not folded into stillUnanswered: that list is checklist-derived
+    // (pendingFacts on an indeterminate item), and nothing reads closingDate
+    // yet (session 94 part 1), so it could never appear there no matter
+    // what. This is a direct presence check instead, the same shape as the
+    // conditions-without-a-date line just above.
+    if (closingFromFlag === undefined) {
+      console.log('No closing date yet.');
     }
 
     // Order is createTransaction (above, already done and written) THEN the
