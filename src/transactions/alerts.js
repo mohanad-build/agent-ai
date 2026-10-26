@@ -18,6 +18,14 @@
 // them is ever recorded. The Monday picture remains the backstop for a
 // brief that was missed entirely.
 //
+// deposit_receipt_closing (session 95) is also heads-up style, keyed on
+// closingDate rather than acceptedDate: once inside RECEIPT_BEFORE_CLOSING_DAYS
+// of closing, it fires every morning, before and after the date, until the
+// receipt is recorded or the deal goes terminal. While it is live for a
+// chain, the acceptance-based deposit_overdue for that same chain is never
+// computed into a pushed alert at all -- the collapse, not a suppression
+// flag -- so its own delivery keys are never looked at, never recorded.
+//
 // The dated rules (conditions, deposits) compare calendar dates with
 // calendarDate.daysBetween, because a condition date or an accepted date is
 // a day named in an agreement, not an instant. filing_failed instead
@@ -42,6 +50,11 @@ const CONDITION_HEADS_UP_DAYS_BEFORE = Object.freeze([1, 0]);
 const CONDITION_PASSED_DAYS_AFTER = Object.freeze([1, 4]);
 // How many days after the governing date deposit_overdue and additional_deposit_overdue fire.
 const DEPOSIT_OVERDUE_DAYS_AFTER = Object.freeze([2, 7]);
+// How many days before closingDate deposit_receipt_closing starts firing. Heads-up
+// style, not threshold style: once inside this window it fires every morning, with
+// no upper bound on the far side -- it keeps firing after closing has passed too,
+// until the receipt is recorded or the deal reaches a terminal state.
+const RECEIPT_BEFORE_CLOSING_DAYS = 7;
 // How far back from now a document_filing_abandoned event still counts as recent.
 const FILING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -153,6 +166,35 @@ function depositOverdueAlert(transaction, facts, resolvedItems, today, chain, de
   return { ...alertBase(transaction, 'deposit_overdue'), itemId: receiptId, stuckAt, date, daysPast, deliveryKeys };
 }
 
+// Heads-up style like conditionAlerts' condition_heads_up branch: no
+// delivered check, no deliveryKeys, fires fresh every qualifying morning.
+// daysUntilClosing is signed (daysBetween(today, closingDate)): positive
+// while closing is ahead, 0 on closing day, negative once it has passed.
+// Only an upper bound gates it (the window has not opened yet); there is no
+// lower bound, so once inside the window it keeps firing after closing has
+// passed too, until the receipt is recorded (isRowOpen false) or the deal
+// reaches a terminal state (the caller's own top-of-function guard).
+function depositReceiptClosingAlert(transaction, facts, resolvedItems, today, chain) {
+  const receiptId = chain[chain.length - 1];
+  if (!isRowOpen(resolvedItems, receiptId)) {
+    return null;
+  }
+
+  const date = facts.closingDate;
+  if (date === undefined) {
+    return null;
+  }
+
+  const daysUntilClosing = daysBetween(today, date);
+  if (daysUntilClosing > RECEIPT_BEFORE_CLOSING_DAYS) {
+    return null;
+  }
+
+  const stuckAt = chain.find((itemId) => !isRowCompleted(resolvedItems, itemId));
+
+  return { ...alertBase(transaction, 'deposit_receipt_closing'), itemId: receiptId, stuckAt, date, daysUntilClosing, deliveryKeys: [] };
+}
+
 function additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, itemId, delivered) {
   if (!isRowOpen(resolvedItems, itemId)) {
     return null;
@@ -233,10 +275,25 @@ function alertsForTransaction(transaction, { today, now, delivered }) {
 
   alerts.push(...conditionAlerts(transaction, facts, resolvedItems, today, delivered));
 
-  const holdingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, HOLDING_DEPOSIT_CHAIN, delivered);
-  if (holdingDeposit) alerts.push(holdingDeposit);
-  const payingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, PAYING_DEPOSIT_CHAIN, delivered);
-  if (payingDeposit) alerts.push(payingDeposit);
+  // Collapse: while deposit_receipt_closing is live for a chain, the
+  // acceptance-based deposit_overdue for that same chain is never computed
+  // into a pushed alert, so its deliveryKeys (even freshly-undelivered
+  // ones) never reach collectDealAlerts' deliveries list and are never
+  // recorded -- not consumed, just never looked at this morning.
+  const holdingClosing = depositReceiptClosingAlert(transaction, facts, resolvedItems, today, HOLDING_DEPOSIT_CHAIN);
+  if (holdingClosing) {
+    alerts.push(holdingClosing);
+  } else {
+    const holdingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, HOLDING_DEPOSIT_CHAIN, delivered);
+    if (holdingDeposit) alerts.push(holdingDeposit);
+  }
+  const payingClosing = depositReceiptClosingAlert(transaction, facts, resolvedItems, today, PAYING_DEPOSIT_CHAIN);
+  if (payingClosing) {
+    alerts.push(payingClosing);
+  } else {
+    const payingDeposit = depositOverdueAlert(transaction, facts, resolvedItems, today, PAYING_DEPOSIT_CHAIN, delivered);
+    if (payingDeposit) alerts.push(payingDeposit);
+  }
 
   const holdingAdditional = additionalDepositOverdueAlert(transaction, facts, resolvedItems, today, HOLDING_ADDITIONAL_DEPOSIT_ID, delivered);
   if (holdingAdditional) alerts.push(holdingAdditional);

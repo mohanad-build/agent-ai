@@ -795,4 +795,168 @@ describe('alertsForTransaction', () => {
         .toThrow('alertsForTransaction: now must be a valid Date');
     });
   });
+
+  // facts here deliberately carry no conditions and no acceptedDate unless
+  // a specific test needs one, so only the closing-anchored chain can ever
+  // fire -- isolates this new kind from the five existing ones the same way
+  // the file's other numbered blocks isolate their own kind.
+  describe('16. deposit_receipt_closing', () => {
+    const CLOSING_FACTS = {
+      conditions: [],
+      additionalDepositDueDates: [],
+    };
+
+    function closingTransaction(overrides = {}) {
+      return baseTransaction({ facts: { ...CLOSING_FACTS }, ...overrides });
+    }
+
+    it('1. window start: daysUntilClosing 7 fires (closing is 7 days out, today 2026-10-06)', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, closingDate: '2026-10-13' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([{
+        kind: 'deposit_receipt_closing',
+        transactionId: 'txn-1',
+        address: '12 Main St',
+        itemId: 'brokerage_deposit_receipt_received',
+        stuckAt: 'deposit_obtained_from_client',
+        date: '2026-10-13',
+        daysUntilClosing: 7,
+        deliveryKeys: [],
+      }]);
+    });
+
+    it('2. inside window: daysUntilClosing 3 fires', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, closingDate: '2026-10-09' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([expect.objectContaining({ kind: 'deposit_receipt_closing', daysUntilClosing: 3 })]);
+    });
+
+    it('3. one day out: daysUntilClosing 1 fires', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, closingDate: '2026-10-07' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([expect.objectContaining({ kind: 'deposit_receipt_closing', daysUntilClosing: 1 })]);
+    });
+
+    it('4. closing day: daysUntilClosing 0 fires', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, closingDate: '2026-10-06' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([expect.objectContaining({ kind: 'deposit_receipt_closing', daysUntilClosing: 0 })]);
+    });
+
+    it('5. one day after closing: daysUntilClosing -1 fires', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, closingDate: '2026-10-05' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([expect.objectContaining({ kind: 'deposit_receipt_closing', daysUntilClosing: -1 })]);
+    });
+
+    it('6. five days after closing: daysUntilClosing -5 fires; no lower bound', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, closingDate: '2026-10-01' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([expect.objectContaining({ kind: 'deposit_receipt_closing', daysUntilClosing: -5 })]);
+    });
+
+    it('7. just outside the window: daysUntilClosing 8 does not fire', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, closingDate: '2026-10-14' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([]);
+    });
+
+    it('8. receipt already complete: no alert even inside the window', () => {
+      const transaction = closingTransaction({
+        facts: { ...CLOSING_FACTS, closingDate: '2026-10-09' },
+        items: {
+          deposit_obtained_from_client: { completed: true, completedAt: '2026-10-01T00:00:00.000Z' },
+          deposit_delivered_to_listing_agent: { completed: true, completedAt: '2026-10-01T00:00:00.000Z' },
+          brokerage_deposit_receipt_received: { completed: true, completedAt: '2026-10-01T00:00:00.000Z' },
+        },
+      });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([]);
+    });
+
+    it('9. terminal state: no alert at all, even inside the window', () => {
+      const transaction = closingTransaction({ state: 'closed', facts: { ...CLOSING_FACTS, closingDate: '2026-10-09' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([]);
+    });
+
+    it('10. closingDate absent: no deposit_receipt_closing; deposit_overdue fires normally (regression guard)', () => {
+      const transaction = closingTransaction({ facts: { ...CLOSING_FACTS, acceptedDate: '2026-10-04' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([{
+        kind: 'deposit_overdue',
+        transactionId: 'txn-1',
+        address: '12 Main St',
+        itemId: 'brokerage_deposit_receipt_received',
+        stuckAt: 'deposit_obtained_from_client',
+        date: '2026-10-04',
+        daysPast: 2,
+        deliveryKeys: ['deposit_overdue:2026-10-04:2'],
+      }]);
+    });
+
+    it('11. lease type (tenant_lease): fires the same way, type carried on the transaction only, not a new alert field', () => {
+      const transaction = closingTransaction({ type: 'tenant_lease', state: 'accepted', facts: { ...CLOSING_FACTS, closingDate: '2026-10-09' } });
+
+      const result = alertsForTransaction(transaction, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(result).toEqual([expect.objectContaining({ kind: 'deposit_receipt_closing', daysUntilClosing: 3 })]);
+    });
+
+    // The collapse, proved differentially: identical facts except closingDate.
+    // Without it, deposit_overdue fires with a fresh delivery key. With it,
+    // only deposit_receipt_closing appears, and the deposit_overdue delivery
+    // key is nowhere in the result at all -- not delivered, never computed.
+    it('12. collapse: with both acceptedDate overdue and closingDate in window, only deposit_receipt_closing appears', () => {
+      const withoutClosing = closingTransaction({ facts: { ...CLOSING_FACTS, acceptedDate: '2026-10-04' } });
+      const withClosing = closingTransaction({ facts: { ...CLOSING_FACTS, acceptedDate: '2026-10-04', closingDate: '2026-10-09' } });
+
+      const controlResult = alertsForTransaction(withoutClosing, { today: '2026-10-06', now: NOW, delivered: {} });
+      const collapsedResult = alertsForTransaction(withClosing, { today: '2026-10-06', now: NOW, delivered: {} });
+
+      expect(controlResult).toEqual([{
+        kind: 'deposit_overdue',
+        transactionId: 'txn-1',
+        address: '12 Main St',
+        itemId: 'brokerage_deposit_receipt_received',
+        stuckAt: 'deposit_obtained_from_client',
+        date: '2026-10-04',
+        daysPast: 2,
+        deliveryKeys: ['deposit_overdue:2026-10-04:2'],
+      }]);
+
+      expect(collapsedResult).toEqual([{
+        kind: 'deposit_receipt_closing',
+        transactionId: 'txn-1',
+        address: '12 Main St',
+        itemId: 'brokerage_deposit_receipt_received',
+        stuckAt: 'deposit_obtained_from_client',
+        date: '2026-10-09',
+        daysUntilClosing: 3,
+        deliveryKeys: [],
+      }]);
+      expect(collapsedResult.some((a) => a.kind === 'deposit_overdue')).toBe(false);
+      expect(collapsedResult.flatMap((a) => a.deliveryKeys)).not.toContain('deposit_overdue:2026-10-04:2');
+    });
+  });
 });
