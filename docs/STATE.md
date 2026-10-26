@@ -51,6 +51,48 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
+## Session 95: deposit_receipt_closing, the daily reminder before (and after) closing
+
+Tests 4221/173 to 4249/173. Branch `session-95`, not merged.
+
+| Commit | What |
+|---|---|
+| `ac659c2` | `alerts.js`: new `deposit_receipt_closing` kind, keyed on `closingDate` rather than `acceptedDate`. Heads-up style like `condition_heads_up`: no delivery keys, no dedupe, fires fresh every qualifying morning. `RECEIPT_BEFORE_CLOSING_DAYS = 7` opens the window; there is no closing-side upper bound, so it keeps firing daily after closing has passed too, until the receipt is recorded (`isRowOpen` false) or the deal reaches a terminal state (the existing top-of-function guard, no new code needed for that). While it is live for a chain, the acceptance-based `deposit_overdue` for that same chain is never computed into a pushed alert at all -- the collapse happens by not constructing the alert, not a suppression flag, so its delivery key never reaches `collectDealAlerts`' deliveries list and is never recorded. Proved differentially (identical facts with and without `closingDate` set) |
+| `a6da844` | `dealAlerts.js`: ranked at 1, directly below `condition_passed` (unchanged at rank 0) and above everything else. Reason: a passed, unwaived condition can mean the deal has already ended, which outranks a receipt that is merely due soon. `deposit_overdue`/`additional_deposit_overdue`, `condition_heads_up` and `filing_failed` each shift down one slot; their own tie-break logic is unchanged, only renumbered. New within-rank tie-break for rank 1: `daysUntilClosing` ascending (most overdue, or soonest, first) -- one signed field covers both sides of the closing date |
+| `2f6243f` | `digestDeals.js`: same single RECEIPT tap, label and body as `deposit_overdue` -- only the headline differs. `closingWords` is the one place the sale/lease vocabulary lives (Closing/is/was vs. Lease/starts/started), shared by the full email sentence and the SMS fragment so they can't drift apart |
+
+Copy, checked against the real functions, not assumed: before closing, "No deposit receipt yet.
+Closing is in `<N>` days." / "...is tomorrow." / "...is today."; after closing, "...Closing was
+`<N>` days ago." / "...was yesterday." On `tenant_lease`/`landlord_lease`, "Lease starts"/"Lease
+started" instead of "Closing" throughout, never "closing" on a lease. The SMS fragment keeps the verb
+("closing is in 5 days", "lease starts tomorrow") rather than dropping it, read as grammatical as-is.
+
+`closingDate` absent (every deal before session 94, and any deal since that was opened without
+`--closing`) is an unchanged no-op: `deposit_receipt_closing` never fires, `deposit_overdue` behaves
+exactly as it always has, regression-tested directly.
+
+Mo now has to enter `closingDate` at deal-open (`--closing YYYY-MM-DD`, session 94 part 1) for this
+reminder to do anything on a given deal -- a deal opened without it gets no closing-anchored nagging
+at all, silently, by design (closingDate absent is a no-op, not a refusal). `RECEIPT_BEFORE_CLOSING_DAYS`
+(7) is a single constant in `alerts.js`, meant to be tuned from the deals desk once real deals show
+whether a week's notice is early enough or too early.
+
+The Monday picture -- the weekly full-picture backstop for whatever a daily alert might still miss --
+remains designed and unbuilt (session 81 board, reconfirmed session 94). This session makes one
+specific daily alert more persistent (it no longer goes quiet near a hard deadline), but it is not a
+replacement for that backstop and does not touch it.
+
+Mutation-tested: in `alerts.js`, widened the window bound (`>` to `>=`, caught by the window-start
+test) and broke the paying-chain collapse's `else` branch (caught by exactly the collapse test, which
+showed both alerts in one result). In `dealAlerts.js`, moved the new kind to the same rank as
+`deposit_overdue` (caught by the all-six-kinds order test and the dedicated tie-break test, which also
+surfaced the `NaN`-comparator hazard of sharing a rank with no `daysPast` field) and separately removed
+just the new tie-break branch with the rank number left correct (caught by only the dedicated tie-break
+test, isolating that failure mode from the rank-number one). In `digestDeals.js`, neutralised the lease
+branch of `closingWords` (caught by exactly the four lease-wording tests, email and SMS). Dash check
+clean on every commit. `digest.js` needed no change at all; `tests/digest.integration.deals.test.js`
+confirmed green end to end after the three commits.
+
 ## Session 94 part 1: closingDate fact
 
 Tests 4206/173 to 4221/173. Branch `session-94`, not merged.
