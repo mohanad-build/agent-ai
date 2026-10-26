@@ -2,8 +2,10 @@
 
 // FACT_KEYS is every fact setFact accepts. The first five are checklist
 // inputs, each in some item's reads or dereferenced in some requiredWhen.
-// The three date facts are read by the digest alerts, not the resolver
+// The four date facts are read by the digest alerts, not the resolver
 // (additionalDepositDueDates will also gate the additional-deposit item).
+// closingDate is not read anywhere yet (session 94 part 1): it exists only
+// to be captured at deal-open, ahead of the alert work that will read it.
 // The reads-coverage test in tests/transactions-facts.test.js pins the half
 // of this list that can be checked mechanically.
 //
@@ -39,11 +41,12 @@ const FACT_KEYS = Object.freeze([
   'brokerageReceivedFunds',
   'representationArrangement',
   'acceptedDate',
+  'closingDate',
   'conditionDates',
   'additionalDepositDueDates',
 ]);
 
-const DATE_FACT_KEYS = Object.freeze(['acceptedDate', 'conditionDates', 'additionalDepositDueDates']);
+const DATE_FACT_KEYS = Object.freeze(['acceptedDate', 'closingDate', 'conditionDates', 'additionalDepositDueDates']);
 
 module.exports = {
   FACT_KEYS,

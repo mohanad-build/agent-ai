@@ -66,17 +66,17 @@ describe('FACT_KEYS', () => {
     expect(Object.isFrozen(FACT_KEYS)).toBe(true);
   });
 
-  it('is the hand-written eight keys, in order', () => {
+  it('is the hand-written nine keys, in order', () => {
     expect(FACT_KEYS).toEqual([
       'hasSelfRepresentedParty', 'entityType', 'conditions', 'brokerageReceivedFunds', 'representationArrangement',
-      'acceptedDate', 'conditionDates', 'additionalDepositDueDates',
+      'acceptedDate', 'closingDate', 'conditionDates', 'additionalDepositDueDates',
     ]);
   });
 });
 
 describe('DATE_FACT_KEYS', () => {
-  it('is the hand-written three keys, in order', () => {
-    expect(DATE_FACT_KEYS).toEqual(['acceptedDate', 'conditionDates', 'additionalDepositDueDates']);
+  it('is the hand-written four keys, in order', () => {
+    expect(DATE_FACT_KEYS).toEqual(['acceptedDate', 'closingDate', 'conditionDates', 'additionalDepositDueDates']);
   });
 
   it('is frozen', () => {
@@ -722,6 +722,92 @@ describe('date facts', () => {
     });
   });
 
+  // closingDate shares acceptedDate's four deal types, a fact key, a date
+  // shape and the same system-actor refusal; it is not read anywhere yet
+  // (session 94 part 1). On tenant_lease/landlord_lease this date is the
+  // lease start, not a sale closing -- the fact key is still 'closingDate'
+  // on all four types, and any rendering built on it later is responsible
+  // for saying "lease start" on those two.
+  describe('closingDate', () => {
+    it('1. operator sets 2026-11-15 on buyer_purchase; stored value is 2026-11-15', () => {
+      const created = create();
+      const result = setFact(AGENT_ID, created.transactionId, 'closingDate', '2026-11-15', {
+        at: AT, actor: 'operator', baseDir, now: LATER,
+      });
+      expect(result.facts.closingDate).toBe('2026-11-15');
+    });
+
+    it('2. rejects 2026-02-30 and writes nothing to disk', () => {
+      const created = create();
+      expect(() => setFact(AGENT_ID, created.transactionId, 'closingDate', '2026-02-30', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      })).toThrow("setFact: closingDate must be a calendar date (YYYY-MM-DD), got '2026-02-30'");
+
+      const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(onDisk.facts).toBeUndefined();
+      expect(onDisk.events).toBeUndefined();
+    });
+
+    it('3. rejects null and writes nothing to disk', () => {
+      const created = create();
+      expect(() => setFact(AGENT_ID, created.transactionId, 'closingDate', null, {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      })).toThrow('setFact: closingDate must be a calendar date (YYYY-MM-DD), got null');
+
+      const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(onDisk.facts).toBeUndefined();
+      expect(onDisk.events).toBeUndefined();
+    });
+
+    it('4. rejected on seller_listing and writes nothing to disk', () => {
+      const created = createTransaction(
+        AGENT_ID,
+        { type: 'seller_listing', state: 'preparing', address: '12 Main St' },
+        { baseDir, now: CLOCK }
+      );
+      expect(() => setFact(AGENT_ID, created.transactionId, 'closingDate', '2026-11-15', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      })).toThrow("setFact: closingDate is not permitted on type 'seller_listing'; a listing has no closing, its offers do");
+
+      const onDisk = readTransaction(AGENT_ID, created.transactionId, { baseDir });
+      expect(onDisk.facts).toBeUndefined();
+      expect(onDisk.events).toBeUndefined();
+    });
+
+    it('5. set on tenant_lease (closingDate means the lease start there)', () => {
+      const created = createTransaction(
+        AGENT_ID,
+        { type: 'tenant_lease', state: 'accepted', address: '12 Main St' },
+        { baseDir, now: CLOCK }
+      );
+      const result = setFact(AGENT_ID, created.transactionId, 'closingDate', '2026-11-15', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      });
+      expect(result.facts.closingDate).toBe('2026-11-15');
+    });
+
+    it('6. amending an already-set closingDate records before/after in a second fact_set event', () => {
+      const created = create();
+      setFact(AGENT_ID, created.transactionId, 'closingDate', '2026-11-15', {
+        at: AT, actor: 'agent', baseDir, now: LATER,
+      });
+      const result = setFact(AGENT_ID, created.transactionId, 'closingDate', '2026-12-01', {
+        at: AT2, actor: 'agent', baseDir, now: EVEN_LATER,
+      });
+
+      expect(result.facts.closingDate).toBe('2026-12-01');
+      expect(result.events[1]).toMatchObject({ at: AT2, actor: 'agent', kind: 'fact_set' });
+      expect(result.events[1].payload).toEqual({ key: 'closingDate', before: '2026-11-15', after: '2026-12-01' });
+    });
+
+    it("7. setFact with actor 'system' is refused for closingDate", () => {
+      const created = create();
+      expect(() => setFact(AGENT_ID, created.transactionId, 'closingDate', '2026-11-15', {
+        at: AT, actor: 'system', baseDir, now: LATER,
+      })).toThrow("setFact: closingDate must be set by a person, not 'system'; extracted dates belong in a proposal, not a fact");
+    });
+  });
+
   describe('conditionDates', () => {
     it("6. after conditions ['financing'], sets { financing: '2026-10-06' }", () => {
       const created = create();
@@ -990,6 +1076,11 @@ describe('checkFact', () => {
     checkFact('open-transaction', 'acceptedDate', '2026-10-01', { type: 'buyer_purchase', facts: {} });
     expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual([]);
   });
+
+  it('5. accepts closingDate on buyer_purchase and writes nothing to disk', () => {
+    checkFact('open-transaction', 'closingDate', '2026-11-15', { type: 'buyer_purchase', facts: {} });
+    expect(listTransactionIds(AGENT_ID, { baseDir })).toEqual([]);
+  });
 });
 
 describe('checkFact and setFact agree', () => {
@@ -1004,6 +1095,9 @@ describe('checkFact and setFact agree', () => {
     { name: 'valid acceptedDate on buyer_purchase', type: 'buyer_purchase', priorFacts: {}, key: 'acceptedDate', value: '2026-10-01', actor: 'agent' },
     { name: "acceptedDate '2026-02-30'", type: 'buyer_purchase', priorFacts: {}, key: 'acceptedDate', value: '2026-02-30', actor: 'agent' },
     { name: 'acceptedDate on seller_listing', type: 'seller_listing', priorFacts: {}, key: 'acceptedDate', value: '2026-10-01', actor: 'agent' },
+    { name: 'valid closingDate on buyer_purchase', type: 'buyer_purchase', priorFacts: {}, key: 'closingDate', value: '2026-11-15', actor: 'agent' },
+    { name: "closingDate '2026-02-30'", type: 'buyer_purchase', priorFacts: {}, key: 'closingDate', value: '2026-02-30', actor: 'agent' },
+    { name: 'closingDate on seller_listing', type: 'seller_listing', priorFacts: {}, key: 'closingDate', value: '2026-11-15', actor: 'agent' },
     { name: "valid conditions ['financing']", type: 'buyer_purchase', priorFacts: {}, key: 'conditions', value: ['financing'], actor: 'agent' },
     { name: "conditions ['finnancing']", type: 'buyer_purchase', priorFacts: {}, key: 'conditions', value: ['finnancing'], actor: 'agent' },
     { name: 'conditions null', type: 'buyer_purchase', priorFacts: {}, key: 'conditions', value: null, actor: 'agent' },

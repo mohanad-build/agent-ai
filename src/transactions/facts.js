@@ -95,7 +95,10 @@ function assertFactValueShape(fnName, key, value) {
   }
 }
 
-const ACCEPTED_DATE_TYPES = Object.freeze(['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease']);
+// Deals have an acceptance and a completion; listings have neither -- their
+// offers do. acceptedDate and closingDate share this one list for that one
+// reason, not by coincidence of having similar names.
+const DEAL_DRIVING_DATE_TYPES = Object.freeze(['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_lease']);
 const ADDITIONAL_DEPOSIT_TYPES = Object.freeze(['buyer_purchase', 'seller_sale']);
 
 // Shape before the read so a malformed date never touches disk; fit after
@@ -112,6 +115,17 @@ function assertDateFactShape(fnName, key, value) {
   if (key === 'acceptedDate') {
     if (!isCalendarDate(value)) {
       throw new Error(`${fnName}: acceptedDate must be a calendar date (YYYY-MM-DD), got ${describeValue(value)}`);
+    }
+    return;
+  }
+
+  // On tenant_lease and landlord_lease this date is the lease start, not a
+  // sale closing; the fact key stays one name across all four types (same
+  // reasoning as DEAL_DRIVING_DATE_TYPES above), and any rendering built on
+  // it later is responsible for saying "lease start" on those two types.
+  if (key === 'closingDate') {
+    if (!isCalendarDate(value)) {
+      throw new Error(`${fnName}: closingDate must be a calendar date (YYYY-MM-DD), got ${describeValue(value)}`);
     }
     return;
   }
@@ -149,8 +163,12 @@ function assertDateFactShape(fnName, key, value) {
 }
 
 function assertDateFactFitsTransaction(fnName, key, value, previous) {
-  if (key === 'acceptedDate' && !ACCEPTED_DATE_TYPES.includes(previous.type)) {
+  if (key === 'acceptedDate' && !DEAL_DRIVING_DATE_TYPES.includes(previous.type)) {
     throw new Error(`${fnName}: acceptedDate is not permitted on type '${previous.type}'; a listing has no acceptance, its offers do`);
+  }
+
+  if (key === 'closingDate' && !DEAL_DRIVING_DATE_TYPES.includes(previous.type)) {
+    throw new Error(`${fnName}: closingDate is not permitted on type '${previous.type}'; a listing has no closing, its offers do`);
   }
 
   if (key === 'additionalDepositDueDates' && !ADDITIONAL_DEPOSIT_TYPES.includes(previous.type)) {
