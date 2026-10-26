@@ -61,6 +61,46 @@ function headsUpDueWord(daysUntil) {
   return daysUntil === 1 ? 'tomorrow' : 'today';
 }
 
+// deposit_receipt_closing's only vocabulary fork: a sale/purchase closes,
+// a lease starts. One place the noun and both verb tenses live, so the
+// full sentence (closingSentence) and the SMS fragment (closingFragment)
+// below can never drift from each other.
+function closingWords(isLease) {
+  return isLease
+    ? { noun: 'Lease', present: 'starts', past: 'started' }
+    : { noun: 'Closing', present: 'is', past: 'was' };
+}
+
+function isLeaseType(type) {
+  return type === 'tenant_lease' || type === 'landlord_lease';
+}
+
+// daysUntilClosing is signed (alerts.js): positive while the date is
+// ahead, 0 on the day itself, negative once it has passed. A full
+// standalone sentence, capitalized and period-terminated, for the email.
+function closingSentence(alert) {
+  const { noun, present, past } = closingWords(isLeaseType(alert.type));
+  const d = alert.daysUntilClosing;
+  if (d > 1) return `${noun} ${present} in ${daysPhrase(d)}.`;
+  if (d === 1) return `${noun} ${present} tomorrow.`;
+  if (d === 0) return `${noun} ${present} today.`;
+  return `${noun} ${past} ${daysAgoPhrase(-d)}.`;
+}
+
+// Same wording as closingSentence, lowercased and without the trailing
+// period, for the SMS's comma-continuation style (matches deposit_overdue's
+// own SMS fragment, "<address>: no deposit receipt yet, N days after
+// acceptance" -- a fragment, not a second sentence).
+function closingFragment(alert) {
+  const { noun, present, past } = closingWords(isLeaseType(alert.type));
+  const lowerNoun = noun.toLowerCase();
+  const d = alert.daysUntilClosing;
+  if (d > 1) return `${lowerNoun} ${present} in ${daysPhrase(d)}`;
+  if (d === 1) return `${lowerNoun} ${present} tomorrow`;
+  if (d === 0) return `${lowerNoun} ${present} today`;
+  return `${lowerNoun} ${past} ${daysAgoPhrase(-d)}`;
+}
+
 function displayAddress(alert) {
   return alert.unit ? `${alert.address}, unit ${alert.unit}` : alert.address;
 }
@@ -146,6 +186,21 @@ function rowContent(alert, ctx) {
       return {
         textLines: [capitalizeFirst(`additional deposit is ${daysPhrase(alert.daysPast)} overdue.`)],
         primary: { label: 'I have the additional deposit receipt', url: buildDoneMailtoHref(alert.transactionId, alert.itemId, doneBody) },
+        secondary: null,
+      };
+    }
+
+    // Same single RECEIPT tap as deposit_overdue, same label and body --
+    // tapping "I have the deposit receipt" completes the same chain no
+    // matter which alert kind prompted it. Only the headline differs: this
+    // one is anchored to closingDate, not acceptedDate, and keeps firing
+    // every morning, before and after the date, for as long as the chain
+    // stays open (alerts.js, heads-up style, no dedupe).
+    case 'deposit_receipt_closing': {
+      const receiptBody = `Sending this confirms you have the deposit receipt for ${alert.address}.${TAP_BODY_TAIL}`;
+      return {
+        textLines: [`No deposit receipt yet. ${closingSentence(alert)}`],
+        primary: { label: 'I have the deposit receipt', url: buildReceiptMailtoHref(alert.transactionId, alert.itemId, receiptBody) },
         secondary: null,
       };
     }
@@ -333,6 +388,9 @@ function dealsSmsPhrase(alert) {
 
     case 'deposit_overdue':
       return `${alert.address}: no deposit receipt yet, ${daysPhrase(alert.daysPast)} after acceptance`;
+
+    case 'deposit_receipt_closing':
+      return `${alert.address}: no deposit receipt yet, ${closingFragment(alert)}`;
 
     case 'additional_deposit_overdue':
       return `${alert.address}: additional deposit ${daysPhrase(alert.daysPast)} overdue`;

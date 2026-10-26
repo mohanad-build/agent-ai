@@ -119,6 +119,88 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
     );
   });
 
+  // deposit_receipt_closing (session 95): same RECEIPT tap, same label and
+  // body as deposit_overdue; only the headline differs, anchored to
+  // closingDate via the signed daysUntilClosing field rather than daysPast.
+  it('deposit_receipt_closing, daysUntilClosing 5 (before closing)', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-11-15', daysUntilClosing: 5,
+    };
+    expect(renderDealsPlain(collected([alert]), CTX)).toBe(
+      '-- Deals needing you --\n\n'
+      + '12 Main St\n'
+      + 'No deposit receipt yet. Closing is in 5 days.\n'
+      + '→ I have the deposit receipt: mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received'
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + '→ Search your inbox for: "12 main"'
+    );
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing 1: "Closing is tomorrow."', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-11-15', daysUntilClosing: 1,
+    };
+    const result = renderDealsPlain(collected([alert]), CTX);
+    expect(result).toContain('No deposit receipt yet. Closing is tomorrow.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing 0: "Closing is today."', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-11-15', daysUntilClosing: 0,
+    };
+    const result = renderDealsPlain(collected([alert]), CTX);
+    expect(result).toContain('No deposit receipt yet. Closing is today.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing -1: "Closing was yesterday." (after closing)', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-11-15', daysUntilClosing: -1,
+    };
+    const result = renderDealsPlain(collected([alert]), CTX);
+    expect(result).toContain('No deposit receipt yet. Closing was yesterday.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing -5: "Closing was 5 days ago."', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-11-15', daysUntilClosing: -5,
+    };
+    const result = renderDealsPlain(collected([alert]), CTX);
+    expect(result).toContain('No deposit receipt yet. Closing was 5 days ago.');
+  });
+
+  // Lease types: "Lease starts"/"Lease started", never "Closing".
+  it('deposit_receipt_closing on tenant_lease, daysUntilClosing 5: "Lease starts in 5 days."', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'tenant_lease',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-11-15', daysUntilClosing: 5,
+    };
+    const result = renderDealsPlain(collected([alert]), CTX);
+    expect(result).toContain('No deposit receipt yet. Lease starts in 5 days.');
+    expect(result).not.toContain('Closing');
+  });
+
+  it('deposit_receipt_closing on landlord_lease, daysUntilClosing -5: "Lease started 5 days ago."', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'landlord_lease',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', stuckAt: 'deposit_obtained_from_client',
+      date: '2026-11-15', daysUntilClosing: -5,
+    };
+    const result = renderDealsPlain(collected([alert]), CTX);
+    expect(result).toContain('No deposit receipt yet. Lease started 5 days ago.');
+    expect(result).not.toContain('Closing');
+  });
+
   it('additional_deposit_overdue, daysPast 1 (day agreement)', () => {
     const alert = {
       kind: 'additional_deposit_overdue', transactionId: TXN, address: '12 Main St', type: 'seller_sale',
@@ -573,6 +655,62 @@ describe('dealsSmsLine', () => {
       driveFolderId: null, itemId: 'additional_deposit_receipt_issued', date: '2026-10-09', daysPast: 2,
     };
     expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: additional deposit 2 days overdue.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing 5 (before closing)', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', date: '2026-11-15', daysUntilClosing: 5,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: no deposit receipt yet, closing is in 5 days.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing 1: "closing is tomorrow"', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', date: '2026-11-15', daysUntilClosing: 1,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: no deposit receipt yet, closing is tomorrow.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing 0: "closing is today"', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', date: '2026-11-15', daysUntilClosing: 0,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: no deposit receipt yet, closing is today.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing -1: "closing was yesterday" (after closing)', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', date: '2026-11-15', daysUntilClosing: -1,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: no deposit receipt yet, closing was yesterday.');
+  });
+
+  it('deposit_receipt_closing, daysUntilClosing -5: "closing was 5 days ago"', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'buyer_purchase',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', date: '2026-11-15', daysUntilClosing: -5,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: no deposit receipt yet, closing was 5 days ago.');
+  });
+
+  it('deposit_receipt_closing on tenant_lease, daysUntilClosing 5: "lease starts in 5 days"', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'tenant_lease',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', date: '2026-11-15', daysUntilClosing: 5,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: no deposit receipt yet, lease starts in 5 days.');
+  });
+
+  it('deposit_receipt_closing on landlord_lease, daysUntilClosing -5: "lease started 5 days ago"', () => {
+    const alert = {
+      kind: 'deposit_receipt_closing', transactionId: TXN, address: '12 Main St', type: 'landlord_lease',
+      driveFolderId: null, itemId: 'brokerage_deposit_receipt_received', date: '2026-11-15', daysUntilClosing: -5,
+    };
+    expect(dealsSmsLine(collected([alert]))).toBe('📋 12 Main St: no deposit receipt yet, lease started 5 days ago.');
   });
 
   it('filing_failed: no filename in the SMS line, unlike the email', () => {
