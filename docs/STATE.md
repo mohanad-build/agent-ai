@@ -51,26 +51,51 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
-## Session 91: repo pinned to Node 22
+## Session 94 part 1: closingDate fact
 
-Production moves from Node 18.20.8 to 22. Local dev and every test run were already on 22 (session
-91 recon finding), so this closes a test/production mismatch rather than opening one. The production
-build log (deployment `c57ed7c3`, Railpack 0.43.0) shows the pin was `package.json` itself all along:
-`node | 18.20.8 | package.json > engines > node (>=18.0.0)`. Railpack resolved the open floor
-`>=18.0.0` to 18; no Railway variable sets a Node version (checked: none of the 15 service
-variables). `engines.node` changed to `22.x`; added `.nvmrc` containing `22`. This is the whole fix;
-the next deploy moves production, no Railway dashboard change needed. Full suite under Node 22:
-4179/4179 passed, no new deprecation or experimental warnings. Parked below: `scripts/test-twilio.js`'s
-`toLocaleTimeString()`, and `WEBHOOK_SKIP_SIGNATURE_CHECK`. Removed from "Next" (item 4, "move
-production from Node 18 to 22"): done this session; the next deploy is Mo's normal deploy step,
-not a tracked Next item.
+Tests 4206/173 to 4221/173. Branch `session-94`, not merged.
 
-Correction (session 93): Railpack reads `.nvmrc` (its "idiomatic-version-file" source) before
-`package.json`'s `engines.node`, so the build log actually attributes the version to `.nvmrc`, not to
-`package.json > engines > node` as predicted above; the service header still reads `node@22`. Both
-files were set to `22` this session, so the Node version itself was never wrong, only the
-attribution. A future Node upgrade must change `.nvmrc` and `engines.node` together, since `.nvmrc`
-is what Railpack actually honors.
+Recon (unmerged, no edits) found no closing date fact anywhere in the codebase: `FACT_KEYS` had no
+such key, `setFact` would refuse one outright, `open-transaction.js` had no `--closing` flag, and the
+one place a "confirmed closing date" was ever designed into the code (Drive folder naming) was built
+then explicitly struck in session 71, in favour of `createdAt`. The condition heads-up alert's
+exact-window, never-deduped model (fires fresh every qualifying morning, no state) was identified as
+the better fit for a future deposit-receipt-before-closing reminder than the overdue alert's
+fire-once-per-threshold model (the one that produced the live silence bug this session's recon was
+asked to explain) -- a hard deadline like a closing should nag daily as it approaches, not fire once
+and go quiet for five mornings. The Monday picture -- "the full picture of every deal, once a week" --
+was confirmed designed (`docs/STATE.md`, session 81 board) and never built; it is still the next item
+after a founding agent goes live, not something this session touches. Operator escalation on a deal
+alert has no existing proactive path today (only an agent-tapped mailto link); the smallest fit would
+mirror `alertOperatorSheetUnavailable`/`alertOperatorDealsUnavailable`'s shape, but needs its own
+delivery-dedupe state, separate from the agent-facing `dealAlertsDelivered` map, since "the agent saw
+it" and "Mo was told" are different facts that can diverge. Parked, not built.
+
+Part 1 (this build) is storage only: Mo can now capture a closing date at deal-open, nothing reads it
+yet.
+
+| Commit | What |
+|---|---|
+| `dbbc5ba` | `closingDate` added to `FACT_KEYS`/`DATE_FACT_KEYS`, validated like `acceptedDate`: calendar-date shape, refused for `actor: 'system'`, restricted to the four deal types. `ACCEPTED_DATE_TYPES` renamed to `DEAL_DRIVING_DATE_TYPES` and backs both facts' type restriction, each keeping its own refusal message. Amendment falls out of `setFact`'s existing before/after behaviour with no new code |
+| `0cb918e` | `open-transaction.js` gets an optional `--closing YYYY-MM-DD` flag, same shape as `--accepted`. When omitted, a standalone `No closing date yet.` line prints beside the existing per-condition `No date yet for:` line -- deliberately not folded into `Still unanswered`, since that list is checklist-derived (`pendingFacts` on an indeterminate item) and nothing reads `closingDate` yet, so it could never land there no matter what |
+
+On `tenant_lease` and `landlord_lease`, `closingDate` means the lease start date, not a sale closing.
+The fact key is one name across all four deal types (same reasoning as `DEAL_DRIVING_DATE_TYPES`
+itself); any rendering built on this fact in a later part must say "lease start" for those two types,
+never "closing".
+
+Decisions (Mo, 2026-10-26): restrict `closingDate` to the four deal types, sharing one renamed list
+with `acceptedDate` rather than two separately-maintained lists with the same values; the missing-date
+notice is its own standalone line, not folded into the checklist-derived list.
+
+Mutation-tested: in `facts.js`, neutralised the type-restriction check (caught by the dedicated
+`closingDate` "rejected on seller_listing" test; the `checkFact`/`setFact` parity table could not see
+it, as expected, since both paths share the one function the mutation broke) and removed the
+calendar-date shape check (caught by the invalid-date and null tests, same parity-table blind spot
+confirmed again). In `open-transaction.js`, inverted the `No closing date yet.` condition (caught by
+the three tests whose assertions depend on the line's presence or absence). Dash check clean on both
+commits. `set-fact.js` needed no code change (confirmed generic); verified live against a real
+transaction: set, then amended, with the second `fact_set` event's `before`/`after` matching exactly.
 
 ## Session 93: sender verification, log-only
 
@@ -127,6 +152,27 @@ single-alert and sample-fixture tests), changed the RECEIPT completed sentence (
 RECEIPT-completed tests), and forced the Undo body to always use the address-less fallback text
 (caught by the two address-bearing tests, while the two already-address-less fallback tests
 correctly stayed green). Dash check clean on every commit.
+
+## Session 91: repo pinned to Node 22
+
+Production moves from Node 18.20.8 to 22. Local dev and every test run were already on 22 (session
+91 recon finding), so this closes a test/production mismatch rather than opening one. The production
+build log (deployment `c57ed7c3`, Railpack 0.43.0) shows the pin was `package.json` itself all along:
+`node | 18.20.8 | package.json > engines > node (>=18.0.0)`. Railpack resolved the open floor
+`>=18.0.0` to 18; no Railway variable sets a Node version (checked: none of the 15 service
+variables). `engines.node` changed to `22.x`; added `.nvmrc` containing `22`. This is the whole fix;
+the next deploy moves production, no Railway dashboard change needed. Full suite under Node 22:
+4179/4179 passed, no new deprecation or experimental warnings. Parked below: `scripts/test-twilio.js`'s
+`toLocaleTimeString()`, and `WEBHOOK_SKIP_SIGNATURE_CHECK`. Removed from "Next" (item 4, "move
+production from Node 18 to 22"): done this session; the next deploy is Mo's normal deploy step,
+not a tracked Next item.
+
+Correction (session 93): Railpack reads `.nvmrc` (its "idiomatic-version-file" source) before
+`package.json`'s `engines.node`, so the build log actually attributes the version to `.nvmrc`, not to
+`package.json > engines > node` as predicted above; the service header still reads `node@22`. Both
+files were set to `22` this session, so the Node version itself was never wrong, only the
+attribution. A future Node upgrade must change `.nvmrc` and `engines.node` together, since `.nvmrc`
+is what Railpack actually honors.
 
 ## Session 89: brief copy fixes from the first live weekend, Commit A2
 
