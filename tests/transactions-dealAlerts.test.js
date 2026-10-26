@@ -69,6 +69,24 @@ function depositOverdueTxn({ transactionId, address, acceptedDate }) {
   };
 }
 
+function depositReceiptClosingTxn({ transactionId, address, closingDate }) {
+  return {
+    transactionId,
+    agentId: 'test-agent',
+    type: 'buyer_purchase',
+    state: 'conditional',
+    address,
+    facts: {
+      conditions: [],
+      closingDate,
+      additionalDepositDueDates: [],
+    },
+    items: {},
+    filings: {},
+    events: [],
+  };
+}
+
 function additionalDepositOverdueTxn({ transactionId, address, dueDate }) {
   return {
     transactionId,
@@ -168,7 +186,7 @@ describe('collectDealAlerts', () => {
     expect(noFolderAlert.driveFolderId).toBeNull();
   });
 
-  it('full rank order: one alert of every kind, across several deals, shuffled input order', () => {
+  it('full rank order, five pre-existing kinds: one alert of every kind, across several deals, shuffled input order', () => {
     const today = '2026-10-10';
     const now = new Date('2026-10-10T11:00:00Z');
 
@@ -185,10 +203,10 @@ describe('collectDealAlerts', () => {
 
     expect(result.alerts.map((a) => a.transactionId)).toEqual([
       'txn-cp',  // rank 0: condition_passed
-      'txn-d7',  // rank 1: deposit_overdue, daysPast 7
-      'txn-ad2', // rank 1: additional_deposit_overdue, daysPast 2 (tie-break: smaller daysPast, so after txn-d7)
-      'txn-hu',  // rank 2: condition_heads_up
-      'txn-ff',  // rank 3: filing_failed
+      'txn-d7',  // rank 2: deposit_overdue, daysPast 7
+      'txn-ad2', // rank 2: additional_deposit_overdue, daysPast 2 (tie-break: smaller daysPast, so after txn-d7)
+      'txn-hu',  // rank 3: condition_heads_up
+      'txn-ff',  // rank 4: filing_failed
     ]);
     expect(result.alerts.map((a) => a.kind)).toEqual([
       'condition_passed',
@@ -196,6 +214,51 @@ describe('collectDealAlerts', () => {
       'additional_deposit_overdue',
       'condition_heads_up',
       'filing_failed',
+    ]);
+  });
+
+  it('full rank order, all six kinds: deposit_receipt_closing sits at rank 1, below condition_passed and above deposit_overdue', () => {
+    const today = '2026-10-10';
+    const now = new Date('2026-10-10T11:00:00Z');
+
+    const headsUp = conditionHeadsUpTxn({ transactionId: 'txn-hu', address: 'A Headsup Ln', conditionDate: '2026-10-11' }); // daysUntil 1
+    const passed = conditionPassedTxn({ transactionId: 'txn-cp', address: 'B Passed Ave', conditionDate: '2026-10-06' });
+    const receiptClosing = depositReceiptClosingTxn({ transactionId: 'txn-rc', address: 'D2 Closing St', closingDate: '2026-10-13' }); // daysUntilClosing 3
+    const depositOverdue7 = depositOverdueTxn({ transactionId: 'txn-d7', address: 'D Deposit7 St', acceptedDate: '2026-10-03' });
+    const additionalOverdue2 = additionalDepositOverdueTxn({ transactionId: 'txn-ad2', address: 'E Addl2 Rd', dueDate: '2026-10-08' });
+    const filingFailed = filingFailedTxn({ transactionId: 'txn-ff', address: 'C Filing Ct', abandonedAt: '2026-10-10T05:00:00Z' });
+
+    // Shuffled, including deposit_receipt_closing in the mix, not first or last.
+    const settled = settledWith([additionalOverdue2, filingFailed, receiptClosing, passed, headsUp, depositOverdue7]);
+
+    const result = collectDealAlerts(settled, { today, now, delivered: {} });
+
+    expect(result.alerts.map((a) => ({ transactionId: a.transactionId, kind: a.kind }))).toEqual([
+      { transactionId: 'txn-cp', kind: 'condition_passed' },               // rank 0
+      { transactionId: 'txn-rc', kind: 'deposit_receipt_closing' },        // rank 1
+      { transactionId: 'txn-d7', kind: 'deposit_overdue' },                // rank 2
+      { transactionId: 'txn-ad2', kind: 'additional_deposit_overdue' },    // rank 2, tie-break after txn-d7
+      { transactionId: 'txn-hu', kind: 'condition_heads_up' },             // rank 3
+      { transactionId: 'txn-ff', kind: 'filing_failed' },                  // rank 4
+    ]);
+  });
+
+  it('deposit_receipt_closing tie-break: smaller daysUntilClosing first (more overdue, or closer, wins)', () => {
+    const today = '2026-10-10';
+    const now = new Date('2026-10-10T11:00:00Z');
+
+    // daysUntilClosing -2 (two days after closing) is "worse" than +3
+    // (three days before closing): the signed value sorts ascending, so
+    // the overdue one comes first regardless of which side of closing
+    // either deal is on.
+    const overdue = depositReceiptClosingTxn({ transactionId: 'txn-rc-overdue', address: 'Overdue St', closingDate: '2026-10-08' });
+    const upcoming = depositReceiptClosingTxn({ transactionId: 'txn-rc-upcoming', address: 'Upcoming St', closingDate: '2026-10-13' });
+
+    const result = collectDealAlerts(settledWith([upcoming, overdue]), { today, now, delivered: {} });
+
+    expect(result.alerts.map((a) => ({ transactionId: a.transactionId, daysUntilClosing: a.daysUntilClosing }))).toEqual([
+      { transactionId: 'txn-rc-overdue', daysUntilClosing: -2 },
+      { transactionId: 'txn-rc-upcoming', daysUntilClosing: 3 },
     ]);
   });
 

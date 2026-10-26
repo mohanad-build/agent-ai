@@ -24,17 +24,26 @@ const DEAL_TYPES = ['buyer_purchase', 'seller_sale', 'tenant_lease', 'landlord_l
 // effect (confirmed by mutation testing -- see commit 1's recon), and would
 // invite a later reader to think a day-count boundary matters here when it
 // does not.
+//
+// deposit_receipt_closing (session 95) sits at rank 1, directly below
+// condition_passed rather than above it: a passed, unwaived condition can
+// mean the deal has already ended, which outranks a receipt that is merely
+// due soon. condition_passed's own rank number and tie-break are unchanged
+// by this -- only deposit_overdue/additional_deposit_overdue,
+// condition_heads_up and filing_failed shift down by one slot.
 function rankForAlert(alert) {
   switch (alert.kind) {
     case 'condition_passed':
       return 0;
+    case 'deposit_receipt_closing':
+      return 1;
     case 'deposit_overdue':
     case 'additional_deposit_overdue':
-      return 1;
-    case 'condition_heads_up':
       return 2;
-    case 'filing_failed':
+    case 'condition_heads_up':
       return 3;
+    case 'filing_failed':
+      return 4;
     default:
       // A kind alerts.js grew that this file was never told how to rank.
       // Silently sorting it last would hide a new alert kind in the brief
@@ -43,14 +52,21 @@ function rankForAlert(alert) {
   }
 }
 
-// Within-rank tie-break. Ranks 0-1 are both "bigger daysPast is worse, show
-// first"; rank 2 is "fewer days left is worse, show first"; rank 3 is
-// "abandoned more recently is worse, show first".
+// Within-rank tie-break. Rank 0 and rank 2 are both "bigger daysPast is
+// worse, show first" (the shared default branch, unchanged by the rank
+// renumbering above); rank 1 is "smaller daysUntilClosing is worse, show
+// first" (most overdue, or soonest, first -- daysUntilClosing is signed, so
+// this one comparison already covers both sides of the closing date); rank
+// 3 is "fewer days left is worse, show first"; rank 4 is "abandoned more
+// recently is worse, show first".
 function withinRankCompare(a, b, rank) {
-  if (rank === 2) {
-    return a.daysUntil - b.daysUntil;
+  if (rank === 1) {
+    return a.daysUntilClosing - b.daysUntilClosing;
   }
   if (rank === 3) {
+    return a.daysUntil - b.daysUntil;
+  }
+  if (rank === 4) {
     return new Date(b.abandonedAt).getTime() - new Date(a.abandonedAt).getTime();
   }
   return b.daysPast - a.daysPast;
