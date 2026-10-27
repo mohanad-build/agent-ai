@@ -23,6 +23,8 @@ const proposals                   = require('../transactions/proposals');
 const { confirmProposalSet }      = require('../transactions/confirmSet');
 const { markWrongDeal }           = require('../transactions/wrongDeal');
 const { formatRoles }             = require('../transactions/participants');
+const { findTransactionOwners }   = require('../transactions/queries');
+const { loadAgent }               = require('../agentConfig');
 const { loadOperator }            = require('../operatorConfig');
 const { plainTextToHtml, escapeHtml } = require('../plainTextHtml');
 const { completeOne, completeChain, uncompleteRows } = require('../transactions/taps');
@@ -51,6 +53,28 @@ const UNRECOGNIZED_REPLY_SUBJECT = 'GetKlosed: email address not recognized';
 const UNRECOGNIZED_REPLY_BODY =
   "We couldn't match this email address to a GetKlosed account, so nothing was changed.\n\n" +
   "If you're a GetKlosed agent, please send it again from the email address your account is set up with. If you're not sure which address that is, contact mohanad@getklosed.ca.";
+
+// Wrong-account tap notice (session 96): a separate cooldown from
+// cooldownByAddress above, keyed on the OWNER's agentId and the
+// transactionId, not on the wrong sender's address. An address-keyed
+// cooldown would give the wrong scope two ways: the same wrong account
+// tapping two different deals on two mornings would wrongly suppress the
+// second deal's notice, and a forger rotating sender addresses to dodge a
+// per-address cooldown would defeat it entirely. Keying on (agent,
+// transaction) instead bounds the notice to roughly one per real deal per
+// day regardless of which address each attempt came from. Same pattern as
+// cooldownByAddress otherwise: in-memory, set on the SUCCESSFUL send only.
+const wrongAccountCooldownByKey = new Map();
+
+function wrongAccountNoticeSubject(address) {
+  return `GetKlosed: a request for ${address} came from an unrecognized address`;
+}
+
+function wrongAccountNoticeBody(address, fromEmail, gmailAddress) {
+  return `A request for ${address} came in from ${fromEmail}, which isn't the email address your GetKlosed account is set up with. Nothing was changed.\n\n` +
+    `If that was you, please send it again from ${gmailAddress}. When you resend it, check that the From line says ${gmailAddress} before you press Send.\n\n` +
+    "If that wasn't you, you don't need to do anything.";
+}
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -881,10 +905,71 @@ async function handleTcVerb(agentConfig, msg, subject, assistantConfig, replyTo)
   });
 }
 
+// Wrong-account tap notice (session 96): the live case this exists for is
+// an agent's phone defaulting a tap's reply to the wrong Gmail account on
+// the same device. The subject may still parse as a TC verb even though
+// the sender matches no registered agent -- if it does, and exactly one
+// agent's own deal files have that transactionId, tell THAT agent, at
+// their real registered address, rather than leaving them to believe a
+// tap worked when nothing happened. Never touches the deal: this is an
+// identity lookup and a notice, not a composition call, so nothing in
+// taps.js/confirmSet.js/proposals.js is ever reached from here.
+async function sendWrongAccountNotice(assistantConfig, msg, subject, fromEmail) {
+  const parsed = parseTcCommand(subject);
+  if (!parsed) {
+    return;
+  }
+
+  const owners = findTransactionOwners(parsed.transactionId);
+
+  if (owners.length !== 1) {
+    const reason = owners.length === 0 ? 'no_owner' : 'ambiguous_owner';
+    console.log(`[wrong-account-notice] messageId=${msg.messageId} transactionId=${parsed.transactionId} decision=skipped reason=${reason}`);
+    return;
+  }
+
+  const { agentId: ownerAgentId, transaction } = owners[0];
+
+  let ownerConfig;
+  try {
+    ownerConfig = loadAgent(ownerAgentId);
+  } catch (err) {
+    console.log(`[wrong-account-notice] messageId=${msg.messageId} agentId=${ownerAgentId} transactionId=${parsed.transactionId} decision=skipped reason=owner_config_unreadable`);
+    return;
+  }
+
+  const cooldownKey = `${ownerAgentId}:${parsed.transactionId}`;
+  if (
+    wrongAccountCooldownByKey.has(cooldownKey) &&
+    getNowDate().getTime() - wrongAccountCooldownByKey.get(cooldownKey) < REPLY_COOLDOWN_MS
+  ) {
+    console.log(`[wrong-account-notice] messageId=${msg.messageId} agentId=${ownerAgentId} transactionId=${parsed.transactionId} decision=skipped reason=cooldown`);
+    return;
+  }
+
+  const address = transaction.address;
+  const body = wrongAccountNoticeBody(address, fromEmail, ownerConfig.gmailAddress);
+
+  try {
+    await gmail.sendNewEmail(assistantConfig, {
+      to:      ownerConfig.gmailAddress,
+      subject: wrongAccountNoticeSubject(address),
+      body,
+      html:    plainTextToHtml(body),
+      autoSubmitted: true,
+    });
+    wrongAccountCooldownByKey.set(cooldownKey, getNowDate().getTime());
+    console.log(`[wrong-account-notice] messageId=${msg.messageId} agentId=${ownerAgentId} transactionId=${parsed.transactionId} decision=sent`);
+  } catch (err) {
+    console.log(`[wrong-account-notice] messageId=${msg.messageId} agentId=${ownerAgentId} transactionId=${parsed.transactionId} decision=skipped reason=send_failed`);
+  }
+}
+
 // ── Per-message processor ─────────────────────────────────────────────────────
 
 async function processEmail(msg, allAgentConfigs, assistantConfig) {
   const fromEmail = extractEmailAddress(msg.from || '');
+  const subject = (msg.subject || '').trim();
   const agentConfig = allAgentConfigs.find(c =>
     (c.gmailAddress || '').toLowerCase().trim() === fromEmail
   );
@@ -939,6 +1024,17 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
 
     console.log(`[unrecognized-reply] messageId=${msg.messageId} decision=${decision} reason=${reason || '-'}`);
 
+    // Independent of the reply/cooldown/gates above: that flow tells the
+    // WRONG inbox "this address isn't a GetKlosed account"; this one tells
+    // the RIGHT inbox "something addressed to your deal came from
+    // somewhere else." Neither makes the other redundant, and this one's
+    // own outcome never changes `decision`/`reason` above.
+    try {
+      await sendWrongAccountNotice(assistantConfig, msg, subject, fromEmail);
+    } catch (err) {
+      console.log(`[wrong-account-notice] messageId=${msg.messageId} decision=skipped reason=error: ${err.message}`);
+    }
+
     try {
       await gmail.markRead(assistantConfig, msg.messageId);
     } catch (err) {
@@ -953,7 +1049,6 @@ async function processEmail(msg, allAgentConfigs, assistantConfig) {
   const verifyResult = verifySender(a, agentConfig.gmailAddress);
   console.log(`[sender-verify] messageId=${msg.messageId} agentId=${agentConfig.agentId} verified=${verifyResult.verified} reason=${verifyResult.reason} enforce=false`);
 
-  const subject     = (msg.subject || '').trim();
   const isTrack1    = /^(APPROVE|REGEN|SWAP)\b/i.test(subject);
   const replyTo     = agentConfig.gmailAddress;
   const calledMatch = subject.match(/^\s*CALLED\s+(\S+)/i);
@@ -1088,5 +1183,5 @@ async function runActionHandler(allAgentConfigs) {
 module.exports = { runActionHandler };
 
 module.exports._internal = {
-  _resetCooldowns: () => cooldownByAddress.clear(),
+  _resetCooldowns: () => { cooldownByAddress.clear(); wrongAccountCooldownByKey.clear(); },
 };

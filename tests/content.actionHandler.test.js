@@ -2209,6 +2209,30 @@ describe('runActionHandler', () => {
       expect(lines.length).toBeGreaterThan(0);
       lines.forEach(line => expect(line).not.toContain('@'));
     });
+
+    // Light touch only, here: store.readTransaction is already mocked in
+    // this file, which makes it unsafe to exercise the real disk-based
+    // owner lookup (discoverAgentIds would scan this process's real
+    // STORAGE_ROOT, not a controlled fixture). Forcing a deterministic
+    // null return proves the wiring -- a TC-shaped subject from an
+    // unrecognized sender is parsed and looked up without crashing, logs
+    // no_owner, and the existing wrong-address reply still runs alongside
+    // it unaffected. The real owner-found/lapsed-login/cooldown behaviour
+    // is proved end to end, against a real temp STORAGE_ROOT, in
+    // tests/actionHandler.wrongAccountNotice.integration.test.js.
+    test('a TC-shaped subject from an unrecognized sender does not crash; logs no_owner; existing reply still sent', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      store.readTransaction.mockReturnValue(null);
+      const msg = makeUnrecognizedMsg({ subject: 'RECEIPT txn-20260715-1a2b3c4d brokerage_deposit_receipt_received' });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(findLine(logSpy, '[unrecognized-reply]')).toBe('[unrecognized-reply] messageId=msg-1 decision=sent reason=-');
+      const noticeLine = findLine(logSpy, '[wrong-account-notice]');
+      expect(noticeLine).toBe('[wrong-account-notice] messageId=msg-1 transactionId=txn-20260715-1a2b3c4d decision=skipped reason=no_owner');
+      expect(gmail.sendNewEmail).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('sender verification (session 93): log-only, enforce=false, never gates processing', () => {
