@@ -1,6 +1,7 @@
 'use strict';
 
 const { getStorageRoot } = require('../storagePaths');
+const { discoverAgentIds } = require('../agentDiscovery');
 const store = require('./store');
 
 // This reads every transaction file that belongs to an agent, unfiltered by
@@ -83,4 +84,48 @@ function readAllTransactionsSettled(agentId, opts = {}) {
   return { transactions, unreadable };
 }
 
-module.exports = { readAllTransactions, readAllTransactionsSettled };
+// Session 96: who owns a transaction id, without trusting who claims to.
+// Scans every agent id discoverAgentIds finds ON DISK -- not a caller's own
+// (possibly OAuth-filtered) roster -- so an agent whose Google login has
+// lapsed is still found: discoverAgentIds only requires an <agentId>.json
+// file to exist, nothing about that agent being currently reachable via
+// Gmail. Each candidate is one direct store.readTransaction call (no
+// directory scan; store.js computes the exact path and a miss is a fast
+// ENOENT), so this is O(agent count) file-read attempts, cheap at any
+// realistic scale (the same reasoning readAllTransactions' own header
+// already applies to its own per-agent scan).
+//
+// A read that throws for one candidate agent (TransactionCorruptionError,
+// TransactionSchemaValidationError, or anything else) is caught and
+// skipped, never fatal to finding the real owner -- the same resilience
+// contract as readAllTransactionsSettled, for the same reason: one
+// unrelated agent's damaged file must never hide another agent's real
+// deal from a lookup that has no other way to find it.
+//
+// Returns every agent id whose directory actually has this transactionId,
+// paired with the transaction itself (so a caller that only needs, say,
+// the address never has to read the file a second time). Zero, one, or
+// (vanishingly rarely, since the id's own random suffix makes a same-day
+// collision astronomically unlikely) more than one. This function reports
+// what is on disk; deciding what "found" means is the caller's job.
+function findTransactionOwners(transactionId, opts = {}) {
+  const baseDir = opts.baseDir || getStorageRoot();
+  const agentIds = discoverAgentIds({ baseDir });
+
+  const owners = [];
+  agentIds.forEach((agentId) => {
+    try {
+      const transaction = store.readTransaction(agentId, transactionId, { baseDir });
+      if (transaction !== null) {
+        owners.push({ agentId, transaction });
+      }
+    } catch (err) {
+      // Swallowed deliberately: a different agent's corrupt or invalid
+      // file must never stop the search for the real owner.
+    }
+  });
+
+  return owners;
+}
+
+module.exports = { readAllTransactions, readAllTransactionsSettled, findTransactionOwners };

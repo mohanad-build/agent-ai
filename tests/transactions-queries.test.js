@@ -4,7 +4,7 @@ const fs   = require('node:fs');
 const os   = require('node:os');
 const path = require('node:path');
 
-const { readAllTransactions, readAllTransactionsSettled } = require('../src/transactions/queries');
+const { readAllTransactions, readAllTransactionsSettled, findTransactionOwners } = require('../src/transactions/queries');
 
 const store = require('../src/transactions/store');
 const {
@@ -256,5 +256,93 @@ describe('readAllTransactionsSettled', () => {
     const result = readAllTransactionsSettled(AGENT_ID, { baseDir });
 
     expect(result).toEqual({ transactions: [secondTransaction], unreadable: [] });
+  });
+});
+
+// -- findTransactionOwners -------------------------------------------------------
+
+// discoverAgentIds (src/agentDiscovery.js) only requires an <agentId>.json
+// file to exist in baseDir; it never reads or validates its contents. An
+// empty object is enough to make an id discoverable, independent of
+// whatever a real agent config would need for Gmail/OAuth.
+function writeAgentConfig(baseDir, agentId) {
+  fs.writeFileSync(path.join(baseDir, `${agentId}.json`), '{}', 'utf8');
+}
+
+describe('findTransactionOwners', () => {
+  test('1. no agent json files at all: returns [] without throwing', () => {
+    expect(findTransactionOwners('txn-20260715-abcd1234', { baseDir })).toEqual([]);
+  });
+
+  test('2. agents exist but none owns this id: returns []', () => {
+    writeAgentConfig(baseDir, 'agent-a');
+    writeAgentConfig(baseDir, 'agent-b');
+    createTransaction('agent-a', { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: NOW });
+    createTransaction('agent-b', { type: 'seller_sale', state: 'conditional', address: '34 Oak Ave' }, { baseDir, now: NOW });
+
+    expect(findTransactionOwners('txn-20260715-ffffffff', { baseDir })).toEqual([]);
+  });
+
+  test('3. exactly one owner: returns that agent id paired with the real transaction, address included', () => {
+    writeAgentConfig(baseDir, 'agent-a');
+    writeAgentConfig(baseDir, 'agent-b');
+    const owned = createTransaction('agent-a', { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' }, { baseDir, now: NOW });
+    createTransaction('agent-b', { type: 'seller_sale', state: 'conditional', address: '34 Oak Ave' }, { baseDir, now: NOW });
+
+    const result = findTransactionOwners(owned.transactionId, { baseDir });
+
+    expect(result).toEqual([{ agentId: 'agent-a', transaction: owned }]);
+  });
+
+  // A same-day collision across two different agents is astronomically
+  // unlikely in practice (session 96 recon), but the function must still
+  // report it honestly rather than silently picking one -- the caller
+  // (actionHandler.js) is the one that decides "more than one" means
+  // falling back to today's behaviour, not this function.
+  test('4. more than one owner (manufactured collision): returns both', () => {
+    writeAgentConfig(baseDir, 'agent-a');
+    writeAgentConfig(baseDir, 'agent-b');
+    const sharedId = 'txn-20260715-c0ffee00';
+    const dirA = transactionsDir(baseDir, 'agent-a');
+    const dirB = transactionsDir(baseDir, 'agent-b');
+    fs.mkdirSync(dirA, { recursive: true });
+    fs.mkdirSync(dirB, { recursive: true });
+    const envelopeA = makeEnvelope({ transactionId: sharedId, agentId: 'agent-a', address: '12 Main St' });
+    const envelopeB = makeEnvelope({ transactionId: sharedId, agentId: 'agent-b', address: '34 Oak Ave' });
+    fs.writeFileSync(path.join(dirA, `${sharedId}.json`), JSON.stringify(envelopeA), 'utf8');
+    fs.writeFileSync(path.join(dirB, `${sharedId}.json`), JSON.stringify(envelopeB), 'utf8');
+
+    const result = findTransactionOwners(sharedId, { baseDir });
+
+    expect(result.map((r) => r.agentId).sort()).toEqual(['agent-a', 'agent-b']);
+  });
+
+  // A corrupt file sitting at the exact id being searched for, under an
+  // UNRELATED agent's directory, must not stop the scan from reaching the
+  // real owner discovered afterward (agent ids are not guaranteed to be
+  // scanned in any particular order relative to each other here).
+  test('5. a corrupt file for another agent at the same id does not block the real owner', () => {
+    writeAgentConfig(baseDir, 'agent-corrupt');
+    writeAgentConfig(baseDir, 'agent-real');
+    const targetId = 'txn-20260715-deadbeef';
+    const corruptDir = transactionsDir(baseDir, 'agent-corrupt');
+    fs.mkdirSync(corruptDir, { recursive: true });
+    fs.writeFileSync(path.join(corruptDir, `${targetId}.json`), '{ not valid json', 'utf8');
+
+    const owned = createTransaction(
+      'agent-real',
+      { type: 'buyer_purchase', state: 'conditional', address: '12 Main St' },
+      { baseDir, now: NOW }
+    );
+    // createTransaction generates its own random id; overwrite the file at
+    // the exact targetId so "agent-real" genuinely owns that specific id,
+    // matching the corrupt file's id on the other agent exactly.
+    fs.unlinkSync(path.join(transactionsDir(baseDir, 'agent-real'), `${owned.transactionId}.json`));
+    const realEnvelope = { ...owned, transactionId: targetId };
+    fs.writeFileSync(path.join(transactionsDir(baseDir, 'agent-real'), `${targetId}.json`), JSON.stringify(realEnvelope), 'utf8');
+
+    const result = findTransactionOwners(targetId, { baseDir });
+
+    expect(result).toEqual([{ agentId: 'agent-real', transaction: realEnvelope }]);
   });
 });
