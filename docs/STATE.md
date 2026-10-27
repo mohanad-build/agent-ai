@@ -51,6 +51,33 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
+## Session 97: tap copy fixes
+
+Tests 4261/174 to 4281/174. Branch `session-97`, stacked on `session-96`, not merged. DO NOT MERGE:
+both merge after Friday 2026-10-30's live check of session 95's deposit_receipt_closing reminder.
+
+From the live Undo test (2026-10-27): the shared tap-body ending gave no sense of HOW LONG the
+confirmation would take, and an agent waiting with no hint could tap twice; the UNDO reply spoke in
+raw catalog names ("Back on the checklist for `<address>`: Deposit Obtained from Client, Deposit
+Delivered to Listing Agent, Brokerage Deposit Receipt Received.") instead of mirroring what the
+agent actually tapped.
+
+| Commit | What |
+|---|---|
+| `ebcf995` | `CONDITION_DISPLAY_OVERRIDES`/`conditionDisplayName` moved from `digestDeals.js` to `rules/conditions.js`, the module that already owns the closed condition vocabulary -- one home for condition display wording, now shared by the brief and the UNDO reply. Pure move: `digestDeals.test.js`'s own condition-name tests pass unmodified, proving no rendered name changed |
+| `645bee8` | `TAP_BODY_TAIL` moved from `digestDeals.js` to `tapLinks.js`, the file whose own stated purpose is exactly this ("one place a builder and the parser both import, so they cannot drift"). `actionHandler.js`'s `undoLinkHtml` had its own two literal copies of the same sentence; both now read off this one export too. Pure move, `digestDeals.test.js`/`content.actionHandler.test.js` pass unmodified |
+| `1d73aea` | The copy change itself: `"...You'll get a confirmation back."` becomes `"...You'll get a confirmation back within a few minutes."`, picked up automatically by every call site now that it has one home |
+| `c4d68be` | `buildUndoReply`'s `'uncompleted'` case recognizes three shapes from the catalog's own ids (never guessed from id string shape): a deposit chain's receipt id among the undone ids, with every undone id belonging to that same chain ("Done. The deposit receipt for `<address>` is no longer marked as received."); an additional deposit receipt id, same shape; every undone id mapping to the same single condition ("Done. The `<condition>` condition for `<address>` is back on your list."). Anything that doesn't cleanly match one shape, including a hand-typed UNDO mixing a receipt id with something unrelated, falls through to the original catalog-label sentence, which never drops anything. The skipped-id sentence is unchanged, appended after whichever headline fires |
+
+Confirmed, no code change needed: `buildUndoReply` never sets an `html` field, so `sendConfirmation`
+always falls back to `plainTextToHtml(body)` for an UNDO reply -- there is no Undo-of-the-Undo link,
+on any wording variant, pinned directly by a new test.
+
+Mutation-tested: removed the strict "every undone id belongs to the same chain" check (caught by
+exactly the mixed-ids fallback test, which showed the condition silently dropped from the headline)
+and broke `CONDITION_BY_CLEARING_ITEM`'s reverse-map construction (caught by both condition-wording
+tests, producing a doubled "condition condition" in the body). Dash check clean on every commit.
+
 ## Session 96: wrong-account tap notice
 
 Tests 4249/173 to 4261/174. Branch `session-96`, not merged. DO NOT MERGE until Mo says (waiting on
