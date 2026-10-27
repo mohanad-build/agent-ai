@@ -51,6 +51,67 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
+## Session 96: wrong-account tap notice
+
+Tests 4249/173 to 4261/174. Branch `session-96`, not merged. DO NOT MERGE until Mo says (waiting on
+the live check of session 95's deposit_receipt_closing reminder running through Friday 2026-10-30).
+
+Recon (unmerged, no edits): the live screenshot behind this (session 92b) showed an agent's phone
+defaulting a tap's reply draft to the wrong Gmail account on the same device. `processEmail` never
+inspects the subject for an unrecognized sender at all -- `TC_CLAIM_RE`/`parseTcCommand` sit on an
+unreachable line once the function has already returned, so a syntactically perfect `RECEIPT
+txn-... <itemId>` from the wrong inbox got silently funnelled into the generic "address not
+recognized" path, often gated into nothing at all by the automated/trust/dmarc/cooldown checks.
+Transaction ids are not enforced globally unique (a random 32-bit suffix per agent per day, no
+cross-agent collision check at creation), but collision is cryptographically negligible, not
+architecturally prevented, and no owner lookup existed: `queries.js` was keyed by `agentId`, never
+by `transactionId`. Finding the owner needs no directory scan -- `store.readTransaction` computes
+the exact file path directly, so it is one direct read attempt per known agent id, cheap at any
+realistic scale.
+
+| Commit | What |
+|---|---|
+| `f20dcab` | `queries.js`: `findTransactionOwners(transactionId)`, scanning every agent id `discoverAgentIds` finds **on disk** (`agents/` directory), not a caller's own, possibly OAuth-filtered roster -- so an agent whose Google login has lapsed is still found. One direct `store.readTransaction` per candidate; a corrupt or invalid file for an unrelated agent is caught and skipped, same resilience contract as `readAllTransactionsSettled`. Reports every owner found (zero, one, or the vanishingly rare more-than-one), never silently picks one |
+| `d1e3968` | `actionHandler.js`: when an unrecognized sender's subject still parses as a TC verb and exactly one agent owns that transaction id, one notice goes to that agent's real registered `gmailAddress` (loaded separately via `loadAgent`, not reused from the caller's roster), naming the deal's address and the wrong From, saying nothing was changed. The existing wrong-address reply still goes out unchanged, independent of this -- different recipient, different fact, neither makes the other redundant. No write to the deal; this is an identity lookup, not a composition call. A separate cooldown, keyed on `(ownerAgentId, transactionId)` rather than the wrong sender's address, bounds this to roughly one notice per real deal per day regardless of which address an attempt came from, or whether a forger rotates addresses to dodge a per-address cooldown. No owner, or more than one, falls back to today's behaviour with no attempt to disambiguate |
+
+Notice wording (Mo, 2026-10-27):
+```
+Subject: GetKlosed: a request for <address> came from an unrecognized address
+
+A request for <address> came in from <fromEmail>, which isn't the email address your
+GetKlosed account is set up with. Nothing was changed.
+
+If that was you, please send it again from <gmailAddress>. When you resend it, check that
+the From line says <gmailAddress> before you press Send.
+
+If that wasn't you, you don't need to do anything.
+```
+
+Non-TC messages from a wrong account (Track 1, Track 2, CALLED) are unaffected and unchanged, by
+construction: none of the three ever carries a transaction id to look an owner up by. Piece ids
+(`reel-001`, `blog-001`) are a small, non-unique vocabulary every agent's weekly batch reuses, so an
+owner lookup keyed on one would almost always be ambiguous even if built; CALLED's token identifies
+a lead, not a transaction, and the only place lead data lives is each agent's own Google Sheet, which
+would mean a real, authorized Sheets call against a stranger's account from inside an identity check.
+Agreeing with the session 96 recon's own lean: no, there shouldn't be a way to reach the owner in
+either case.
+
+Mutation-tested: in `queries.js`, removed the per-candidate try/catch (caught by the corrupt-file
+test) and stopped the scan at the first match with a `break` (caught by exactly the manufactured-
+collision test, proving the function reports every owner rather than silently picking one). In
+`actionHandler.js`, keyed the new cooldown on the wrong sender's address instead of `(agent,
+transaction)` (caught by exactly the cooldown test, whose second tap deliberately uses a different
+wrong address to prove the key is not address-based) and added a spurious `store.writeTransaction`
+call inside the notice path (caught by the before/after byte-identical snapshot in the owner-found
+test). Dash check clean on every commit.
+
+A new real-disk integration test file (`tests/actionHandler.wrongAccountNotice.integration.test.js`)
+proves the disk-based lookup end to end, including the lapsed-login case (owner on disk, absent from
+`allAgentConfigs`, with a different agent present to make the absence deliberate, not an accident of
+an empty array) -- `content.actionHandler.test.js`'s own mock of `src/transactions/store` makes the
+real, disk-based lookup unsafe to exercise in that file, so it gets one light-touch test only,
+forcing a deterministic `no_owner` result instead.
+
 ## Session 95: deposit_receipt_closing, the daily reminder before (and after) closing
 
 Tests 4221/173 to 4249/173. Branch `session-95`, not merged.
