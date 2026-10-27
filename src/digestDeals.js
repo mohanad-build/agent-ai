@@ -20,24 +20,12 @@
 const { escapeHtml } = require('./plainTextHtml');
 const { buildDoneMailtoHref, buildReceiptMailtoHref } = require('./transactions/tapLinks');
 const { driveFolderUrl, gmailSearchQuery, fellThroughMailtoHref } = require('./transactions/dealLinks');
+const { CONDITION_DISPLAY_OVERRIDES, conditionDisplayName } = require('./transactions/rules/conditions');
 
 // Shared tail for every assistant@ tap's pre-filled body (DONE, RECEIPT):
 // one sentence, no line breaks, telling the agent the tap is already the
 // whole action -- press Send, nothing else to fill in.
 const TAP_BODY_TAIL = " Just press Send. You'll get a confirmation back.";
-
-// The closed vocabulary (rules/conditions.js CONDITION_NAMES) read badly in
-// a sentence as raw ids: 'sale_of_property condition passed...'. Every name
-// but one reads fine with a plain underscore-to-space swap; well_septic
-// does not ('well septic condition...') and is overridden to match the
-// catalog's own label wording ("Well and septic inspection condition...").
-// A condition name added to the closed list later gets the generic
-// underscore-to-space treatment unless it earns its own override here.
-const CONDITION_DISPLAY_OVERRIDES = { well_septic: 'well and septic' };
-
-function conditionDisplayName(condition) {
-  return CONDITION_DISPLAY_OVERRIDES[condition] || condition.replace(/_/g, ' ');
-}
 
 function dayWord(n) {
   return n === 1 ? 'day' : 'days';

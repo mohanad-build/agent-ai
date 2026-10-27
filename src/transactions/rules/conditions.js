@@ -123,8 +123,25 @@ const CONDITION_CLEARING_ITEMS = Object.freeze({
   status_certificate: 'status_certificate_review',
 });
 
+// How a condition name reads in a sentence (session 97: moved here from
+// digestDeals.js, which rendered it, so both the daily brief and any TC
+// reply that names a condition read off the same one map). Raw condition
+// keys read badly as a plain underscore-to-space swap in most cases
+// ('sale_of_property condition...'); every name but one reads fine that
+// way, well_septic does not ('well septic condition...') and is
+// overridden to match the catalog's own label wording ("Well and septic
+// inspection condition..."). A condition name added to CONDITION_NAMES
+// later gets the generic treatment unless it earns its own override here.
+const CONDITION_DISPLAY_OVERRIDES = { well_septic: 'well and septic' };
+
+function conditionDisplayName(condition) {
+  return CONDITION_DISPLAY_OVERRIDES[condition] || condition.replace(/_/g, ' ');
+}
+
 module.exports = {
   CONDITION_ITEMS,
   CONDITION_NAMES,
   CONDITION_CLEARING_ITEMS,
+  CONDITION_DISPLAY_OVERRIDES,
+  conditionDisplayName,
 };

@@ -1,6 +1,9 @@
 'use strict';
 
-const { CONDITION_NAMES, CONDITION_ITEMS, CONDITION_CLEARING_ITEMS } = require('../src/transactions/rules/conditions');
+const {
+  CONDITION_NAMES, CONDITION_ITEMS, CONDITION_CLEARING_ITEMS,
+  CONDITION_DISPLAY_OVERRIDES, conditionDisplayName,
+} = require('../src/transactions/rules/conditions');
 
 describe('CONDITION_NAMES', () => {
   it('is the hand-written closed vocabulary, in order', () => {
@@ -87,5 +90,34 @@ describe('CONDITION_CLEARING_ITEMS', () => {
     Object.values(CONDITION_CLEARING_ITEMS).forEach((itemId) => {
       expect(itemIds).toContain(itemId);
     });
+  });
+});
+
+// Moved here from digestDeals.js (session 97): the daily brief and any TC
+// reply that names a condition now read off this one map and function,
+// instead of digestDeals.js's own copy.
+describe('CONDITION_DISPLAY_OVERRIDES', () => {
+  it('is the hand-written one override', () => {
+    expect(CONDITION_DISPLAY_OVERRIDES).toEqual({ well_septic: 'well and septic' });
+  });
+
+  it('every override key is a member of the closed condition list', () => {
+    Object.keys(CONDITION_DISPLAY_OVERRIDES).forEach((key) => {
+      expect(CONDITION_NAMES).toContain(key);
+    });
+  });
+});
+
+describe('conditionDisplayName', () => {
+  it('well_septic reads the override, "well and septic"', () => {
+    expect(conditionDisplayName('well_septic')).toBe('well and septic');
+  });
+
+  test.each(CONDITION_NAMES)('"%s" has no underscore in its display name', (condition) => {
+    expect(conditionDisplayName(condition)).not.toMatch(/_/);
+  });
+
+  it('a name with no override gets the plain underscore-to-space swap', () => {
+    expect(conditionDisplayName('sale_of_property')).toBe('sale of property');
   });
 });
