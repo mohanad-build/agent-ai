@@ -10,6 +10,15 @@ const proposals = require('./proposals');
 const rules = require('./rules');
 const { ASSISTANT_EMAIL } = require('../assistantAddress');
 
+// Shared tail for every assistant@ tap's pre-filled body (DONE, RECEIPT,
+// UNDO): one sentence, no line breaks, telling the agent the tap is
+// already the whole action -- press Send, nothing else to fill in.
+// Session 97: moved here from digestDeals.js so the daily brief's own
+// tap bodies and actionHandler.js's Undo-link body read off the one
+// string, the same reasoning this file's own header comment already
+// gives for the subject/mailto builders.
+const TAP_BODY_TAIL = " Just press Send. You'll get a confirmation back.";
+
 // Loose claim: decides whether this branch is entered at all. No Re:/Fwd:
 // stripping -- a forwarded/replied subject is not claimed, same as CALLED.
 // txn- directly after the verb is what keeps an ordinary "Done with the
@@ -111,6 +120,7 @@ module.exports = {
   TC_CLAIM_RE,
   parseTcCommand,
   catalogItemLabel,
+  TAP_BODY_TAIL,
   buildDoneSubject,
   buildReceiptSubject,
   buildUndoSubject,

@@ -30,7 +30,7 @@ const { plainTextToHtml, escapeHtml } = require('../plainTextHtml');
 const { completeOne, completeChain, uncompleteRows } = require('../transactions/taps');
 const { ASSISTANT_EMAIL } = require('../assistantAddress');
 const { OPERATOR_CONTACT_EMAIL } = require('../operatorAddress');
-const { TC_CLAIM_RE, parseTcCommand, catalogItemLabel, buildUndoSubject, buildUndoMailtoHref } = require('../transactions/tapLinks');
+const { TC_CLAIM_RE, parseTcCommand, catalogItemLabel, TAP_BODY_TAIL, buildUndoSubject, buildUndoMailtoHref } = require('../transactions/tapLinks');
 
 const ASSISTANT_AGENT_ID   = 'assistant';
 function getTokenPath() { return path.join(getStorageRoot(), 'assistant.json'); }
@@ -596,8 +596,8 @@ function undoPlainTextLine(transactionId, itemIds) {
 // sentence below instead of a false "for undefined".
 function undoLinkHtml(transactionId, itemIds, address) {
   const body = address !== undefined
-    ? `Sending this undoes what you just marked done for ${address}. Just press Send. You'll get a confirmation back.`
-    : "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back.";
+    ? `Sending this undoes what you just marked done for ${address}.${TAP_BODY_TAIL}`
+    : `Sending this undoes what you just marked done.${TAP_BODY_TAIL}`;
   const href = escapeHtml(buildUndoMailtoHref(transactionId, itemIds, body));
   return `<a href="${href}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 }

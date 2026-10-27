@@ -18,14 +18,9 @@
 // whatever T the caller passes in.
 
 const { escapeHtml } = require('./plainTextHtml');
-const { buildDoneMailtoHref, buildReceiptMailtoHref } = require('./transactions/tapLinks');
+const { buildDoneMailtoHref, buildReceiptMailtoHref, TAP_BODY_TAIL } = require('./transactions/tapLinks');
 const { driveFolderUrl, gmailSearchQuery, fellThroughMailtoHref } = require('./transactions/dealLinks');
 const { CONDITION_DISPLAY_OVERRIDES, conditionDisplayName } = require('./transactions/rules/conditions');
-
-// Shared tail for every assistant@ tap's pre-filled body (DONE, RECEIPT):
-// one sentence, no line breaks, telling the agent the tap is already the
-// whole action -- press Send, nothing else to fill in.
-const TAP_BODY_TAIL = " Just press Send. You'll get a confirmation back.";
 
 function dayWord(n) {
   return n === 1 ? 'day' : 'days';

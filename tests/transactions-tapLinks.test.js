@@ -4,6 +4,7 @@ const {
   TC_CLAIM_RE,
   parseTcCommand,
   catalogItemLabel,
+  TAP_BODY_TAIL,
   buildDoneSubject,
   buildReceiptSubject,
   buildUndoSubject,
@@ -210,5 +211,14 @@ describe('catalog-wide round trip (amendment 2)', () => {
     const href = buildUndoMailtoHref(TXN_ID, [itemId]);
     const subject = subjectFromHref(href);
     expect(parseTcCommand(subject)).toEqual({ verb: 'UNDO', transactionId: TXN_ID, itemIds: [itemId] });
+  });
+});
+
+// Moved here from digestDeals.js (session 97): the daily brief's own tap
+// bodies and actionHandler.js's Undo-link body now both read off this one
+// string.
+describe('TAP_BODY_TAIL', () => {
+  it('is the hand-written sentence, with its own leading space', () => {
+    expect(TAP_BODY_TAIL).toBe(" Just press Send. You'll get a confirmation back.");
   });
 });
