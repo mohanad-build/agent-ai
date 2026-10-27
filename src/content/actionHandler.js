@@ -23,6 +23,8 @@ const proposals                   = require('../transactions/proposals');
 const { confirmProposalSet }      = require('../transactions/confirmSet');
 const { markWrongDeal }           = require('../transactions/wrongDeal');
 const { formatRoles }             = require('../transactions/participants');
+const deposit                     = require('../transactions/rules/deposit');
+const { CONDITION_CLEARING_ITEMS, conditionDisplayName } = require('../transactions/rules/conditions');
 const { findTransactionOwners }   = require('../transactions/queries');
 const { loadAgent }               = require('../agentConfig');
 const { loadOperator }            = require('../operatorConfig');
@@ -685,6 +687,78 @@ function buildReceiptReply(outcome, transaction, writeResult, transactionId, rec
   }
 }
 
+// The two "deposit receipt" ids and the two "additional deposit receipt"
+// ids, read directly off the catalog's own chain arrays -- never
+// hand-typed here -- so a future catalog change can't silently drift this
+// check out of sync with what RECEIPT (completeChain) actually completes.
+const MAIN_DEPOSIT_RECEIPT_IDS = [deposit.HOLDING_SIDE_DEPOSIT_ITEMS, deposit.PAYING_SIDE_DEPOSIT_ITEMS]
+  .map((items) => items[items.length - 1].id);
+const ADDITIONAL_DEPOSIT_RECEIPT_IDS = [deposit.HOLDING_SIDE_ADDITIONAL_DEPOSIT_ITEMS, deposit.PAYING_SIDE_ADDITIONAL_DEPOSIT_ITEMS]
+  .map((items) => items[0].id);
+
+// Reverse of CONDITION_CLEARING_ITEMS: itemId -> condition key.
+const CONDITION_BY_CLEARING_ITEM = Object.fromEntries(
+  Object.entries(CONDITION_CLEARING_ITEMS).map(([condition, itemId]) => [itemId, condition])
+);
+
+// Which deposit chain (if any) writeResult.itemIds is undoing. Every
+// undone id must belong to the SAME one chain, not just any id matching
+// somewhere in the set: a RECEIPT-tap-driven Undo's own itemIds is always
+// a clean 1-to-3-id subset of exactly one chain (completeChain never
+// touches more than one), so the normal case always passes this; a
+// hand-typed UNDO mixing a receipt id with something unrelated would, under
+// a looser "any id present" rule, silently drop that unrelated item from
+// the headline -- this rejects that case instead and falls through to
+// today's generic wording, which never drops anything.
+function depositChainKindForUndo(itemIds) {
+  const receiptId = [...MAIN_DEPOSIT_RECEIPT_IDS, ...ADDITIONAL_DEPOSIT_RECEIPT_IDS].find((id) => itemIds.includes(id));
+  if (receiptId === undefined) {
+    return null;
+  }
+  const chain = deposit.chainEndingAt(receiptId);
+  if (!itemIds.every((id) => chain.includes(id))) {
+    return null;
+  }
+  return MAIN_DEPOSIT_RECEIPT_IDS.includes(receiptId) ? 'deposit_receipt' : 'additional_deposit_receipt';
+}
+
+// Which single condition (if any) writeResult.itemIds is undoing. Every
+// undone id must map to a condition-clearing item, and every one of them
+// must be the SAME condition: conditions are undone one at a time through
+// every real tap flow, and a hand-typed UNDO naming two different
+// conditions (or mixing a condition with something else) has no single
+// short sentence that honestly summarizes it, so it falls through too.
+function conditionForUndo(itemIds) {
+  const conditions = itemIds.map((id) => CONDITION_BY_CLEARING_ITEM[id]);
+  if (conditions.some((c) => c === undefined)) {
+    return null;
+  }
+  const distinct = [...new Set(conditions)];
+  return distinct.length === 1 ? distinct[0] : null;
+}
+
+// Mirrors what the agent actually tapped, derived from the catalog's own
+// ids (never guessed from id string shape). Anything that doesn't cleanly
+// match one recognized shape falls through to the original, generic
+// catalog-label sentence, which never drops anything no matter what mix
+// of ids it is given.
+function undoHeadline(transaction, writeResult) {
+  const address = transaction.address;
+  const chainKind = depositChainKindForUndo(writeResult.itemIds);
+  if (chainKind === 'deposit_receipt') {
+    return `Done. The deposit receipt for ${address} is no longer marked as received.`;
+  }
+  if (chainKind === 'additional_deposit_receipt') {
+    return `Done. The additional deposit receipt for ${address} is no longer marked as received.`;
+  }
+  const condition = conditionForUndo(writeResult.itemIds);
+  if (condition !== null) {
+    return `Done. The ${conditionDisplayName(condition)} condition for ${address} is back on your list.`;
+  }
+  const undoneLabels = writeResult.itemIds.map((id) => catalogItemLabel(transaction.type, id)).join(', ');
+  return `Done. Back on the checklist for ${address}: ${undoneLabels}.`;
+}
+
 function buildUndoReply(outcome, transaction, writeResult) {
   const address = transaction.address;
   switch (outcome) {
@@ -695,8 +769,7 @@ function buildUndoReply(outcome, transaction, writeResult) {
     case 'nothing_to_undo':
       return { body: `Nothing was changed. None of those were marked done for ${address}.`, noted: false };
     case 'uncompleted': {
-      const undoneLabels = writeResult.itemIds.map((id) => catalogItemLabel(transaction.type, id)).join(', ');
-      let body = `Done. Back on the checklist for ${address}: ${undoneLabels}.`;
+      let body = undoHeadline(transaction, writeResult);
       writeResult.skipped.forEach((id) => {
         body += ` ${catalogItemLabel(transaction.type, id)} wasn't marked done, so nothing changed there.`;
       });

@@ -1462,6 +1462,124 @@ describe('runActionHandler', () => {
       );
     });
 
+    // ── UNDO wording, session 97 ─────────────────────────────────────────────
+
+    test('UNDO uncompleted, the full deposit chain (all three ids): mirrors the deposit receipt, not the catalog labels', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: PAYING_CHAIN, skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Done. The deposit receipt for ${ADDRESS} is no longer marked as received.` })
+      );
+    });
+
+    test('UNDO uncompleted, the deposit chain missing its first step (receipt plus one earlier step): same sentence, not every step is required', async () => {
+      const partialChain = [PAYING_CHAIN[1], PAYING_CHAIN[2]];
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: partialChain, skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${partialChain.join(' ')}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Done. The deposit receipt for ${ADDRESS} is no longer marked as received.` })
+      );
+    });
+
+    test('UNDO uncompleted, an additional deposit receipt id alone: the additional-deposit wording', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: ['additional_deposit_receipt_received'], skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} additional_deposit_receipt_received` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Done. The additional deposit receipt for ${ADDRESS} is no longer marked as received.` })
+      );
+    });
+
+    test('UNDO uncompleted, a condition-clearing item alone: names the condition, lowercase, no underscore', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: ['financing_condition'], skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} financing_condition` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Done. The financing condition for ${ADDRESS} is back on your list.` })
+      );
+    });
+
+    test('UNDO uncompleted, well_septic: the display override, "well and septic", not the raw key', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: ['well_septic_condition'], skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} well_septic_condition` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Done. The well and septic condition for ${ADDRESS} is back on your list.` })
+      );
+    });
+
+    test('UNDO uncompleted, a deposit receipt mixed with an unrelated condition id: falls back to the generic catalog-label sentence, nothing dropped', async () => {
+      const mixed = [PAYING_CHAIN[2], 'financing_condition'];
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: mixed, skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${mixed.join(' ')}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const financingLabel = 'Financing condition cleared by waiver, notice of fulfilment, or amendment';
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: `Done. Back on the checklist for ${ADDRESS}: ${PAYING_CHAIN_LABELS[2]}, ${financingLabel}.` })
+      );
+    });
+
+    test('UNDO uncompleted, deposit receipt wording plus a skipped row: the skipped sentence still appends after the new headline', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: [PAYING_CHAIN[2]], skipped: [PAYING_CHAIN[0]] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${PAYING_CHAIN[2]} ${PAYING_CHAIN[0]}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const expectedBody = `Done. The deposit receipt for ${ADDRESS} is no longer marked as received. ` +
+        `${PAYING_CHAIN_LABELS[0]} wasn't marked done, so nothing changed there.`;
+      expect(gmail.sendNewEmail).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ to: AGENT_EMAIL, body: expectedBody })
+      );
+    });
+
+    // buildUndoReply never sets an html field (no Undo-of-the-Undo link on
+    // its own reply), so sendConfirmation falls back to its default
+    // derivation (plainTextToHtml(body)) -- same pattern the pre-existing
+    // "no skipped sentence, no Undo link" test above already pins for the
+    // generic wording; this confirms the new deposit-receipt wording keeps
+    // that guarantee too.
+    test('UNDO uncompleted, deposit receipt wording: html falls back to the plain body, no Undo-of-the-Undo link', async () => {
+      uncompleteRows.mockReturnValue({ outcome: 'uncompleted', itemIds: PAYING_CHAIN, skipped: [] });
+      const msg = makeMsg({ subject: `UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}` });
+      gmail.fetchUnreadInboxEmails.mockResolvedValue([msg]);
+
+      await runActionHandler([AGENT_CONFIG]);
+
+      const call = gmail.sendNewEmail.mock.calls.find((c) => c[1].to === AGENT_EMAIL);
+      const expectedBody = `Done. The deposit receipt for ${ADDRESS} is no longer marked as received.`;
+      expect(call[1].body).toBe(expectedBody);
+      expect(call[1].html).toBe(expectedBody);
+      expect(call[1].html).not.toContain('<a href');
+    });
+
     // ── write-outcome fallback ───────────────────────────────────────────────
 
     test('DONE completed but describe throws: fallback text carries the Undo line and link, listing writeResult.itemIds, note sent', async () => {
