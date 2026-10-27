@@ -666,6 +666,13 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
   evidence: its failure block was lost to a rule 12 process error (rerun before capture) rather than
   captured and still unexplained, so it confirms the area, not a cause. Next step on any future
   occurrence: the captured failure block, per CLAUDE.md rule 12's now-structural `tee` capture.
+  Session 97 saw a different symptom in the same hypothesis space: one full-suite run logged Jest's
+  "A worker process has failed to exit gracefully and has been force exited... Active timers can
+  also cause this" warning, with every test still passing (174/174 suites, 4281/4281 tests) --
+  `/tmp/jest-20261027-191827.log`. Not a red test, so it is not itself an instance of the flake
+  above, but it is new evidence for the open-handle/leaked-timer hypothesis session 90's recon
+  raised and could not confirm. Next occurrence: run the suite once more immediately with
+  `--detectOpenHandles` and save that output too, alongside the triggering run's own `tee` log.
 - List filtered emails inline in the brief when there are only a few (Session 87 recon, item 5).
   Needs a capture design first: `dailyNoiseFiltered`/`dailyNoiseArchived` (`agentState.js`) are bare
   incrementing counters, no sender, subject or lead identity stored alongside them, so there is
