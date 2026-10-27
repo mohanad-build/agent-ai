@@ -219,6 +219,6 @@ describe('catalog-wide round trip (amendment 2)', () => {
 // string.
 describe('TAP_BODY_TAIL', () => {
   it('is the hand-written sentence, with its own leading space', () => {
-    expect(TAP_BODY_TAIL).toBe(" Just press Send. You'll get a confirmation back.");
+    expect(TAP_BODY_TAIL).toBe(" Just press Send. You'll get a confirmation back within a few minutes.");
   });
 });

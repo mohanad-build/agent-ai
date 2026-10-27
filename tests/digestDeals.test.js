@@ -35,7 +35,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + "Financing condition passed 4 days ago, not marked waived or fulfilled.\n"
       + "If it wasn't waived in time, the deal may have ended. Check today.\n"
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20financing_condition'
-      + "&body=Sending%20this%20confirms%20the%20financing%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20financing%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ It fell through: mailto:mohanad@getklosed.ca?subject=12%20Main%20St%20fell%20through'
       + '&body=Deal%3A%20txn-20261001-aaaaaaaa%0A%0AAnything%20Mo%20should%20know%3A%20\n'
       + '→ Search your inbox for: "12 main"\n'
@@ -77,7 +77,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'Inspection condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition'
-      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
@@ -93,7 +93,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'Inspection condition is due today.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition'
-      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
@@ -114,7 +114,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'No deposit receipt yet, 7 days after acceptance.\n'
       + '→ I have the deposit receipt: mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"'
     );
   });
@@ -133,7 +133,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'No deposit receipt yet. Closing is in 5 days.\n'
       + '→ I have the deposit receipt: mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"'
     );
   });
@@ -211,7 +211,7 @@ describe('renderDealsPlain: every kind (one alert, one deal block)', () => {
       + '12 Main St\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ I have the additional deposit receipt: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
@@ -249,10 +249,10 @@ describe('renderDealsPlain: grouping by deal', () => {
       + '12 Main St\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ I have the additional deposit receipt: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + 'Financing condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20financing_condition'
-      + "&body=Sending%20this%20confirms%20the%20financing%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20financing%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
@@ -288,17 +288,17 @@ describe('renderDealsPlain: grouping by deal', () => {
       + "Financing condition passed yesterday, not marked waived or fulfilled.\n"
       + "If it wasn't waived in time, the deal may have ended. Check today.\n"
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-x%20financing_condition'
-      + "&body=Sending%20this%20confirms%20the%20financing%20condition%20for%209%20X%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20financing%20condition%20for%209%20X%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ It fell through: mailto:mohanad@getklosed.ca?subject=9%20X%20St%20fell%20through'
       + '&body=Deal%3A%20txn-x%0A%0AAnything%20Mo%20should%20know%3A%20\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ I have the additional deposit receipt: mailto:assistant@getklosed.ca?subject=DONE%20txn-x%20additional_deposit_receipt_issued'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%209%20X%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%209%20X%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "9 x"\n\n'
       + '2 Y St\n'
       + 'Inspection condition is due tomorrow.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-y%20inspection_condition'
-      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%202%20Y%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%202%20Y%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "2 y"'
     );
   });
@@ -357,7 +357,7 @@ describe('renderDealsPlain: unit', () => {
       + '19 Wax Myrtle Way, unit 35\n'
       + 'Additional deposit is 2 days overdue.\n'
       + '→ I have the additional deposit receipt: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2019%20Wax%20Myrtle%20Way.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2019%20Wax%20Myrtle%20Way.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "19 wax myrtle"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-1'
     );
@@ -423,7 +423,7 @@ describe('renderDealsPlain: quiet line and unreadable', () => {
       + '12 Main St\n'
       + 'Additional deposit is 1 day overdue.\n'
       + '→ I have the additional deposit receipt: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"\n\n'
       + "One of your deal files couldn't be read this morning. Mo has been told."
     );
@@ -459,7 +459,7 @@ describe('renderDealsHtml', () => {
     const html = renderDealsHtml(collected([alert]), CTX);
     expect(html).toContain(
       '<div style="margin-top:8px;"><a href="mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20additional_deposit_receipt_issued'
-      + "&amp;body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You&#39;ll%20get%20a%20confirmation%20back.\" "
+      + "&amp;body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You&#39;ll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\" "
       + 'style="display:inline-block;padding:12px 20px;background:#1a1a1a;color:#ffffff;border-radius:6px;'
       + 'font-weight:600;text-decoration:none;font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'
       + 'font-size:16px;">I have the additional deposit receipt</a></div>'
@@ -479,7 +479,7 @@ describe('renderDealsHtml', () => {
     const html = renderDealsHtml(collected([alert]), CTX);
     expect(html).toContain(
       '<div style="margin-top:8px;"><a href="mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received'
-      + "&amp;body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You&#39;ll%20get%20a%20confirmation%20back.\" "
+      + "&amp;body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You&#39;ll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\" "
       + 'style="display:inline-block;padding:12px 20px;background:#1a1a1a;color:#ffffff;border-radius:6px;'
       + 'font-weight:600;text-decoration:none;font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'
       + 'font-size:16px;">I have the deposit receipt</a></div>'
@@ -572,20 +572,20 @@ describe('sample fixture: every kind, three deals (two of them two-alert blocks)
       + 'Status certificate condition passed 4 days ago, not marked waived or fulfilled.\n'
       + "If it wasn't waived in time, the deal may have ended. Check today.\n"
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-bbbbbbbb%20status_certificate_review'
-      + "&body=Sending%20this%20confirms%20the%20status%20certificate%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20status%20certificate%20condition%20for%2012%20Main%20St%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ It fell through: mailto:mohanad@getklosed.ca?subject=12%20Main%20St%20fell%20through'
       + '&body=Deal%3A%20txn-20261001-bbbbbbbb%0A%0AAnything%20Mo%20should%20know%3A%20\n'
       + 'Additional deposit is 2 days overdue.\n'
       + '→ I have the additional deposit receipt: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-bbbbbbbb%20additional_deposit_receipt_issued'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20additional%20deposit%20receipt%20for%2012%20Main%20St.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "12 main"\n\n'
       + '19 Wax Myrtle Way, unit 35\n'
       + 'No deposit receipt yet, 7 days after acceptance.\n'
       + '→ I have the deposit receipt: mailto:assistant@getklosed.ca?subject=RECEIPT%20txn-20261001-aaaaaaaa%20brokerage_deposit_receipt_received'
-      + "&body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2019%20Wax%20Myrtle%20Way.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20you%20have%20the%20deposit%20receipt%20for%2019%20Wax%20Myrtle%20Way.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + 'Inspection condition is due today.\n'
       + '→ Waived or fulfilled: mailto:assistant@getklosed.ca?subject=DONE%20txn-20261001-aaaaaaaa%20inspection_condition'
-      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%2019%20Wax%20Myrtle%20Way%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back.\n"
+      + "&body=Sending%20this%20confirms%20the%20inspection%20condition%20for%2019%20Wax%20Myrtle%20Way%20was%20waived%20or%20fulfilled.%20Just%20press%20Send.%20You'll%20get%20a%20confirmation%20back%20within%20a%20few%20minutes.\n"
       + '→ Search your inbox for: "19 wax myrtle"\n'
       + '→ Drive folder: https://drive.google.com/drive/folders/folder-A\n\n'
       + '34 Oak Ave\n'

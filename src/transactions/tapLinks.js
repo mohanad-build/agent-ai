@@ -16,8 +16,10 @@ const { ASSISTANT_EMAIL } = require('../assistantAddress');
 // Session 97: moved here from digestDeals.js so the daily brief's own
 // tap bodies and actionHandler.js's Undo-link body read off the one
 // string, the same reasoning this file's own header comment already
-// gives for the subject/mailto builders.
-const TAP_BODY_TAIL = " Just press Send. You'll get a confirmation back.";
+// gives for the subject/mailto builders. "within a few minutes" added
+// (live Undo test, 2026-10-27): the reply arrives on the next 5-minute
+// cycle, not instantly, and an agent waiting with no hint may tap twice.
+const TAP_BODY_TAIL = " Just press Send. You'll get a confirmation back within a few minutes.";
 
 // Loose claim: decides whether this branch is entered at all. No Re:/Fwd:
 // stripping -- a forwarded/replied subject is not claimed, same as CALLED.

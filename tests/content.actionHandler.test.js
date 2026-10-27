@@ -1249,7 +1249,7 @@ describe('runActionHandler', () => {
       await runActionHandler([AGENT_CONFIG]);
 
       const expectedBody = `Done. Marked complete for ${ADDRESS}: ${DONE_ITEM_LABEL}.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${DONE_ITEM_ID}`;
-      const undoBody = `Sending this undoes what you just marked done for ${ADDRESS}. Just press Send. You'll get a confirmation back.`;
+      const undoBody = `Sending this undoes what you just marked done for ${ADDRESS}. Just press Send. You'll get a confirmation back within a few minutes.`;
       const expectedHtml = `Done. Marked complete for ${ADDRESS}: ${DONE_ITEM_LABEL}.<br><br>` +
         `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}&amp;body=${encodeURIComponent(undoBody).replace(/'/g, '&#39;')}" style="color:#666666;">Tapped by mistake? Undo</a>`;
 
@@ -1367,7 +1367,7 @@ describe('runActionHandler', () => {
 
       await runActionHandler([AGENT_CONFIG]);
 
-      const undoBody = `Sending this undoes what you just marked done for ${ADDRESS}. Just press Send. You'll get a confirmation back.`;
+      const undoBody = `Sending this undoes what you just marked done for ${ADDRESS}. Just press Send. You'll get a confirmation back within a few minutes.`;
       const expectedBody = `Done. Deposit receipt recorded for ${ADDRESS}.\n\n` +
         `Tapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${freshIds.join(' ')}`;
       const expectedHtml = `Done. Deposit receipt recorded for ${ADDRESS}.<br><br>` +
@@ -1472,7 +1472,7 @@ describe('runActionHandler', () => {
 
       await runActionHandler([AGENT_CONFIG]);
 
-      const undoBody = "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back.";
+      const undoBody = "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back within a few minutes.";
       const expectedBody = `Done. The item was marked complete.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${DONE_ITEM_ID}`;
       const expectedHtml = `Done. The item was marked complete.<br><br>` +
         `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${DONE_ITEM_ID}`)}&amp;body=${encodeURIComponent(undoBody).replace(/'/g, '&#39;')}" style="color:#666666;">Tapped by mistake? Undo</a>`;
@@ -1492,7 +1492,7 @@ describe('runActionHandler', () => {
 
       await runActionHandler([AGENT_CONFIG]);
 
-      const undoBody = "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back.";
+      const undoBody = "Sending this undoes what you just marked done. Just press Send. You'll get a confirmation back within a few minutes.";
       const expectedBody = `Done. The deposit was marked complete.\n\nTapped by mistake? Email assistant@getklosed.ca with the subject: UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`;
       const expectedHtml = `Done. The deposit was marked complete.<br><br>` +
         `<a href="mailto:assistant@getklosed.ca?subject=${encodeURIComponent(`UNDO ${TXN_ID} ${PAYING_CHAIN.join(' ')}`)}&amp;body=${encodeURIComponent(undoBody).replace(/'/g, '&#39;')}" style="color:#666666;">Tapped by mistake? Undo</a>`;
