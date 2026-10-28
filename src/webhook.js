@@ -36,17 +36,6 @@ setInterval(() => {
   }
 }, 60 * 1000).unref();
 
-// Returns true if the host is safe to allow signature bypass.
-function isLocalOrDev(host) {
-  if (!host) return false;
-  const h = host.toLowerCase();
-  return h === 'localhost' ||
-    h.startsWith('localhost:') ||
-    h === '127.0.0.1' ||
-    h.startsWith('127.0.0.1:') ||
-    h.includes('ngrok');
-}
-
 // Parses the SMS body for [Qn] tokens. Liberal match: Q followed by optional
 // whitespace/dash then digits, case-insensitive.
 // Returns { type: 'none'|'single'|'multi', token: string|null }
@@ -542,17 +531,13 @@ function createApp() {
       : req.protocol + '://' + req.get('host') + req.originalUrl;
     const params = req.body;
 
-    // Signature verification (bypassable for localhost/ngrok in dev only).
-    const skipVerification =
-      process.env.WEBHOOK_SKIP_SIGNATURE_CHECK === 'true' && isLocalOrDev(host);
-
-    if (!skipVerification) {
-      const authToken = process.env.TWILIO_AUTH_TOKEN;
-      const valid = twilio.validateRequest(authToken, signature, url, params);
-      if (!valid) {
-        res.status(403).send('Forbidden');
-        return;
-      }
+    // Signature verification. Always runs; no environment switch.
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const valid = twilio.validateRequest(authToken, signature, url, params);
+    if (!valid) {
+      console.warn('webhook: signature validation failed, host=' + host + ' from=' + (params.From || 'unknown'));
+      res.status(403).send('Forbidden');
+      return;
     }
 
     // Idempotency check.
@@ -618,12 +603,6 @@ function createApp() {
 
 if (require.main === module) {
   const port = process.env.WEBHOOK_PORT || 3000;
-
-  if (process.env.WEBHOOK_SKIP_SIGNATURE_CHECK === 'true') {
-    console.log(
-      'WARNING: signature verification bypass enabled. DEV MODE ONLY. Do not run this way in production.'
-    );
-  }
 
   const app = createApp();
   app.listen(port, () => {
