@@ -51,6 +51,45 @@ Where a spec and the code disagree, the code wins. These labels come from a sess
 - `LEAD_IMPORT_SPEC.md` and `OUTBOUND_TRACKING_SPEC.md`: both say "not built", but both are built (`src/leadImport.js`, `src/outboundTracking.js`). Design-era. Background only.
 - `CONTENT_ENGINE_PROVISIONING_SPEC.md`: says "not built"; not verified since. Check the code before relying on it.
 
+## Session 98: WEBHOOK_SKIP_SIGNATURE_CHECK removal
+
+Tests 4281/174 to 4285/174. Branch `session-98`, stacked on `session-97`, not merged. DO NOT MERGE:
+all three merge after Friday 2026-10-30's live check of session 95's deposit_receipt_closing
+reminder.
+
+Removed the dev-only Twilio signature bypass entirely, closing TC_SPEC 7.49.5 and the Parked item
+below. `src/webhook.js`: deleted `isLocalOrDev` and the `WEBHOOK_SKIP_SIGNATURE_CHECK === 'true'`
+check that gated it (both the per-request bypass and the `require.main === module` startup
+warning); `twilio.validateRequest` now runs unconditionally on every `/sms-incoming` request, no
+environment switch of any kind. Removed `WEBHOOK_SKIP_SIGNATURE_CHECK=false` from `.env.example`.
+`DEPLOY.md` needed no change -- it never listed the variable.
+
+A rejected request was previously a silent 403 (invisible in Railway logs, a past bug). Added one
+`console.warn('webhook: signature validation failed, host=... from=...')` before the 403 response,
+no message body logged.
+
+`tests/webhook.smsIncoming.signature.test.js`: deleted the test that proved the bypass worked.
+Added five tests using `jest.requireActual('twilio')` for both signing
+(`getExpectedTwilioSignature`) and validating, against a fixed test auth token -- no hand-written
+HMAC: a correctly signed request is accepted, including with a `localhost` or `*ngrok*` Host header
+(the old escape hatch, now irrelevant since there is nothing left to key off the host); a request
+signed with the wrong token gets a 403 and logs it; a request with no signature header gets a 403
+and logs it.
+
+`scripts/test-webhook.js` needed no change -- it calls `handleAgentReply` directly, bypassing
+Express, so it never read this variable.
+
+Mutation-tested: forced `const valid = true || twilio.validateRequest(...)`. Five tests went red as
+predicted (the existing failed-validation-403 test, the new wrong-token and no-signature tests) plus
+two extra reds explained by the short circuit skipping the call to `validateRequest` entirely, not
+just its return value: the `PUBLIC_APP_URL` url-construction tests assert
+`toHaveBeenCalledTimes(1)`, which saw zero calls. Restored, grep-confirmed clean, all 4285 tests
+green again. Dash check clean on every change.
+
+Live check (deploy, delete the Railway variable, text the GetKlosed number from mo-test's phone
+with a no-token message): not yet run. Scheduled for Friday 2026-10-30 alongside the other two
+stacked sessions' live checks, before any of the three merge.
+
 ## Session 97: tap copy fixes
 
 Tests 4261/174 to 4281/174. Branch `session-97`, stacked on `session-96`, not merged. DO NOT MERGE:
@@ -639,11 +678,6 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 
 ## Parked
 
-- `WEBHOOK_SKIP_SIGNATURE_CHECK` is set in production with value `false` (seen session 91). Not
-  exposed today: `src/webhook.js:547` and `:622` both check `=== 'true'`, so an absent variable
-  behaves exactly like the current `false`, confirmed by reading the code, not assumed. Remove both
-  the variable and the two read sites before the founding agent goes live, so there is no dev-only
-  bypass left in the production code path at all.
 - `scripts/test-twilio.js`'s unguarded `toLocaleTimeString()` (session 91 recon): dev-only, never
   runs unattended. Under Node 22's ICU, U+202F before AM/PM is outside the GSM-7 repertoire, so that
   one manual test SMS would be pushed to UCS-2 encoding (more expensive, possibly an extra segment).
@@ -768,7 +802,8 @@ Not on the shortest path: new product scope, the small-business side idea, Phase
 
 Carried from earlier sessions (details in `docs/history/PROJECT_STATE_to_session_80.md`, section 7
 and the session 80 board): 7.58.1 to 7.58.14, 7.57.5 to 7.57.12, 7.56.x, 7.54.x, the `listingId`
-adoption trap, `WEBHOOK_SKIP_SIGNATURE_CHECK` removal, 7.49.4.
+adoption trap, 7.49.4. TC_SPEC 7.49.5 (`WEBHOOK_SKIP_SIGNATURE_CHECK` still in production) resolved
+session 98: variable and bypass removed from code.
 
 ## How we work
 
